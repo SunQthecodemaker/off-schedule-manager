@@ -85,6 +85,13 @@ function renderManagementContent() {
     switch (activeTab) {
         case 'leaveList':
             container.innerHTML = getLeaveListHTML();
+            // 달력 보기 버튼 이벤트 리스너
+            setTimeout(() => {
+                const toggleBtn = _('#toggle-leave-view-btn');
+                if (toggleBtn) {
+                    toggleBtn.addEventListener('click', window.toggleLeaveView);
+                }
+            }, 0);
             break;
         case 'schedule':
             renderScheduleManagement(container);

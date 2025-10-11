@@ -40,7 +40,7 @@ export async function renderEmployeePortal() {
     const leaveDetails = getLeaveDetails(user);
 
     portal.innerHTML = `
-        <div class="max-w-6xl mx-auto">
+        <div class="max-w-full mx-auto">
             <div class="flex justify-between items-center mb-6">
                 <h1 class="text-3xl font-bold">직원 포털</h1>
                 <div class="text-right">
@@ -65,12 +65,16 @@ export async function renderEmployeePortal() {
             </div>
 
             <!-- 탭 버튼 -->
-            <div class="flex border-b mb-4">
-                <button id="tab-leave-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-blue-600 text-blue-600">연차 신청</button>
-                <button id="tab-docs-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 relative">
+            <div class="flex border-b mb-4 overflow-x-auto">
+                <button id="tab-leave-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-blue-600 text-blue-600 whitespace-nowrap">연차 신청</button>
+                <button id="tab-docs-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 relative whitespace-nowrap">
                     서류 제출
                     <span id="doc-tab-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">0</span>
                 </button>
+                ${user.isManager ? `
+                <button id="tab-team-leave-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">팀 연차 관리</button>
+                <button id="tab-team-schedule-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">팀 스케줄</button>
+                ` : ''}
             </div>
 
             <!-- 연차 신청 탭 -->
@@ -97,6 +101,18 @@ export async function renderEmployeePortal() {
                     <div id="submitted-docs-list"></div>
                 </div>
             </div>
+
+            <!-- 팀 연차 관리 탭 (매니저 전용) -->
+            ${user.isManager ? `
+            <div id="employee-team-leave-tab" class="tab-content hidden">
+                <div id="manager-leave-list"></div>
+            </div>
+
+            <!-- 팀 스케줄 탭 (매니저 전용) -->
+            <div id="employee-team-schedule-tab" class="tab-content hidden">
+                <div id="manager-schedule-container"></div>
+            </div>
+            ` : ''}
         </div>
     `;
 
@@ -107,6 +123,11 @@ export async function renderEmployeePortal() {
 
     _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
+    
+    if (user.isManager) {
+        _('#tab-team-leave-btn')?.addEventListener('click', () => switchEmployeeTab('team-leave'));
+        _('#tab-team-schedule-btn')?.addEventListener('click', () => switchEmployeeTab('team-schedule'));
+    }
 
     await loadEmployeeData();
 }
@@ -114,26 +135,33 @@ export async function renderEmployeePortal() {
 function switchEmployeeTab(tab) {
     state.employee.activeTab = tab;
     
-    const leaveBtn = _('#tab-leave-btn');
-    const docsBtn = _('#tab-docs-btn');
-    const leaveTab = _('#employee-leave-tab');
-    const docsTab = _('#employee-docs-tab');
+    const tabs = {
+        leave: { btn: _('#tab-leave-btn'), content: _('#employee-leave-tab') },
+        docs: { btn: _('#tab-docs-btn'), content: _('#employee-docs-tab') },
+        'team-leave': { btn: _('#tab-team-leave-btn'), content: _('#employee-team-leave-tab') },
+        'team-schedule': { btn: _('#tab-team-schedule-btn'), content: _('#employee-team-schedule-tab') }
+    };
     
-    if (tab === 'leave') {
-        leaveBtn.classList.add('border-blue-600', 'text-blue-600');
-        leaveBtn.classList.remove('border-transparent', 'text-gray-500');
-        docsBtn.classList.remove('border-blue-600', 'text-blue-600');
-        docsBtn.classList.add('border-transparent', 'text-gray-500');
-        leaveTab.classList.remove('hidden');
-        docsTab.classList.add('hidden');
-    } else {
-        docsBtn.classList.add('border-blue-600', 'text-blue-600');
-        docsBtn.classList.remove('border-transparent', 'text-gray-500');
-        leaveBtn.classList.remove('border-blue-600', 'text-blue-600');
-        leaveBtn.classList.add('border-transparent', 'text-gray-500');
-        docsTab.classList.remove('hidden');
-        leaveTab.classList.add('hidden');
+    // 모든 탭 버튼과 컨텐츠 초기화
+    Object.values(tabs).forEach(({ btn, content }) => {
+        if (btn) {
+            btn.classList.remove('border-blue-600', 'text-blue-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        }
+        if (content) content.classList.add('hidden');
+    });
+    
+    // 선택된 탭 활성화
+    const selected = tabs[tab];
+    if (selected?.btn && selected?.content) {
+        selected.btn.classList.add('border-blue-600', 'text-blue-600');
+        selected.btn.classList.remove('border-transparent', 'text-gray-500');
+        selected.content.classList.remove('hidden');
     }
+    
+    // 팀 탭 선택 시 관리자 화면 로드
+    if (tab === 'team-leave') loadManagerLeaveList();
+    if (tab === 'team-schedule') loadManagerSchedule();
 }
 
 async function loadEmployeeData() {
@@ -921,4 +949,69 @@ export async function handleSubmitLeaveRequest() {
         console.error('연차 신청 오류:', error);
         alert('연차 신청 중 오류가 발생했습니다: ' + error.message);
     }
+}
+// =========================================================================================
+// 팀 연차 관리 (매니저 전용)
+// =========================================================================================
+
+
+// =========================================================================================
+// 매니저용 연차 관리 (관리자 화면 재사용)
+// =========================================================================================
+
+async function loadManagerLeaveList() {
+    const container = _('#manager-leave-list');
+    if (!container) return;
+    
+    // management.js의 getLeaveListHTML 임포트
+    const { getLeaveListHTML } = await import('./management.js');
+    
+    // 전체 직원 조회
+    const { data: employees } = await db.from('employees')
+        .select('*, departments(*)')
+        .order('id');
+    
+    // 전체 연차 신청 조회
+    const { data: requests } = await db.from('leave_requests')
+        .select('*')
+        .order('created_at', { ascending: false });
+    
+    // state에 저장
+    state.management.leaveRequests = requests || [];
+    state.management.employees = employees || [];
+    
+    // 관리자 화면 HTML 렌더링
+    container.innerHTML = getLeaveListHTML();
+}
+
+// =========================================================================================
+// 매니저용 스케줄 관리 (관리자 화면 재사용)
+// =========================================================================================
+
+async function loadManagerSchedule() {
+    const container = _('#manager-schedule-container');
+    if (!container) return;
+    
+    // 전체 직원 조회
+    const { data: employees } = await db.from('employees')
+        .select('*, departments(*)')
+        .order('id');
+    
+    // 전체 부서 조회
+    const { data: departments } = await db.from('departments')
+        .select('*')
+        .order('id');
+    
+    // state.management에 데이터 설정
+    if (!state.management) {
+        state.management = {};
+    }
+    state.management.employees = employees || [];
+    state.management.departments = departments || [];
+    
+    // schedule.js의 renderScheduleManagement 임포트
+    const { renderScheduleManagement } = await import('./schedule.js');
+    
+    // 관리자 화면 렌더링
+    renderScheduleManagement(container);
 }

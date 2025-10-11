@@ -82,6 +82,8 @@ async function handleUpdateEmployee(id) {
     const leave_renewal_date = _(`#renewal-${id}`).value || null;
     const leave_adjustment = parseInt(_(`#adj-${id}`).value);
     const adjustment_notes = _(`#notes-${id}`).value;
+    const managerCheckbox = _(`#manager-${id}`);
+    const isManager = managerCheckbox ? managerCheckbox.checked : false;
 
     const { error } = await db.from('employees').update({
         name,
@@ -90,7 +92,8 @@ async function handleUpdateEmployee(id) {
         department_id,
         leave_renewal_date,
         leave_adjustment,
-        adjustment_notes
+        adjustment_notes,
+        isManager
     }).eq('id', id);
 
     if (error) {
@@ -231,19 +234,20 @@ export function getManagementHTML() {
 
     const headers = [
         { name: '<input type="checkbox" id="selectAllCheckbox" class="cursor-pointer">', width: '3%' },
-        { name: '이름', width: '8%' }, 
-        { name: '부서', width: '8%' }, 
-        { name: '입사일', width: '8%' }, 
-        { name: '이메일', width: '10%' }, 
-        { name: '비밀번호', width: '6%' }, 
-        { name: '연차 기준일', width: '8%' }, 
-        { name: '다음 갱신일', width: '8%' }, 
-        { name: '법정', width: '4%' }, 
-        { name: '조정', width: '8%' }, 
-        { name: '비고', width: '8%' }, 
-        { name: '확정', width: '4%' }, 
-        { name: '사용', width: '4%' }, 
-        { name: '잔여', width: '4%' }, 
+        { name: '이름', width: '7%' }, 
+        { name: '부서', width: '7%' }, 
+        { name: '입사일', width: '7%' }, 
+        { name: '이메일', width: '9%' }, 
+        { name: '비밀번호', width: '5%' }, 
+        { name: '매니저', width: '4%' }, 
+        { name: '연차 기준일', width: '7%' }, 
+        { name: '다음 갱신일', width: '7%' }, 
+        { name: '법정', width: '3%' }, 
+        { name: '조정', width: '7%' }, 
+        { name: '비고', width: '7%' }, 
+        { name: '확정', width: '3%' }, 
+        { name: '사용', width: '3%' }, 
+        { name: '잔여', width: '3%' }, 
         { name: '관리', width: '10%' }
     ];
     const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
@@ -257,8 +261,7 @@ export function getManagementHTML() {
         const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
         const managementButtons = `
             <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateEmployee(${emp.id})">저장</button> 
-            <button class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1" onclick="handleDeleteEmployee(${emp.id})">삭제</button> 
-            <button class="text-xs bg-yellow-600 text-white px-2 py-1 rounded mt-1 w-full" onclick="openDocumentRequestModal(${emp.id}, '${emp.name}')">서류 요청</button>
+            <button class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1" onclick="handleDeleteEmployee(${emp.id})">삭제</button>
         `;
         
         return `<tr class="border-t">
@@ -268,6 +271,7 @@ export function getManagementHTML() {
             <td class="p-2"><input type="date" id="entry-${emp.id}" value="${entryDateValue}" class="table-input"></td>
             <td class="p-2"><input type="email" id="email-${emp.id}" value="${emp.email || ''}" class="table-input"></td>
             <td class="p-2 text-center"><button class="text-xs bg-gray-500 text-white px-2 py-1 rounded">재설정</button></td>
+            <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${emp.isManager ? 'checked' : ''} class="cursor-pointer w-4 h-4"></td>
             <td class="p-2"><input type="date" id="renewal-${emp.id}" value="${renewalDateValue}" class="table-input"></td>
             <td class="p-2 text-center align-middle">${nextRenewalDate}</td>
             <td class="p-2 text-center align-middle">${leaveData.legal}</td>
@@ -426,11 +430,142 @@ export function getLeaveListHTML() {
     }).join('');
 
     return `
-        <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
-        <table class="min-w-full text-sm">
-            <thead class="bg-gray-50"><tr><th class="p-2 text-left text-xs">직원</th><th class="p-2 text-left text-xs">신청날짜</th><th class="p-2 text-left text-xs">신청일시</th><th class="p-2 text-left text-xs">상태</th><th class="p-2 text-center text-xs">처리</th></tr></thead>
-            <tbody>${rows}</tbody>
-        </table>`;
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">연차 신청 목록</h2>
+            <div class="flex gap-2">
+                <button id="toggle-leave-view-btn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">📅 달력 보기</button>
+            </div>
+        </div>
+        
+        <!-- 테이블 보기 -->
+        <div id="leave-table-view">
+            <table class="min-w-full text-sm">
+                <thead class="bg-gray-50"><tr><th class="p-2 text-left text-xs">직원</th><th class="p-2 text-left text-xs">신청날짜</th><th class="p-2 text-left text-xs">신청일시</th><th class="p-2 text-left text-xs">상태</th><th class="p-2 text-center text-xs">처리</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        
+        <!-- 달력 보기 -->
+        <div id="leave-calendar-view" class="hidden">
+            <div id="leave-calendar-container"></div>
+        </div>
+    `;
+}
+
+// 달력 보기 토글
+window.toggleLeaveView = function() {
+    const tableView = _('#leave-table-view');
+    const calendarView = _('#leave-calendar-view');
+    const toggleBtn = _('#toggle-leave-view-btn');
+    
+    if (!tableView || !calendarView || !toggleBtn) return;
+    
+    if (tableView.classList.contains('hidden')) {
+        // 테이블로 전환
+        tableView.classList.remove('hidden');
+        calendarView.classList.add('hidden');
+        toggleBtn.textContent = '📅 달력 보기';
+    } else {
+        // 달력으로 전환
+        tableView.classList.add('hidden');
+        calendarView.classList.remove('hidden');
+        toggleBtn.textContent = '📋 목록 보기';
+        renderLeaveCalendar();
+    }
+};
+
+// 연차 신청 달력 렌더링
+function renderLeaveCalendar() {
+    const container = _('#leave-calendar-container');
+    if (!container) return;
+    
+    const { leaveRequests, employees } = state.management;
+    
+    const employeeNameMap = employees.reduce((map, emp) => {
+        map[emp.id] = emp.name;
+        return map;
+    }, {});
+    
+    // 대기중인 신청만 필터링
+    const pendingRequests = leaveRequests.filter(req => req.status === 'pending');
+    
+    // FullCalendar 이벤트 생성
+    const events = [];
+    pendingRequests.forEach(req => {
+        const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
+        req.dates?.forEach(date => {
+            events.push({
+                title: employeeName,
+                start: date,
+                allDay: true,
+                backgroundColor: '#fbbf24',
+                borderColor: '#f59e0b',
+                extendedProps: {
+                    requestId: req.id,
+                    employeeId: req.employee_id,
+                    employeeName: employeeName,
+                    reason: req.reason,
+                    createdAt: req.created_at
+                }
+            });
+        });
+    });
+    
+    // 달력이 이미 있으면 제거
+    container.innerHTML = '<div id="leave-fullcalendar"></div>';
+    
+    if (typeof FullCalendar === 'undefined') {
+        container.innerHTML = '<p class="text-red-600 text-center py-4">달력 라이브러리를 로드할 수 없습니다.</p>';
+        return;
+    }
+    
+    const calendar = new FullCalendar.Calendar(_('#leave-fullcalendar'), {
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth'
+        },
+        locale: 'ko',
+        events: events,
+        eventClick: function(info) {
+            const props = info.event.extendedProps;
+            const message = `
+직원: ${props.employeeName}
+날짜: ${info.event.start.toLocaleDateString('ko-KR')}
+사유: ${props.reason || '없음'}
+신청일: ${dayjs(props.createdAt).format('YYYY-MM-DD HH:mm')}
+
+승인하시겠습니까?
+            `;
+            
+            if (confirm(message)) {
+                handleLeaveApproval(props.requestId, 'approved');
+            }
+        },
+        height: 'auto'
+    });
+    
+    calendar.render();
+}
+
+// 연차 승인/반려 처리
+async function handleLeaveApproval(requestId, status) {
+    try {
+        const { error } = await db.from('leave_requests')
+            .update({ status })
+            .eq('id', requestId);
+        
+        if (error) throw error;
+        
+        alert(status === 'approved' ? '승인되었습니다.' : '반려되었습니다.');
+        await window.loadAndRenderManagement();
+        
+    } catch (error) {
+        console.error('연차 처리 오류:', error);
+        alert('처리 중 오류가 발생했습니다: ' + error.message);
+    }
+}
 }
 
 // =========================================================================================
