@@ -15,6 +15,7 @@ state.schedule.activeReorder = {
 let isDragging = false;
 let dragStartTime = 0;
 
+
 // ✅ 그리드 위치 기반 업데이트 (완전 재작성)
 function updateScheduleSortOrders(dateStr) {
     const dayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
@@ -29,7 +30,7 @@ function updateScheduleSortOrders(dateStr) {
         const empId = parseInt(card.dataset.employeeId, 10);
         if (!isNaN(empId)) {
             currentCards.push({
-                employee_id: empId, // -1이면 빈칸
+                employee_id: empId,
                 grid_position: index
             });
         }
@@ -37,21 +38,23 @@ function updateScheduleSortOrders(dateStr) {
     
     console.log(`📍 [${dateStr}] 그리드 위치 업데이트:`, currentCards);
     
-    // 기존 스케줄과 비교하여 업데이트
+    // ✅ 변경 감지: 화면의 모든 카드를 state와 비교
     currentCards.forEach(cardData => {
         let schedule = state.schedule.schedules.find(
-            s => s.date === dateStr && s.employee_id === cardData.employee_id
+            s => s.date === dateStr && s.employee_id === cardData.employee_id && s.status === '근무'
         );
         
         if (schedule) {
-            // 기존 스케줄 업데이트
+            // 기존 스케줄: grid_position이 다르면 업데이트
             if (schedule.grid_position !== cardData.grid_position) {
+                console.log(`  🔄 Position changed: ${schedule.employee_id} (${schedule.grid_position} → ${cardData.grid_position})`);
                 schedule.grid_position = cardData.grid_position;
                 schedule.sort_order = cardData.grid_position;
                 unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
             }
         } else {
             // 새 스케줄 생성
+            console.log(`  ➕ New schedule: ${cardData.employee_id} at ${cardData.grid_position}`);
             const tempId = `temp-${Date.now()}-${cardData.employee_id}-${cardData.grid_position}`;
             const newSchedule = { 
                 id: tempId, 
@@ -71,10 +74,13 @@ function updateScheduleSortOrders(dateStr) {
         if (schedule.date === dateStr && schedule.status === '근무') {
             const exists = currentCards.some(c => c.employee_id === schedule.employee_id);
             if (!exists && !schedule.id.toString().startsWith('temp-')) {
+                console.log(`  ➖ Delete schedule: ${schedule.employee_id}`);
                 unsavedChanges.set(schedule.id, { type: 'delete', data: schedule });
             }
         }
     });
+    
+    console.log(`  💾 Unsaved changes: ${unsavedChanges.size}`);
 }
 
 function getDepartmentColor(departmentId) {
@@ -83,8 +89,21 @@ function getDepartmentColor(departmentId) {
     return colors[departmentId % colors.length];
 }
 
+
+// ✅ 빈칸 카운터 (고유 ID 생성용)
+let spacerCounter = 1;
+
 function getSpacerHtml() {
-    return `<div class="list-spacer" data-type="spacer"><span class="handle">☰</span><button class="delete-spacer-btn" title="빈 칸 삭제">×</button></div>`;
+    // 고유한 음수 ID 생성 (빈칸1: -1, 빈칸2: -2, ...)
+    const spacerId = -(spacerCounter++);
+    const spacerName = `빈칸${-spacerId}`;
+    return `<div class="draggable-employee" data-employee-id="${spacerId}" data-type="employee">
+        <span class="handle">☰</span>
+        <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+            <span style="background-color: #f3f4f6;" class="department-dot"></span>
+            <span class="flex-grow font-semibold" style="color: #f3f4f6;">${spacerName}</span>
+        </div>
+    </div>`;
 }
 
 function getSeparatorHtml() {
@@ -108,7 +127,17 @@ function getTeamHtml(team, allEmployees) {
     const deleteButton = `<button class="delete-team-btn ml-auto text-red-500 hover:text-red-700 disabled:opacity-25" data-team-id="${team.id}" title="팀이 비어있을 때만 삭제 가능" ${team.members.length > 0 ? 'disabled' : ''}>🗑️</button>`;
     const membersHtml = team.members.map(memberId => {
         if (memberId === '---separator---') return getSeparatorHtml();
-        if (memberId === '---spacer---') return getSpacerHtml();
+        if (memberId < 0) {
+            // 음수 ID는 빈칸
+            const spacerName = `빈칸${-memberId}`;
+            return `<div class="draggable-employee" data-employee-id="${memberId}" data-type="employee">
+                <span class="handle">☰</span>
+                <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+                    <span style="background-color: #f3f4f6;" class="department-dot"></span>
+                    <span class="flex-grow font-semibold" style="color: #f3f4f6;">${spacerName}</span>
+                </div>
+            </div>`;
+        }
         const emp = allEmployees.find(e => e.id === memberId);
         return emp ? getEmployeeHtml(emp) : '';
     }).join('');
@@ -473,17 +502,12 @@ async function handleSaveEmployeeOrder() {
     saveBtn.disabled = true;
     saveBtn.textContent = '저장중...';
     
-    // ✅ 직원 순서 수집 (빈칸 포함)
+    // ✅ 직원 순서 수집 (빈칸은 -1로 저장)
     const employeeOrder = [];
     document.querySelectorAll('.employee-list > div').forEach(memberEl => {
-        const type = memberEl.dataset.type;
-        if (type === 'employee') {
-            const empId = parseInt(memberEl.dataset.employeeId, 10);
-            if (!isNaN(empId)) {
-                employeeOrder.push(empId);
-            }
-        } else if (type === 'spacer') {
-            employeeOrder.push('---spacer---');
+        const empId = parseInt(memberEl.dataset.employeeId, 10);
+        if (!isNaN(empId)) {
+            employeeOrder.push(empId); // -1도 포함
         }
     });
     
@@ -756,23 +780,11 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 return;
             }
             
-            // ✅ 빈칸(list-spacer) 처리 (규칙 4-3)
-            if (employeeEl.classList.contains('list-spacer')) {
-                console.log('📦 Spacer dropped at position:', evt.newIndex);
-                employeeEl.remove();
-                renderCalendar();
-                
-                // updateScheduleSortOrders가 자동으로 호출됨
-                updateScheduleSortOrders(dateStr);
-                updateSaveButtonState();
-                return;
-            }
-            
             // ✅ draggable-employee인 경우 사이드바에서 온 것
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
             console.log('📝 Dropped employee ID:', empId);
             
-            if (isNaN(empId) || !empId) {
+            if (isNaN(empId)) {
                 console.log('❌ Invalid employee ID, removing element');
                 employeeEl.remove();
                 return;
@@ -790,42 +802,43 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 return;
             }
             
-            const employee = state.management.employees.find(e => e.id === empId);
-            if (!employee) {
-                console.log('❌ Employee not found, removing element');
-                employeeEl.remove();
-                return;
-            }
-            
-            console.log('✅ Found employee:', employee.name, 'at position:', evt.newIndex);
-            
-            // ✅ 규칙 4-1: 드롭 위치에 삽입
-            let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
-            
-            if (!schedule) {
-                const tempId = `temp-${Date.now()}-${empId}`;
-                schedule = {
-                    id: tempId,
-                    date: dateStr,
-                    employee_id: empId,
-                    status: state.schedule.viewMode === 'working' ? '근무' : '휴무',
-                    sort_order: evt.newIndex,
-                    grid_position: evt.newIndex
-                };
-                state.schedule.schedules.push(schedule);
-                unsavedChanges.set(tempId, { type: 'new', data: schedule });
-                console.log('✅ Created new schedule at position:', evt.newIndex);
+            // ✅ 음수 ID는 빈칸으로 처리
+            let employee = null;
+            let employeeName = '';
+            if (empId < 0) {
+                employeeName = `빈칸${-empId}`;
+                console.log('✅ Spacer:', employeeName, 'at position:', evt.newIndex);
             } else {
-                // 휴무에서 근무로 전환
-                schedule.status = state.schedule.viewMode === 'working' ? '근무' : '휴무';
-                schedule.grid_position = evt.newIndex;
-                schedule.sort_order = evt.newIndex;
-                unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                console.log('✅ Updated schedule to position:', evt.newIndex);
+                employee = state.management.employees.find(e => e.id === empId);
+                if (!employee) {
+                    console.log('❌ Employee not found, removing element');
+                    employeeEl.remove();
+                    return;
+                }
+                employeeName = employee.name;
+                console.log('✅ Found employee:', employeeName, 'at position:', evt.newIndex);
             }
             
+            // ✅ 새 스케줄 추가 (기존 스케줄의 position은 건드리지 않음)
+            const tempId = `temp-${Date.now()}-${empId}`;
+            const newSchedule = {
+                id: tempId,
+                date: dateStr,
+                employee_id: empId,
+                status: '근무',
+                sort_order: evt.newIndex,
+                grid_position: evt.newIndex
+            };
+            state.schedule.schedules.push(newSchedule);
+            unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+            console.log('✅ Added new schedule:', empId, 'at position:', evt.newIndex);
+            
+            // ✅ DOM 정리 및 재렌더링
             employeeEl.remove();
             renderCalendar();
+            
+            // ✅ 모든 카드의 position 재계산 (밀린 카드들 감지)
+            updateScheduleSortOrders(dateStr);
             updateSaveButtonState();
         },
     });
@@ -917,8 +930,14 @@ function handleEventCardClick(e) {
     const empId = parseInt(card.dataset.employeeId);
     const type = card.dataset.type;
     
-    // 연차는 클릭 불가
+    // 연차와 빈칸은 클릭 불가
     if (type === 'leave') {
+        return;
+    }
+    
+    // ✅ 빈칸(음수 ID)은 클릭해도 상태 변경 안함
+    if (empId < 0) {
+        console.log('Spacer clicked - no action');
         return;
     }
     
@@ -1112,15 +1131,24 @@ function renderCalendar() {
                     return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
                         <span class="slot-number">${position + 1}</span>
                     </div>`;
-                } else if (schedule.employee_id === -1) {
-                    // 명시적 빈칸
-                    return `<div class="event-card event-spacer" data-position="${position}" data-employee-id="-1" data-schedule-id="${schedule.id}" data-type="spacer">
-                        <span class="event-name">[ 빈 칸 ]</span>
+                } else if (schedule.employee_id < 0) {
+                    // ✅ 빈칸 카드: 텍스트가 배경색과 같아서 안보임
+                    const spacerName = `빈칸${-schedule.employee_id}`;
+                    return `<div class="event-card event-working" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                        <span class="event-dot" style="background-color: #f3f4f6;"></span>
+                        <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
                     </div>`;
                 } else {
                     // 직원 카드
                     const emp = state.management.employees.find(e => e.id === schedule.employee_id);
-                    if (!emp) return '';
+                    if (!emp) {
+                        // 음수 ID거나 삭제된 직원 - 빈칸으로 표시
+                        const spacerName = schedule.employee_id < 0 ? `빈칸${-schedule.employee_id}` : '알수없음';
+                        return `<div class="event-card event-working" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                            <span class="event-dot" style="background-color: #f3f4f6;"></span>
+                            <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
+                        </div>`;
+                    }
                     
                     const deptColor = getDepartmentColor(emp.departments?.id);
                     return `<div class="event-card event-working" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working">
@@ -1358,7 +1386,55 @@ async function renderScheduleSidebar() {
         filteredEmployees.map(emp => [emp.id, emp])
     ).values());
     
-    console.log('📋 사이드바 직원 수:', uniqueEmployees.length);
+    // ✅ 저장된 순서가 있으면 그 순서대로 정렬
+    let orderedEmployees = [];
+    const savedLayout = state.schedule.teamLayout?.data?.[0];
+    
+    if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
+        console.log('📋 저장된 순서 적용:', savedLayout.members);
+        
+        // 저장된 순서대로 직원 배치 (빈칸 포함)
+        savedLayout.members.forEach(memberId => {
+            if (memberId < 0) {
+                // 음수 ID는 빈칸
+                orderedEmployees.push({ id: memberId, isSpacer: true, name: `빈칸${-memberId}` });
+            } else {
+                const emp = uniqueEmployees.find(e => e.id === memberId);
+                if (emp) {
+                    orderedEmployees.push(emp);
+                }
+            }
+        });
+        
+        // 저장된 순서에 없는 새 직원들을 뒤에 추가
+        uniqueEmployees.forEach(emp => {
+            if (!savedLayout.members.includes(emp.id)) {
+                orderedEmployees.push(emp);
+            }
+        });
+    } else {
+        // 저장된 순서가 없으면 기본 순서 사용
+        orderedEmployees = uniqueEmployees;
+        console.log('📋 기본 순서 사용');
+    }
+    
+    console.log('📋 사이드바 직원 수:', orderedEmployees.length);
+
+    // HTML 생성
+    const employeeListHtml = orderedEmployees.map(item => {
+        if (item.isSpacer) {
+            // 빈칸: 배경색과 텍스트색 동일
+            return `<div class="draggable-employee" data-employee-id="${item.id}" data-type="employee">
+                <span class="handle">☰</span>
+                <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+                    <span style="background-color: #f3f4f6;" class="department-dot"></span>
+                    <span class="flex-grow font-semibold" style="color: #f3f4f6;">${item.name}</span>
+                </div>
+            </div>`;
+        } else {
+            return getEmployeeHtml(item);
+        }
+    }).join('');
 
     sidebar.innerHTML = `
         <div class="flex flex-col h-full">
@@ -1368,7 +1444,7 @@ async function renderScheduleSidebar() {
             </div>
             <div class="flex-grow overflow-y-auto pr-2" id="employee-list-container">
                 <div class="employee-list">
-                    ${uniqueEmployees.map(emp => getEmployeeHtml(emp)).join('')}
+                    ${employeeListHtml}
                 </div>
             </div>
             <div class="mt-2 pt-2 border-t">
