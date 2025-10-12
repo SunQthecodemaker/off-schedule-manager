@@ -131,22 +131,6 @@
 }
 
 /* ✨ 빈 슬롯 스타일 */
-.empty-slot {
-    flex-basis: calc(25% - 2px);
-    min-width: 0;
-    min-height: 14px;
-    border: 1px dashed #e5e7eb;
-    border-radius: 3px;
-    margin: 1px 0;
-    background: transparent;
-    cursor: move;
-    transition: all 0.15s ease;
-}
-
-.empty-slot:hover {
-    background: rgba(59, 130, 246, 0.05);
-    border-color: #93c5fd;
-}
 
 .event-working {
     background-color: white;

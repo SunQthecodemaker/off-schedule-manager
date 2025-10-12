@@ -344,6 +344,124 @@ async function handleSaveSchedules() {
     }
 }
 
+// 리셋 함수 추가
+async function handleResetSchedule() {
+    if (!confirm('현재 달의 모든 스케줄을 리셋하고 사이드바 순서대로 근무자로 초기화하시겠습니까?')) {
+        return;
+    }
+    
+    const resetBtn = _('#reset-schedule-btn');
+    resetBtn.disabled = true;
+    resetBtn.textContent = '리셋 중...';
+    
+    try {
+        // 1. 사이드바에서 순서 가져오기
+        const orderedEmployees = [];
+        let gridPosition = 0;
+        
+        document.querySelectorAll('#team-list-container .team-group').forEach(teamEl => {
+            teamEl.querySelectorAll('.team-member-list > div').forEach(memberEl => {
+                const type = memberEl.dataset.type;
+                
+                if (type === 'spacer') {
+                    // 빈칸 추가
+                    orderedEmployees.push({
+                        type: 'spacer',
+                        position: gridPosition++
+                    });
+                } else if (type === 'employee') {
+                    const empId = parseInt(memberEl.dataset.employeeId, 10);
+                    if (!isNaN(empId)) {
+                        orderedEmployees.push({
+                            type: 'employee',
+                            employee_id: empId,
+                            position: gridPosition++
+                        });
+                    }
+                }
+            });
+        });
+        
+        console.log('📋 순서대로 정렬된 직원:', orderedEmployees.length, '명');
+        
+        // 2. 해당 월의 모든 날짜 가져오기
+        const currentDate = dayjs(state.schedule.currentDate);
+        const startOfMonth = currentDate.startOf('month');
+        const endOfMonth = currentDate.endOf('month');
+        
+        const allDates = [];
+        let currentLoop = startOfMonth.clone();
+        while (currentLoop.valueOf() <= endOfMonth.valueOf()) {
+            allDates.push(currentLoop.format('YYYY-MM-DD'));
+            currentLoop = currentLoop.add(1, 'day');
+        }
+        
+        console.log('📅 대상 날짜:', allDates.length, '일');
+        
+        // 3. 기존 스케줄 삭제
+        const { error: deleteError } = await db.from('schedules')
+            .delete()
+            .gte('date', startOfMonth.format('YYYY-MM-DD'))
+            .lte('date', endOfMonth.format('YYYY-MM-DD'));
+        
+        if (deleteError) {
+            console.error('❌ 삭제 오류:', deleteError);
+            throw deleteError;
+        }
+        
+        console.log('✅ 기존 스케줄 삭제 완료');
+        
+        // 4. 모든 날짜에 대해 근무자로 삽입
+        const schedulesToInsert = [];
+        
+        allDates.forEach(dateStr => {
+            orderedEmployees.forEach(item => {
+                if (item.type === 'employee') {
+                    schedulesToInsert.push({
+                        date: dateStr,
+                        employee_id: item.employee_id,
+                        status: '근무',
+                        sort_order: item.position,
+                        grid_position: item.position
+                    });
+                } else if (item.type === 'spacer') {
+                    schedulesToInsert.push({
+                        date: dateStr,
+                        employee_id: null,
+                        status: 'spacer',
+                        sort_order: item.position,
+                        grid_position: item.position
+                    });
+                }
+            });
+        });
+        
+        console.log('➕ 삽입할 스케줄:', schedulesToInsert.length, '건');
+        
+        // 5. 새 스케줄 삽입
+        const { error: insertError } = await db.from('schedules')
+            .insert(schedulesToInsert);
+        
+        if (insertError) {
+            console.error('❌ 삽입 오류:', insertError);
+            throw insertError;
+        }
+        
+        console.log('✅ 스케줄 리셋 완료');
+        
+        // 6. 화면 다시 로드
+        await loadAndRenderScheduleData(state.schedule.currentDate);
+        
+        alert('스케줄이 성공적으로 리셋되었습니다.');
+        
+    } catch (error) {
+        console.error('❌ 리셋 실패:', error);
+        alert(`스케줄 리셋에 실패했습니다.\n\n오류: ${error.message}`);
+    } finally {
+        resetBtn.disabled = false;
+        resetBtn.textContent = '🔄 스케줄 리셋';
+    }
+}
 function handleAddNewTeam() {
     const newTeamHtml = getTeamHtml({ id: `new-${Date.now()}`, name: '새로운 팀', members: [] }, getFilteredEmployees());
     _('.unassigned-group').insertAdjacentHTML('beforebegin', newTeamHtml);
@@ -1128,6 +1246,7 @@ export async function renderScheduleManagement(container) {
                         <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
                     </div>
                     <div class="flex items-center gap-2">
+                        <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                         <button id="print-schedule-btn">🖨️ 인쇄하기</button>
                         <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
                         <button id="save-schedule-btn" disabled>💾 스케줄 저장</button>
@@ -1157,6 +1276,7 @@ export async function renderScheduleManagement(container) {
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
     _('#calendar-next')?.addEventListener('click', () => navigateMonth('next'));
     _('#calendar-today')?.addEventListener('click', () => navigateMonth('today'));
+    _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
     _('#print-schedule-btn')?.addEventListener('click', handlePrintSchedule);
     
     console.log('Event listeners attached');
