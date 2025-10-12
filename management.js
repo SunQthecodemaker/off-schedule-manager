@@ -420,62 +420,234 @@ export function getLeaveListHTML() {
         return map;
     }, {});
 
-    const rows = leaveRequests.map(req => {
+    // 반려 제외
+    const filteredRequests = leaveRequests.filter(req => req.status !== 'rejected');
+
+    const rows = filteredRequests.map(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
-        const statusText = { pending: '대기중', approved: '승인됨', rejected: '반려됨' }[req.status] || req.status;
-        const actions = req.status === 'pending' ? `<button class="text-sm text-green-600 font-bold">승인</button> <button class="text-sm text-red-600 font-bold ml-2">반려</button>` : `<span class="text-sm text-gray-500">${statusText}</span>`;
+        
+        // 매니저 승인 상태
+        const middleStatus = req.middle_manager_status || 'pending';
+        const middleText = {
+            pending: '대기',
+            approved: '승인',
+            rejected: '반려',
+            skipped: '-'
+        }[middleStatus] || '대기';
+        const middleColor = {
+            pending: 'text-yellow-600',
+            approved: 'text-green-600',
+            rejected: 'text-red-600',
+            skipped: 'text-gray-400'
+        }[middleStatus] || 'text-yellow-600';
+        
+        // 최종 승인 상태
+        const finalStatus = req.final_manager_status || 'pending';
+        const finalText = {
+            pending: '대기',
+            approved: '승인',
+            rejected: '반려'
+        }[finalStatus] || '대기';
+        const finalColor = {
+            pending: 'text-yellow-600',
+            approved: 'text-green-600',
+            rejected: 'text-red-600'
+        }[finalStatus] || 'text-yellow-600';
+        
+        // 버튼 표시 로직
+        const currentUser = state.currentUser;
+        let actions = '';
+        
+        if (finalStatus === 'rejected') {
+            // 반려됨
+            actions = `<span class="text-xs text-gray-400">반려됨</span>`;
+        } else if (finalStatus === 'approved') {
+            // 최종 승인 완료
+            actions = `<span class="text-xs text-gray-400">승인완료</span>`;
+        } else if (currentUser.role === 'admin') {
+            // 관리자: 최종 승인/반려 버튼
+            actions = `
+                <button onclick="window.handleFinalApproval(${req.id}, 'approved')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">승인</button>
+                <button onclick="window.handleFinalApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>
+            `;
+        } else if (currentUser.isManager) {
+            // 매니저
+            if (middleStatus === 'pending') {
+                // 매니저 승인 대기 중
+                actions = `
+                    <button onclick="window.handleMiddleApproval(${req.id}, 'approved')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">승인</button>
+                    <button onclick="window.handleMiddleApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>
+                `;
+            } else {
+                // 이미 매니저가 처리함 (최종 승인 대기)
+                actions = `<span class="text-xs text-gray-400">최종승인 대기</span>`;
+            }
+        } else {
+            actions = `<span class="text-xs text-gray-400">-</span>`;
+        }
+        
         const datesText = (req.dates || []).join(', ');
-        const createdAtText = req.created_at ? dayjs(req.created_at).format('YYYY-MM-DD HH:mm') : '날짜 없음';
-        return `<tr class="border-b"><td class="p-2">${employeeName}</td><td class="p-2">${datesText}</td><td class="p-2">${createdAtText}</td><td class="p-2">${statusText}</td><td class="p-2 text-center">${actions}</td></tr>`;
+        const dateCount = req.dates?.length || 0;
+        
+        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}">
+            <td class="p-2 text-sm">${employeeName}</td>
+            <td class="p-2 text-sm">${datesText}</td>
+            <td class="p-2 text-sm text-center">${dateCount}일</td>
+            <td class="p-2 text-sm text-center">
+                <div class="text-xs">
+                    <span class="inline-block w-12">매니저:</span>
+                    <span class="${middleColor} font-semibold">${middleText}</span>
+                </div>
+                <div class="text-xs mt-1">
+                    <span class="inline-block w-12">최종:</span>
+                    <span class="${finalColor} font-semibold">${finalText}</span>
+                </div>
+            </td>
+            <td class="p-2 text-center">${actions}</td>
+        </tr>`;
+    }).join('');
+
+    // 직원 목록 생성 (신청 기록이 있는 직원만)
+    const employeeIds = [...new Set(filteredRequests.map(req => req.employee_id))];
+    const employeeOptions = employeeIds.map(id => {
+        const name = employeeNameMap[id] || '알 수 없음';
+        const count = filteredRequests.filter(req => req.employee_id === id).length;
+        return `<option value="${id}">${name} (${count}건)</option>`;
     }).join('');
 
     return `
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-semibold">연차 신청 목록</h2>
+        <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
+        
+        <!-- 필터 -->
+        <div class="flex flex-wrap gap-2 mb-4 items-center">
             <div class="flex gap-2">
-                <button id="toggle-leave-view-btn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">📅 달력 보기</button>
+                <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 (${filteredRequests.length})</button>
+                <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">최종 대기중 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'pending').length})</button>
+                <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">최종 승인됨 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'approved').length})</button>
+            </div>
+            <div class="flex gap-2 items-center ml-4">
+                <label class="text-sm font-semibold">직원:</label>
+                <select id="employee-filter" onchange="window.filterByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
+                    <option value="all">전체 직원</option>
+                    ${employeeOptions}
+                </select>
             </div>
         </div>
         
         <!-- 테이블 보기 -->
-        <div id="leave-table-view">
-            <table class="min-w-full text-sm">
-                <thead class="bg-gray-50"><tr><th class="p-2 text-left text-xs">직원</th><th class="p-2 text-left text-xs">신청날짜</th><th class="p-2 text-left text-xs">신청일시</th><th class="p-2 text-left text-xs">상태</th><th class="p-2 text-center text-xs">처리</th></tr></thead>
-                <tbody>${rows}</tbody>
+        <div class="mb-8">
+            <table class="min-w-full text-sm border">
+                <thead class="bg-gray-100">
+                    <tr>
+                        <th class="p-2 text-left text-xs font-semibold">직원</th>
+                        <th class="p-2 text-left text-xs font-semibold">신청날짜</th>
+                        <th class="p-2 text-center text-xs font-semibold">일수</th>
+                        <th class="p-2 text-center text-xs font-semibold">결재현황</th>
+                        <th class="p-2 text-center text-xs font-semibold">처리</th>
+                    </tr>
+                </thead>
+                <tbody id="leave-table-body">${rows}</tbody>
             </table>
         </div>
         
         <!-- 달력 보기 -->
-        <div id="leave-calendar-view" class="hidden">
+        <div>
+            <h3 class="text-md font-semibold mb-2">📅 달력 보기</h3>
+            <div class="flex flex-wrap gap-2 mb-2 items-center">
+                <div class="flex gap-2">
+                    <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-yellow-500 text-white">대기중</button>
+                    <button onclick="window.filterLeaveCalendar('approved')" id="cal-filter-approved" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
+                    <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">전체</button>
+                </div>
+                <div class="flex gap-2 items-center ml-4">
+                    <label class="text-sm font-semibold">직원:</label>
+                    <select id="calendar-employee-filter" onchange="window.filterCalendarByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
+                        <option value="all">전체 직원</option>
+                        ${employeeOptions}
+                    </select>
+                </div>
+            </div>
             <div id="leave-calendar-container"></div>
         </div>
     `;
 }
 
-// 달력 보기 토글
-window.toggleLeaveView = function() {
-    const tableView = _('#leave-table-view');
-    const calendarView = _('#leave-calendar-view');
-    const toggleBtn = _('#toggle-leave-view-btn');
+// 목록 필터 상태
+let currentListStatus = 'all';
+let currentListEmployee = 'all';
+
+// 목록 필터
+window.filterLeaveList = function(status) {
+    currentListStatus = status;
+    applyListFilters();
     
-    if (!tableView || !calendarView || !toggleBtn) return;
+    const buttons = document.querySelectorAll('.filter-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('active', 'bg-blue-600', 'text-white');
+        btn.classList.add('bg-gray-200');
+    });
     
-    if (tableView.classList.contains('hidden')) {
-        // 테이블로 전환
-        tableView.classList.remove('hidden');
-        calendarView.classList.add('hidden');
-        toggleBtn.textContent = '📅 달력 보기';
-    } else {
-        // 달력으로 전환
-        tableView.classList.add('hidden');
-        calendarView.classList.remove('hidden');
-        toggleBtn.textContent = '📋 목록 보기';
-        renderLeaveCalendar();
+    const activeBtn = _(`#filter-${status}`);
+    if (activeBtn) {
+        activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
+        activeBtn.classList.remove('bg-gray-200');
     }
 };
 
+// 직원별 필터 (목록)
+window.filterByEmployee = function(employeeId) {
+    currentListEmployee = employeeId;
+    applyListFilters();
+};
+
+// 목록 필터 적용
+function applyListFilters() {
+    const rows = document.querySelectorAll('.leave-row');
+    
+    rows.forEach(row => {
+        const statusMatch = currentListStatus === 'all' || row.dataset.status === currentListStatus;
+        const employeeMatch = currentListEmployee === 'all' || row.dataset.employeeId === currentListEmployee;
+        
+        row.style.display = (statusMatch && employeeMatch) ? '' : 'none';
+    });
+}
+
+// 달력 필터 상태
+let currentCalendarFilter = 'pending';
+let currentCalendarEmployee = 'all';
+
+window.filterLeaveCalendar = function(status) {
+    currentCalendarFilter = status;
+    
+    const buttons = document.querySelectorAll('.cal-filter-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('active', 'bg-yellow-500', 'bg-green-500', 'bg-blue-600', 'text-white');
+        btn.classList.add('bg-gray-200');
+    });
+    
+    const activeBtn = _(`#cal-filter-${status}`);
+    if (activeBtn) {
+        if (status === 'pending') {
+            activeBtn.classList.add('active', 'bg-yellow-500', 'text-white');
+        } else if (status === 'approved') {
+            activeBtn.classList.add('active', 'bg-green-500', 'text-white');
+        } else {
+            activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
+        }
+        activeBtn.classList.remove('bg-gray-200');
+    }
+    
+    window.renderLeaveCalendar();
+};
+
+// 직원별 필터 (달력)
+window.filterCalendarByEmployee = function(employeeId) {
+    currentCalendarEmployee = employeeId;
+    window.renderLeaveCalendar();
+};
+
 // 연차 신청 달력 렌더링
-function renderLeaveCalendar() {
+window.renderLeaveCalendar = function() {
     const container = _('#leave-calendar-container');
     if (!container) return;
     
@@ -486,26 +658,38 @@ function renderLeaveCalendar() {
         return map;
     }, {});
     
-    // 대기중인 신청만 필터링
-    const pendingRequests = leaveRequests.filter(req => req.status === 'pending');
+    // 필터링
+    let filteredRequests = leaveRequests.filter(req => req.status !== 'rejected');
+    
+    if (currentCalendarFilter !== 'all') {
+        filteredRequests = filteredRequests.filter(req => req.status === currentCalendarFilter);
+    }
+    
+    if (currentCalendarEmployee !== 'all') {
+        filteredRequests = filteredRequests.filter(req => req.employee_id === parseInt(currentCalendarEmployee));
+    }
     
     // FullCalendar 이벤트 생성
     const events = [];
-    pendingRequests.forEach(req => {
+    filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
+        const color = req.status === 'pending' ? '#fbbf24' : '#10b981';
+        const borderColor = req.status === 'pending' ? '#f59e0b' : '#059669';
+        
         req.dates?.forEach(date => {
             events.push({
                 title: employeeName,
                 start: date,
                 allDay: true,
-                backgroundColor: '#fbbf24',
-                borderColor: '#f59e0b',
+                backgroundColor: color,
+                borderColor: borderColor,
                 extendedProps: {
                     requestId: req.id,
                     employeeId: req.employee_id,
                     employeeName: employeeName,
                     reason: req.reason,
-                    createdAt: req.created_at
+                    createdAt: req.created_at,
+                    status: req.status
                 }
             });
         });
@@ -530,27 +714,127 @@ function renderLeaveCalendar() {
         events: events,
         eventClick: function(info) {
             const props = info.event.extendedProps;
-            const message = `
-직원: ${props.employeeName}
+            
+            if (props.status === 'approved') {
+                alert(`이미 승인된 연차입니다.\n\n직원: ${props.employeeName}\n날짜: ${info.event.start.toLocaleDateString('ko-KR')}`);
+                return;
+            }
+            
+            const message = `직원: ${props.employeeName}
 날짜: ${info.event.start.toLocaleDateString('ko-KR')}
 사유: ${props.reason || '없음'}
 신청일: ${dayjs(props.createdAt).format('YYYY-MM-DD HH:mm')}
 
-승인하시겠습니까?
-            `;
+승인하시겠습니까?`;
             
             if (confirm(message)) {
-                handleLeaveApproval(props.requestId, 'approved');
+                window.handleLeaveApproval(props.requestId, 'approved');
             }
         },
         height: 'auto'
     });
     
     calendar.render();
-}
+};
 
-// 연차 승인/반려 처리
-async function handleLeaveApproval(requestId, status) {
+
+// 중간 승인 처리 (매니저)
+window.handleMiddleApproval = async function(requestId, status) {
+    const currentUser = state.currentUser;
+    
+    if (!currentUser.isManager) {
+        alert('매니저 권한이 없습니다.');
+        return;
+    }
+    
+    if (status === 'rejected') {
+        const reason = prompt('반려 사유를 입력해주세요:');
+        if (!reason) return;
+    }
+    
+    const confirmed = confirm(status === 'approved' ? '중간 승인하시겠습니까?' : '반려하시겠습니까?');
+    if (!confirmed) return;
+    
+    try {
+        const updateData = {
+            middle_manager_id: currentUser.id,
+            middle_manager_status: status,
+            middle_approved_at: new Date().toISOString()
+        };
+        
+        // 반려 시 최종 상태도 반려로 변경
+        if (status === 'rejected') {
+            updateData.final_manager_status = 'rejected';
+            updateData.status = 'rejected';
+        }
+        
+        const { error } = await db.from('leave_requests')
+            .update(updateData)
+            .eq('id', requestId);
+        
+        if (error) throw error;
+        
+        alert(status === 'approved' ? '중간 승인이 완료되었습니다.' : '반려되었습니다.');
+        await window.loadAndRenderManagement();
+        
+    } catch (error) {
+        console.error('중간 승인 처리 오류:', error);
+        alert('처리 중 오류가 발생했습니다: ' + error.message);
+    }
+};
+
+// 최종 승인 처리 (관리자)
+window.handleFinalApproval = async function(requestId, status) {
+    const currentUser = state.currentUser;
+    
+    if (currentUser.role !== 'admin') {
+        alert('관리자 권한이 없습니다.');
+        return;
+    }
+    
+    if (status === 'rejected') {
+        const reason = prompt('반려 사유를 입력해주세요:');
+        if (!reason) return;
+    }
+    
+    const confirmed = confirm(status === 'approved' ? '최종 승인하시겠습니까?' : '반려하시겠습니까?');
+    if (!confirmed) return;
+    
+    try {
+        const updateData = {
+            final_manager_id: currentUser.id,
+            final_manager_status: status,
+            final_approved_at: new Date().toISOString(),
+            status: status // 기존 status 필드도 업데이트
+        };
+        
+        // 매니저 승인을 건너뛴 경우
+        const { data: request } = await db.from('leave_requests')
+            .select('middle_manager_status')
+            .eq('id', requestId)
+            .single();
+        
+        if (request && request.middle_manager_status === 'pending') {
+            updateData.middle_manager_status = 'skipped';
+        }
+        
+        const { error } = await db.from('leave_requests')
+            .update(updateData)
+            .eq('id', requestId);
+        
+        if (error) throw error;
+        
+        alert(status === 'approved' ? '최종 승인이 완료되었습니다.' : '반려되었습니다.');
+        await window.loadAndRenderManagement();
+        
+    } catch (error) {
+        console.error('최종 승인 처리 오류:', error);
+        alert('처리 중 오류가 발생했습니다: ' + error.message);
+    }
+};
+
+// 기존 함수 (하위 호환성)
+window.handleLeaveApproval = async function(requestId, status) {
     try {
         const { error } = await db.from('leave_requests')
             .update({ status })
@@ -565,7 +849,6 @@ async function handleLeaveApproval(requestId, status) {
         console.error('연차 처리 오류:', error);
         alert('처리 중 오류가 발생했습니다: ' + error.message);
     }
-}
 }
 
 // =========================================================================================

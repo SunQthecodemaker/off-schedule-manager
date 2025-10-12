@@ -105,8 +105,8 @@
     background-color: white;
     border: 1px solid #e2e8f0;
     border-radius: 3px;
-    padding: 1px 3px;
-    font-size: 9px;
+    padding: 2px 4px;
+    font-size: 11px;
     display: flex;
     align-items: center;
     gap: 2px;
@@ -128,6 +128,24 @@
 
 .event-card:active {
     cursor: grabbing;
+}
+
+/* ✨ 빈 슬롯 스타일 */
+.empty-slot {
+    flex-basis: calc(25% - 2px);
+    min-width: 0;
+    min-height: 14px;
+    border: 1px dashed #e5e7eb;
+    border-radius: 3px;
+    margin: 1px 0;
+    background: transparent;
+    cursor: move;
+    transition: all 0.15s ease;
+}
+
+.empty-slot:hover {
+    background: rgba(59, 130, 246, 0.05);
+    border-color: #93c5fd;
 }
 
 .event-working {

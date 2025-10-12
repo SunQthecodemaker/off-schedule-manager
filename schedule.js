@@ -120,6 +120,47 @@ function handleViewModeChange(e) {
     }
 }
 
+// ✨ 모든 날짜의 grid_position 업데이트
+function updateAllGridPositions() {
+    console.log('🔄 모든 날짜의 grid_position 업데이트 시작');
+    
+    document.querySelectorAll('.calendar-day').forEach(dayEl => {
+        const dateStr = dayEl.dataset.date;
+        const eventContainer = dayEl.querySelector('.day-events');
+        if (!eventContainer) return;
+        
+        const eventCards = eventContainer.querySelectorAll('.event-card');
+        eventCards.forEach((card, gridIndex) => {
+            const empId = parseInt(card.dataset.employeeId, 10);
+            if (isNaN(empId)) return;
+            
+            let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
+            
+            if (schedule) {
+                if (schedule.grid_position !== gridIndex) {
+                    schedule.grid_position = gridIndex;
+                    unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                }
+            } else {
+                // 새 스케줄 생성
+                const tempId = `temp-${Date.now()}-${empId}-${gridIndex}`;
+                const newSchedule = {
+                    id: tempId,
+                    date: dateStr,
+                    employee_id: empId,
+                    status: card.classList.contains('off') ? '휴무' : '근무',
+                    sort_order: gridIndex,
+                    grid_position: gridIndex
+                };
+                state.schedule.schedules.push(newSchedule);
+                unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+            }
+        });
+    });
+    
+    console.log('✅ grid_position 업데이트 완료');
+}
+
 async function handleRevertChanges() {
     if (confirm("정말로 모든 변경사항을 되돌리시겠습니까?")) {
         await loadAndRenderScheduleData(state.schedule.currentDate);
@@ -127,45 +168,179 @@ async function handleRevertChanges() {
 }
 
 async function handleSaveSchedules() {
-    _('#save-schedule-btn').disabled = true;
-    _('#save-schedule-btn').textContent = '저장 중...';
+    const saveBtn = _('#save-schedule-btn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '저장 중...';
 
-    const toInsert = [], toUpdate = new Map(), toDelete = [];
-    for (const [id, change] of unsavedChanges.entries()) {
-        if (change.type === 'new') {
-            // ✨ temp ID 제거하고 데이터만 추가
-            const { id: tempId, ...dataWithoutId } = change.data;
-            toInsert.push(dataWithoutId);
-        }
-        else if (change.type === 'update') toUpdate.set(change.data.id, change.data);
-        else if (change.type === 'delete' && typeof id === 'number') toDelete.push(id);
-    }
-    const holidaysToAdd = Array.from(unsavedHolidayChanges.toAdd).map(date => ({ date }));
-    const holidaysToRemove = Array.from(unsavedHolidayChanges.toRemove);
+    console.log('💾 ========== 저장 시작 ==========');
 
     try {
-        const promises = [];
-        if (toInsert.length > 0) {
-            console.log('Inserting schedules:', toInsert);
-            promises.push(db.from('schedules').insert(toInsert));
+        // ✅ STEP 1: 현재 화면의 모든 카드 수집
+        const schedulesToSave = [];
+        
+        document.querySelectorAll('.calendar-day').forEach(dayEl => {
+            const dateStr = dayEl.dataset.date;
+            if (!dateStr) return;
+            
+            const eventContainer = dayEl.querySelector('.day-events');
+            if (!eventContainer) return;
+            
+            const eventCards = eventContainer.querySelectorAll('.event-card');
+            eventCards.forEach((card, gridIndex) => {
+                const empId = parseInt(card.dataset.employeeId, 10);
+                const type = card.dataset.type;
+                
+                if (isNaN(empId) || type === 'leave') return;
+                
+                const status = card.classList.contains('off') ? '휴무' : '근무';
+                
+                schedulesToSave.push({
+                    date: dateStr,
+                    employee_id: empId,
+                    status: status,
+                    sort_order: gridIndex,
+                    grid_position: gridIndex
+                });
+            });
+        });
+        
+        console.log('📊 수집된 스케줄:', schedulesToSave.length, '건');
+
+        if (schedulesToSave.length === 0) {
+            console.warn('⚠️ 저장할 스케줄이 없습니다');
+            alert('저장할 스케줄이 없습니다.');
+            saveBtn.disabled = false;
+            saveBtn.textContent = '💾 스케줄 저장';
+            return;
         }
-        if (toDelete.length > 0) promises.push(db.from('schedules').delete().in('id', toDelete));
-        if (toUpdate.size > 0) promises.push(...Array.from(toUpdate.values()).map(item => 
-            db.from('schedules')
-              .update({ date: item.date, status: item.status, sort_order: item.sort_order })
-              .eq('id', item.id)
-        ));
-        if (holidaysToAdd.length > 0) promises.push(db.from('company_holidays').insert(holidaysToAdd));
-        if (holidaysToRemove.length > 0) promises.push(db.from('company_holidays').delete().in('date', holidaysToRemove));
-        const results = await Promise.all(promises);
-        for (const res of results) if (res.error) throw res.error;
-        alert('스케줄 및 휴무일 정보가 성공적으로 저장되었습니다.');
+
+        // ✅ STEP 2: 해당 월의 기존 스케줄 조회
+        const startOfMonth = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
+        const endOfMonth = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
+        
+        console.log('📅 조회 범위:', startOfMonth, '~', endOfMonth);
+        
+        const { data: existingSchedules, error: fetchError } = await db.from('schedules')
+            .select('*')
+            .gte('date', startOfMonth)
+            .lte('date', endOfMonth);
+        
+        if (fetchError) {
+            console.error('❌ 조회 오류:', fetchError);
+            throw fetchError;
+        }
+        
+        console.log('📋 기존 스케줄:', existingSchedules?.length || 0, '건');
+
+        // ✅ STEP 3: 업데이트/삽입 구분
+        const existingMap = new Map();
+        (existingSchedules || []).forEach(s => {
+            existingMap.set(`${s.date}-${s.employee_id}`, s);
+        });
+        
+        const toUpdate = [];
+        const toInsert = [];
+        
+        schedulesToSave.forEach(newSchedule => {
+            const key = `${newSchedule.date}-${newSchedule.employee_id}`;
+            const existing = existingMap.get(key);
+            
+            if (existing) {
+                toUpdate.push({
+                    id: existing.id,
+                    status: newSchedule.status,
+                    sort_order: newSchedule.sort_order,
+                    grid_position: newSchedule.grid_position
+                });
+            } else {
+                toInsert.push(newSchedule);
+            }
+        });
+        
+        console.log('🔄 업데이트 대상:', toUpdate.length, '건');
+        console.log('➕ 삽입 대상:', toInsert.length, '건');
+
+        // ✅ STEP 4: 업데이트 실행 (병렬 처리)
+        if (toUpdate.length > 0) {
+            console.log('🔄 업데이트 시작...');
+            console.log('업데이트 데이터 샘플:', toUpdate.slice(0, 2));
+            
+            const updatePromises = toUpdate.map(item => 
+                db.from('schedules')
+                    .update({
+                        status: item.status,
+                        sort_order: item.sort_order,
+                        grid_position: item.grid_position
+                    })
+                    .eq('id', item.id)
+            );
+            
+            const results = await Promise.all(updatePromises);
+            
+            // 에러 확인
+            const errors = results.filter(r => r.error);
+            if (errors.length > 0) {
+                console.error('❌ 업데이트 오류:', errors);
+                throw errors[0].error;
+            }
+            
+            console.log('✅ 업데이트 완료:', toUpdate.length, '건');
+        }
+
+        // ✅ STEP 5: 삽입 실행
+        if (toInsert.length > 0) {
+            console.log('➕ 삽입 시작...');
+            console.log('삽입 데이터 샘플:', toInsert.slice(0, 3));
+            
+            const { error: insertError } = await db.from('schedules')
+                .insert(toInsert);
+            
+            if (insertError) {
+                console.error('❌ 삽입 오류:', insertError);
+                throw insertError;
+            }
+            console.log('✅ 삽입 완료');
+        }
+
+        // ✅ STEP 6: 회사 휴무일 저장
+        const holidaysToAdd = Array.from(unsavedHolidayChanges.toAdd);
+        const holidaysToRemove = Array.from(unsavedHolidayChanges.toRemove);
+        
+        if (holidaysToAdd.length > 0) {
+            console.log('🏢 휴무일 추가:', holidaysToAdd);
+            const { error: holidayAddError } = await db.from('company_holidays')
+                .insert(holidaysToAdd.map(date => ({ date })));
+            if (holidayAddError) {
+                console.error('❌ 휴무일 추가 오류:', holidayAddError);
+                throw holidayAddError;
+            }
+        }
+        
+        if (holidaysToRemove.length > 0) {
+            console.log('🏢 휴무일 제거:', holidaysToRemove);
+            const { error: holidayRemoveError } = await db.from('company_holidays')
+                .delete()
+                .in('date', holidaysToRemove);
+            if (holidayRemoveError) {
+                console.error('❌ 휴무일 제거 오류:', holidayRemoveError);
+                throw holidayRemoveError;
+            }
+        }
+
+        console.log('✅ ========== 저장 완료 ==========');
+        alert('스케줄이 성공적으로 저장되었습니다.');
+        
+        // ✅ STEP 7: 다시 불러오기
+        console.log('🔄 데이터 다시 불러오는 중...');
         await loadAndRenderScheduleData(state.schedule.currentDate);
+        console.log('✅ 화면 갱신 완료');
+        
     } catch (error) {
-        console.error('스케줄 저장 실패:', error);
-        alert(`스케줄 저장에 실패했습니다: ${error.message}`);
-    } finally {
-        updateSaveButtonState();
+        console.error('❌ ========== 저장 실패 ==========');
+        console.error('오류 상세:', error);
+        alert(`스케줄 저장에 실패했습니다.\n\n오류: ${error.message}\n\n콘솔을 확인해주세요.`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 스케줄 저장';
     }
 }
 
@@ -384,92 +559,71 @@ function initializeDayDragDrop(dayEl, dateStr) {
 }
 
 function getWorkingEmployeesOnDate(dateStr) {
-    const filteredEmployees = getFilteredEmployees();
-    const masterOrderMap = new Map();
-    state.schedule.teamLayout.data.flatMap(team => team.members)
-        .forEach((id, index) => {
-            if (typeof id === 'number') masterOrderMap.set(id, index);
-        });
-
     const workingEmps = [];
     
-    filteredEmployees.forEach(emp => {
-        const explicitSchedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
-        
-        if (explicitSchedule) {
-            if (explicitSchedule.status === '근무') {
+    // ✅ DB에 명시적으로 '근무' 상태로 저장된 직원만 표시
+    state.schedule.schedules.forEach(schedule => {
+        if (schedule.date === dateStr && schedule.status === '근무') {
+            const emp = state.management.employees.find(e => e.id === schedule.employee_id);
+            if (emp) {
                 workingEmps.push(emp);
             }
-            return;
-        }
-        
-        const isLeave = state.management.leaveRequests.some(r => r.status === 'approved' && r.employee_id === emp.id && r.dates.includes(dateStr));
-        const isHoliday = state.schedule.companyHolidays.has(dateStr);
-        const isDefaultOff = dayjs(dateStr).day() === 0;
-        
-        if (!isLeave && !isHoliday && !isDefaultOff) {
-            workingEmps.push(emp);
         }
     });
 
+    // ✅ grid_position 기준 정렬
     workingEmps.sort((a, b) => {
         const scheduleA = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === a.id);
         const scheduleB = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === b.id);
 
-        const orderA = scheduleA?.sort_order;
-        const orderB = scheduleB?.sort_order;
+        const posA = scheduleA?.grid_position;
+        const posB = scheduleB?.grid_position;
 
-        if (orderA !== null && typeof orderA !== 'undefined' && orderB !== null && typeof orderB !== 'undefined') return orderA - orderB;
-        if (orderA !== null && typeof orderA !== 'undefined') return -1;
-        if (orderB !== null && typeof orderB !== 'undefined') return 1;
+        if (posA != null && posB != null) return posA - posB;
+        if (posA != null) return -1;
+        if (posB != null) return 1;
 
-        const masterIndexA = masterOrderMap.get(a.id) ?? 999;
-        const masterIndexB = masterOrderMap.get(b.id) ?? 999;
-        
-        return masterIndexA - masterIndexB;
+        return a.id - b.id;
     });
 
     return workingEmps;
 }
 
 function getOffEmployeesOnDate(dateStr) {
-    const filteredEmployees = getFilteredEmployees();
-    const masterOrderMap = new Map();
-    state.schedule.teamLayout.data.flatMap(team => team.members)
-        .forEach((id, index) => {
-            if (typeof id === 'number') masterOrderMap.set(id, index);
-        });
-
     const offEmps = [];
     
-    filteredEmployees.forEach(emp => {
-        const explicitSchedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
-        
-        if (explicitSchedule && explicitSchedule.status === '휴무') {
-            offEmps.push({ employee: emp, schedule: explicitSchedule, type: '휴무' });
-            return;
+    // ✅ 1. DB에 명시적으로 '휴무' 상태로 저장된 직원
+    state.schedule.schedules.forEach(schedule => {
+        if (schedule.date === dateStr && schedule.status === '휴무') {
+            const emp = state.management.employees.find(e => e.id === schedule.employee_id);
+            if (emp) {
+                offEmps.push({ employee: emp, schedule: schedule, type: '휴무' });
+            }
         }
-        
-        if (!explicitSchedule) {
-            const isLeave = state.management.leaveRequests.some(r => r.status === 'approved' && r.employee_id === emp.id && r.dates.includes(dateStr));
-            if (isLeave) {
+    });
+    
+    // ✅ 2. 승인된 연차 (DB에 스케줄 없어도 표시)
+    state.management.leaveRequests.forEach(req => {
+        if (req.status === 'approved' && req.dates?.includes(dateStr)) {
+            const emp = state.management.employees.find(e => e.id === req.employee_id);
+            // DB에 이미 휴무로 저장된 경우는 제외 (중복 방지)
+            const alreadyAdded = offEmps.some(item => item.employee.id === req.employee_id);
+            if (emp && !alreadyAdded) {
                 offEmps.push({ employee: emp, schedule: null, type: 'leave' });
             }
         }
     });
     
+    // ✅ grid_position 기준 정렬
     offEmps.sort((a, b) => {
-        const orderA = a.schedule?.sort_order;
-        const orderB = b.schedule?.sort_order;
+        const posA = a.schedule?.grid_position;
+        const posB = b.schedule?.grid_position;
 
-        if (orderA !== null && typeof orderA !== 'undefined' && orderB !== null && typeof orderB !== 'undefined') return orderA - orderB;
-        if (orderA !== null && typeof orderA !== 'undefined') return -1;
-        if (orderB !== null && typeof orderB !== 'undefined') return 1;
+        if (posA != null && posB != null) return posA - posB;
+        if (posA != null) return -1;
+        if (posB != null) return 1;
 
-        const masterIndexA = masterOrderMap.get(a.employee.id) ?? 999;
-        const masterIndexB = masterOrderMap.get(b.employee.id) ?? 999;
-        
-        return masterIndexA - masterIndexB;
+        return a.employee.id - b.employee.id;
     });
 
     return offEmps;
