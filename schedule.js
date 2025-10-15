@@ -23,12 +23,13 @@ function updateScheduleSortOrders(dateStr) {
     const eventContainer = dayEl.querySelector('.day-events');
     if (!eventContainer) return;
     
-    // 현재 화면의 모든 카드를 순서대로 수집 (빈칸 포함)
+    // 현재 화면의 실제 직원 카드만 수집 (빈칸 제외)
     const currentCards = [];
     const eventCards = eventContainer.querySelectorAll('.event-card');
     eventCards.forEach((card, index) => {
         const empId = parseInt(card.dataset.employeeId, 10);
-        if (!isNaN(empId)) {
+        // ✅ 양수 ID(실제 직원)만 수집
+        if (!isNaN(empId) && empId > 0) {
             currentCards.push({
                 employee_id: empId,
                 grid_position: index
@@ -188,7 +189,8 @@ function updateAllGridPositions() {
         const eventCards = eventContainer.querySelectorAll('.event-card');
         eventCards.forEach((card, gridIndex) => {
             const empId = parseInt(card.dataset.employeeId, 10);
-            if (isNaN(empId)) return;
+            // ✅ 양수 ID(실제 직원)만 처리
+            if (isNaN(empId) || empId <= 0) return;
             
             let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
             
@@ -262,22 +264,23 @@ async function handleSaveSchedules() {
             const eventContainer = dayEl.querySelector('.day-events');
             if (!eventContainer) return;
             
-            const eventCards = eventContainer.querySelectorAll('.event-card');
-            eventCards.forEach((card, gridIndex) => {
+            const eventCards = eventContainer.querySelectorAll('.event-card, .event-slot');
+            eventCards.forEach((card) => {
                 const empId = parseInt(card.dataset.employeeId, 10);
                 const type = card.dataset.type;
+                const position = parseInt(card.dataset.position, 10);
                 
-                // ✅ 빈칸(-1)도 저장, 연차(leave)만 제외
-                if (isNaN(empId) || type === 'leave') return;
+                // ✅ 실제 직원만 저장 (양수 ID), 빈칸/빈슬롯/연차 제외
+                if (isNaN(empId) || empId <= 0 || type === 'leave' || type === 'empty') return;
                 
                 const status = card.classList.contains('event-off') ? '휴무' : '근무';
                 
                 schedulesToSave.push({
                     date: dateStr,
-                    employee_id: empId, // -1이면 빈칸
+                    employee_id: empId,
                     status: status,
-                    sort_order: gridIndex,
-                    grid_position: gridIndex
+                    sort_order: position,
+                    grid_position: position
                 });
             });
         });
