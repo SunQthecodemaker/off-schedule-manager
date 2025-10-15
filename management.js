@@ -552,7 +552,7 @@ export function getLeaveListHTML() {
         
         <!-- 달력 보기 -->
         <div>
-            <h3 class="text-md font-semibold mb-2">📅 달력 보기</h3>
+            <h3 class="text-md font-semibold mb-2">📅 연차 현황 달력</h3>
             <div class="flex flex-wrap gap-2 mb-2 items-center">
                 <div class="flex gap-2">
                     <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-yellow-500 text-white">대기중</button>
