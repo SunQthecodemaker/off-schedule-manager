@@ -54,7 +54,7 @@ export async function renderEmployeePortal() {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div class="bg-blue-100 p-4 rounded shadow">
                     <p class="text-sm text-gray-700">확정 연차</p>
                     <p class="text-2xl font-bold">${leaveDetails.final}일</p>
@@ -66,6 +66,10 @@ export async function renderEmployeePortal() {
                 <div class="bg-yellow-100 p-4 rounded shadow">
                     <p class="text-sm text-gray-700">잔여 연차</p>
                     <p class="text-2xl font-bold" id="remaining-leaves">계산 중...</p>
+                </div>
+                <div class="bg-purple-100 p-4 rounded shadow">
+                    <p class="text-sm text-gray-700">연차 갱신일</p>
+                    <p class="text-lg font-bold">${user.leave_renewal_date ? dayjs(user.leave_renewal_date).format('YYYY-MM-DD') : '미설정'}</p>
                 </div>
             </div>
 
