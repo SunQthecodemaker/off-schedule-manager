@@ -866,8 +866,8 @@ function initializeEmployeeCalendar(approvedRequests) {
     employeeCalendarInstance = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         headerToolbar: {
-            left: 'prev,next today',
-            center: 'title',
+            left: 'today',
+            center: 'prev title next',
             right: 'dayGridMonth'
         },
         // 전체 달력이 세로 스크롤 없이 보이도록 자동 높이 설정

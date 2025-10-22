@@ -4,6 +4,13 @@
 
 .hidden { display: none !important; }
 
+/* FullCalendar 툴바 버튼 간격 조정 */
+.fc-toolbar-chunk {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .main-tab-btn {
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
@@ -795,6 +802,13 @@
 
     .fc-daygrid-day-number {
         font-size: 0.75rem;
+    }
+
+    /* FullCalendar 툴바 버튼 간격 조정 */
+    .fc-toolbar-chunk {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
 
     /* 모달 */
