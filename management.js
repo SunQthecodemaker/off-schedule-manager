@@ -708,7 +708,7 @@ window.renderLeaveCalendar = function() {
         headerToolbar: {
             left: 'today',
             center: 'prev title next',
-            right: 'dayGridMonth'
+            right: ''
         },
         locale: 'ko',
         events: events,

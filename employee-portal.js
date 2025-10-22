@@ -868,7 +868,7 @@ function initializeEmployeeCalendar(approvedRequests) {
         headerToolbar: {
             left: 'today',
             center: 'prev title next',
-            right: 'dayGridMonth'
+            right: ''
         },
         // 전체 달력이 세로 스크롤 없이 보이도록 자동 높이 설정
         height: 'auto',
