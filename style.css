@@ -708,17 +708,35 @@
         text-align: left;
     }
 
-    /* 연차 정보 카드 - 모바일에서도 3개의 카드를 한 줄에 배치 */
+    /* 연차 정보 카드 - 한줄 배치 */
     #employee-portal .grid.grid-cols-1.md\:grid-cols-3 {
-        /* 세로로 길게 늘어놓지 않고 3개의 컬럼을 동일 너비로 배치합니다. */
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0.5rem;
+        display: flex !important;
+        gap: 0.25rem;
+        overflow-x: visible;
+        justify-content: flex-start;
     }
 
     #employee-portal .bg-blue-100,
     #employee-portal .bg-green-100,
     #employee-portal .bg-yellow-100 {
-        padding: 0.75rem;
+        flex: 0 0 auto;
+        min-width: auto;
+        padding: 0.5rem;
+        text-align: center;
+    }
+
+    #employee-portal .bg-blue-100 h3,
+    #employee-portal .bg-green-100 h3,
+    #employee-portal .bg-yellow-100 h3 {
+        font-size: 0.7rem;
+        margin-bottom: 0.125rem;
+    }
+
+    #employee-portal .bg-blue-100 p,
+    #employee-portal .bg-green-100 p,
+    #employee-portal .bg-yellow-100 p {
+        font-size: 1rem;
+        font-weight: 700;
     }
 
     /* 탭 버튼 */
@@ -735,9 +753,35 @@
         -webkit-overflow-scrolling: touch;
     }
 
-    /* FullCalendar 반응형 */
+    /* FullCalendar 반응형 - 스크롤 제거 */
     .fc {
         font-size: 0.8rem;
+        height: auto !important;
+    }
+
+    .fc-view-harness {
+        height: auto !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    .fc-daygrid-body {
+        height: auto !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    .fc-scrollgrid {
+        overflow: visible !important;
+        height: auto !important;
+    }
+
+    .fc-scrollgrid-sync-table {
+        height: auto !important;
+    }
+
+    .fc-daygrid-body-unbalanced .fc-daygrid-day-events {
+        min-height: auto !important;
     }
 
     .fc-toolbar-title {
@@ -763,15 +807,79 @@
         overflow-y: auto;
     }
 
-    /* 내 연차 신청 내역 */
+    /* 내 연차 신청 내역 - 버튼 한줄 표시 */
     #my-leave-requests .space-y-4 > div {
-        padding: 0.75rem;
+        padding: 0.5rem;
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
     }
 
-    /* 서류 제출 카드 */
+    #my-leave-requests .space-y-4 > div > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+    }
+
+    #my-leave-requests .space-y-4 > div .bg-green-100,
+    #my-leave-requests .space-y-4 > div .bg-red-100,
+    #my-leave-requests .space-y-4 > div .bg-yellow-100 {
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    #my-leave-requests .space-y-4 > div button {
+        white-space: nowrap;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    #my-leave-requests .text-sm {
+        font-size: 0.7rem !important;
+    }
+
+    /* 서류 제출 카드 - 버튼 한줄 표시 */
     #document-requests-list .bg-white,
     #submitted-docs-list .bg-white {
-        padding: 0.75rem;
+        padding: 0.5rem;
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    #document-requests-list .bg-white > div,
+    #submitted-docs-list .bg-white > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+    }
+
+    #document-requests-list .bg-green-100,
+    #document-requests-list .bg-yellow-100,
+    #submitted-docs-list .bg-green-100,
+    #submitted-docs-list .bg-yellow-100 {
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    #document-requests-list button,
+    #submitted-docs-list button {
+        white-space: nowrap;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    #document-requests-list .text-sm,
+    #submitted-docs-list .text-sm {
+        font-size: 0.7rem !important;
     }
 
     /* 버튼 크기 조정 */
@@ -780,21 +888,35 @@
         padding: 0.5rem 0.75rem;
     }
 
-    /* 달력 선택 버튼 컨테이너 - 모바일에서 버튼과 선택된 날짜를 한 줄로 표시 */
-    #employee-calendar-container .flex.justify-between {
+    /* 달력 선택 버튼 컨테이너 - 한줄 배치 */
+    #employee-calendar-container .flex.gap-2 {
+        display: flex;
         flex-direction: row;
-        flex-wrap: wrap;
-        gap: 0.5rem;
+        align-items: center;
+        gap: 0.25rem;
+        flex-wrap: nowrap;
+        margin-bottom: 0.5rem;
     }
 
-    #employee-calendar-container button {
-        width: auto;
-    }
-
-    /* 선택된 날짜 텍스트가 줄바꿈되지 않도록 설정 */
-    #employee-calendar-container #selected-dates-count,
-    #employee-calendar-container span {
+    #employee-calendar-container #selected-dates-count {
+        font-size: 0.7rem;
         white-space: nowrap;
+        flex-shrink: 0;
+        margin: 0;
+    }
+
+    #employee-calendar-container #clear-selection-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    #employee-calendar-container #submit-leave-request-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 }
 
@@ -847,17 +969,4 @@
     #employee-schedule-tab.tab-content:not(.hidden) > *:not(style) {
         display: none !important;
     }
-}
-
-/* ========================================
-    공통 스타일 - 소형 배지/버튼 줄바꿈 방지
-   ======================================== */
-/* 표 안의 아주 작은 텍스트나 버튼들이 모바일에서 줄바꿈되는 현상을 방지합니다. */
-table td span.text-xs,
-table td a.text-xs,
-table td button.text-xs,
-table td span.text-sm,
-table td a.text-sm,
-table td button.text-sm {
-    white-space: nowrap;
 }
