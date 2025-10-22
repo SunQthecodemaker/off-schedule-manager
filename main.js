@@ -14,13 +14,14 @@ dayjs.extend(window.dayjs_plugin_isSameOrAfter);
 export function getLeaveDetails(employee, referenceDate = null) {
     if (!employee || !employee.entryDate) return { legal: 0, adjustment: 0, final: 0, carriedOver: 0, note: '' };
     
-    const { entryDate, leave_renewal_date, leave_adjustment } = employee;
+    const { entryDate, leave_renewal_date, leave_adjustment, work_days_per_week } = employee;
+    const workDays = work_days_per_week || 5; // 기본값 5일
     const today = referenceDate ? dayjs(referenceDate) : dayjs();
     const entryDay = dayjs(entryDate);
     const firstAnniversary = entryDay.add(1, 'year');
     
     let legalLeaves = 0;
-    let carriedOver = 0; // 이월 소수점
+    let carriedOver = 0;
     let note = '';
     
     // 입사 1년 미만 → 월차만
@@ -85,10 +86,28 @@ export function getLeaveDetails(employee, referenceDate = null) {
     // 최대 25일 제한
     legalLeaves = Math.min(Math.max(0, legalLeaves), 25);
     
-    const adjustment = leave_adjustment || 0;
-    const finalLeaves = legalLeaves + adjustment;
+    // 주 근무일수 비례 계산
+    const prorataLeavesExact = legalLeaves * (workDays / 5);
+    const prorataLeaves = Math.floor(prorataLeavesExact);
+    const workDaysCarriedOver = prorataLeavesExact - prorataLeaves;
     
-    return { legal: legalLeaves, adjustment: adjustment, final: finalLeaves, carriedOver: carriedOver, note: note };
+    // 소수점은 다음 갱신일에 이월
+    if (workDaysCarriedOver > 0) {
+        carriedOver += workDaysCarriedOver;
+        if (note) {
+            note = note.replace(/\d+\.\d+일/, (carriedOver).toFixed(2) + '일');
+        } else {
+            const renewalBase = leave_renewal_date ? dayjs(leave_renewal_date) : dayjs(entryDate).add(1, 'year');
+            const renewalThisYear = dayjs(`${today.year()}-${renewalBase.format('MM-DD')}`);
+            const nextRenewal = renewalThisYear.isAfter(today) ? renewalThisYear : renewalThisYear.add(1, 'year');
+            note = `다음 갱신일(${nextRenewal.format('YYYY-MM-DD')})에 ${carriedOver.toFixed(2)}일 이월 예정`;
+        }
+    }
+    
+    const adjustment = leave_adjustment || 0;
+    const finalLeaves = prorataLeaves + adjustment;
+    
+    return { legal: prorataLeaves, adjustment: adjustment, final: finalLeaves, carriedOver: carriedOver, note: note };
 }
 
 // =========================================================================================

@@ -936,12 +936,13 @@ export function getLeaveManagementHTML() {
     const { employees, leaveRequests } = state.management;
     
     const headers = [
-        { name: '이름', width: '10%' },
-        { name: '입사일', width: '10%' },
-        { name: '연차 기준일', width: '10%' },
-        { name: '다음 갱신일', width: '10%' },
+        { name: '이름', width: '8%' },
+        { name: '입사일', width: '8%' },
+        { name: '근무일수', width: '7%' },
+        { name: '연차 기준일', width: '9%' },
+        { name: '다음 갱신일', width: '9%' },
         { name: '법정', width: '5%' },
-        { name: '조정', width: '8%' },
+        { name: '조정', width: '7%' },
         { name: '확정', width: '5%' },
         { name: '사용', width: '5%' },
         { name: '잔여', width: '5%' },
@@ -963,10 +964,23 @@ export function getLeaveManagementHTML() {
         
         const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
         const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
+        const workDaysValue = emp.work_days_per_week || 5;
         
         return `<tr class="border-t">
             <td class="p-2 text-sm font-semibold">${emp.name}</td>
             <td class="p-2 text-sm">${entryDateValue}</td>
+            <td class="p-2">
+                <select id="leave-workdays-${emp.id}" class="table-input text-center text-xs w-16">
+                    <option value="1" ${workDaysValue === 1 ? 'selected' : ''}>주1일</option>
+                    <option value="2" ${workDaysValue === 2 ? 'selected' : ''}>주2일</option>
+                    <option value="3" ${workDaysValue === 3 ? 'selected' : ''}>주3일</option>
+                    <option value="4" ${workDaysValue === 4 ? 'selected' : ''}>주4일</option>
+                    <option value="5" ${workDaysValue === 5 ? 'selected' : ''}>주5일</option>
+                    <option value="6" ${workDaysValue === 6 ? 'selected' : ''}>주6일</option>
+                    <option value="7" ${workDaysValue === 7 ? 'selected' : ''}>주7일</option>
+                </select>
+            </td>
+            </td>
             <td class="p-2"><input type="date" id="leave-renewal-${emp.id}" value="${renewalDateValue}" class="table-input text-xs"></td>
             <td class="p-2 text-sm text-center" id="leave-next-renewal-${emp.id}">${nextRenewalDate}</td>
             <td class="p-2 text-sm text-center">${leaveData.legal}</td>
@@ -984,7 +998,7 @@ export function getLeaveManagementHTML() {
     return `
         <div class="mb-3">
             <h2 class="text-lg font-semibold">연차 관리</h2>
-            <p class="text-sm text-gray-600 mt-1">직원별 연차 기준일과 조정값을 관리합니다.</p>
+            <p class="text-sm text-gray-600 mt-1">직원별 연차 기준일과 조정값을 관리합니다. 법정 연차는 주5일 기준으로 계산 후 근무일수에 비례 적용됩니다.</p>
         </div>
         <div class="overflow-x-auto">
             <table class="fixed-table whitespace-nowrap text-sm mb-6">
@@ -998,12 +1012,14 @@ export function getLeaveManagementHTML() {
 window.handleUpdateLeave = async function(id) {
     const leave_renewal_date = _(`#leave-renewal-${id}`).value || null;
     const leave_adjustment = parseInt(_(`#leave-adj-${id}`).value) || 0;
+    const work_days_per_week = parseInt(_(`#leave-workdays-${id}`).value) || 5;
     
-    console.log('💾 연차 업데이트:', { id, leave_renewal_date, leave_adjustment });
+    console.log('💾 연차 업데이트:', { id, leave_renewal_date, leave_adjustment, work_days_per_week });
     
     const { data, error } = await db.from('employees').update({
         leave_renewal_date,
-        leave_adjustment
+        leave_adjustment,
+        work_days_per_week
     }).eq('id', id).select();
     
     console.log('✅ DB 응답:', { data, error });
