@@ -870,6 +870,8 @@ function initializeEmployeeCalendar(approvedRequests) {
             center: 'title',
             right: 'dayGridMonth'
         },
+        // 전체 달력이 세로 스크롤 없이 보이도록 자동 높이 설정
+        height: 'auto',
         locale: 'ko',
         selectable: false,  // ✅ select 기능 비활성화
         selectMirror: false,
