@@ -63,6 +63,40 @@ function addManagementEventListeners() {
             }
         }
     });
+    
+    // ✅ 연차 기준일 변경 시 다음 갱신일 자동 업데이트
+    const renewalInputs = document.querySelectorAll('.renewal-date-input');
+    renewalInputs.forEach(input => {
+        input.addEventListener('change', (e) => {
+            const empId = e.target.dataset.empId;
+            const entryDate = e.target.dataset.entryDate;
+            const renewalValue = e.target.value;
+            
+            // 다음 갱신일 계산
+            let nextRenewalDate;
+            if (renewalValue) {
+                const baseDate = dayjs(renewalValue);
+                const today = dayjs();
+                const renewalThisYear = baseDate.year(today.year());
+                nextRenewalDate = renewalThisYear.isSameOrAfter(today, 'day') 
+                    ? renewalThisYear.format('YYYY-MM-DD')
+                    : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
+            } else if (entryDate) {
+                const baseDate = dayjs(entryDate).add(1, 'year');
+                const today = dayjs();
+                const renewalThisYear = baseDate.year(today.year());
+                nextRenewalDate = renewalThisYear.isSameOrAfter(today, 'day') 
+                    ? renewalThisYear.format('YYYY-MM-DD')
+                    : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
+            }
+            
+            // 다음 갱신일 표시 업데이트
+            const nextRenewalCell = _(`#next-renewal-${empId}`);
+            if (nextRenewalCell && nextRenewalDate) {
+                nextRenewalCell.textContent = nextRenewalDate;
+            }
+        });
+    });
 }
 
 function updateBulkDeleteButtonState() {
@@ -79,22 +113,27 @@ async function handleUpdateEmployee(id) {
     const entryDate = _(`#entry-${id}`).value;
     const email = _(`#email-${id}`).value;
     const department_id = parseInt(_(`#dept-${id}`).value, 10);
-    const leave_renewal_date = _(`#renewal-${id}`).value || null;
-    const leave_adjustment = parseInt(_(`#adj-${id}`).value);
-    const adjustment_notes = _(`#notes-${id}`).value;
     const managerCheckbox = _(`#manager-${id}`);
     const isManager = managerCheckbox ? managerCheckbox.checked : false;
 
-    const { error } = await db.from('employees').update({
+    console.log('💾 업데이트 데이터:', {
+        id,
         name,
         entryDate,
         email,
         department_id,
-        leave_renewal_date,
-        leave_adjustment,
-        adjustment_notes,
         isManager
-    }).eq('id', id);
+    });
+
+    const { data, error } = await db.from('employees').update({
+        name,
+        entryDate,
+        email,
+        department_id,
+        isManager
+    }).eq('id', id).select();
+
+    console.log('✅ DB 응답:', { data, error });
 
     if (error) {
         alert('직원 정보 업데이트 실패: ' + error.message);
@@ -223,7 +262,7 @@ window.handleIssueSubmit = async function(e) {
 // =========================================================================================
 
 export function getManagementHTML() {
-    const { employees, leaveRequests, departments } = state.management;
+    const { employees, departments } = state.management;
     const departmentOptions = (currentDeptId = null) => {
         let options = departments.map(d => `<option value="${d.id}" ${d.id === currentDeptId ? 'selected' : ''}>${d.name}</option>`).join('');
         if (currentDeptId === null) {
@@ -233,32 +272,19 @@ export function getManagementHTML() {
     };
 
     const headers = [
-        { name: '<input type="checkbox" id="selectAllCheckbox" class="cursor-pointer">', width: '3%' },
-        { name: '이름', width: '7%' }, 
-        { name: '부서', width: '7%' }, 
-        { name: '입사일', width: '7%' }, 
-        { name: '이메일', width: '9%' }, 
-        { name: '비밀번호', width: '5%' }, 
-        { name: '매니저', width: '4%' }, 
-        { name: '연차 기준일', width: '7%' }, 
-        { name: '다음 갱신일', width: '7%' }, 
-        { name: '법정', width: '3%' }, 
-        { name: '조정', width: '7%' }, 
-        { name: '비고', width: '7%' }, 
-        { name: '확정', width: '3%' }, 
-        { name: '사용', width: '3%' }, 
-        { name: '잔여', width: '3%' }, 
-        { name: '관리', width: '10%' }
+        { name: '<input type="checkbox" id="selectAllCheckbox" class="cursor-pointer">', width: '5%' },
+        { name: '이름', width: '15%' }, 
+        { name: '부서', width: '15%' }, 
+        { name: '입사일', width: '15%' }, 
+        { name: '이메일', width: '20%' }, 
+        { name: '비밀번호', width: '10%' }, 
+        { name: '매니저', width: '8%' }, 
+        { name: '관리', width: '12%' }
     ];
     const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
 
     const rows = employees.map(emp => {
-        const leaveData = getLeaveDetails(emp);
-        const used = leaveRequests.filter(r => r.employee_id === emp.id && r.status === 'approved').reduce((sum, r) => sum + (r.dates?.length || 0), 0);
-        const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
-        const nextRenewalDate = baseDate.year(dayjs().year()).isSameOrAfter(dayjs(), 'day') ? baseDate.year(dayjs().year()).format('YYYY-MM-DD') : baseDate.year(dayjs().year() + 1).format('YYYY-MM-DD');
         const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
-        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
         const managementButtons = `
             <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateEmployee(${emp.id})">저장</button> 
             <button class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1" onclick="handleDeleteEmployee(${emp.id})">삭제</button>
@@ -272,14 +298,6 @@ export function getManagementHTML() {
             <td class="p-2"><input type="email" id="email-${emp.id}" value="${emp.email || ''}" class="table-input"></td>
             <td class="p-2 text-center"><button class="text-xs bg-gray-500 text-white px-2 py-1 rounded">재설정</button></td>
             <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${emp.isManager ? 'checked' : ''} class="cursor-pointer w-4 h-4"></td>
-            <td class="p-2"><input type="date" id="renewal-${emp.id}" value="${renewalDateValue}" class="table-input"></td>
-            <td class="p-2 text-center align-middle">${nextRenewalDate}</td>
-            <td class="p-2 text-center align-middle">${leaveData.legal}</td>
-            <td class="p-2 text-center"><div class="flex items-center justify-center"><button class="stepper-btn rounded-l">-</button><input type="number" id="adj-${emp.id}" value="${leaveData.adjustment || 0}" class="table-input table-input-center w-16 text-center"><button class="stepper-btn rounded-r">+</button></div></td>
-            <td class="p-2"><input type="text" id="notes-${emp.id}" value="${emp.adjustment_notes || ''}" class="table-input"></td>
-            <td class="p-2 text-center align-middle font-bold">${leaveData.final}</td>
-            <td class="p-2 text-center align-middle">${used}</td>
-            <td class="p-2 text-center align-middle font-bold">${leaveData.final - used}</td>
             <td class="p-2 text-center">${managementButtons}</td>
         </tr>`;
     }).join('');
@@ -296,7 +314,7 @@ export function getManagementHTML() {
             <td class="p-2"><input type="date" id="newEntry" value="${dayjs().format('YYYY-MM-DD')}" class="table-input"></td>
             <td class="p-2"><input type="email" id="newEmail" class="table-input" placeholder="이메일"></td>
             <td class="p-2"><input type="password" id="newPassword" class="table-input" placeholder="초기 비밀번호"></td>
-            <td class="p-2" colspan="8"></td>
+            <td class="p-2"></td>
             <td class="p-2 text-center"><button class="text-sm bg-green-600 text-white px-2 py-1 rounded w-full" onclick="handleAddEmployee()">추가</button></td>
         </tr>`;
 
@@ -910,3 +928,90 @@ export async function handleBulkRegister() {
         await window.loadAndRenderManagement();
     }
 }
+// =========================================================================================
+// 연차 관리 HTML (새로운 탭)
+// =========================================================================================
+
+export function getLeaveManagementHTML() {
+    const { employees, leaveRequests } = state.management;
+    
+    const headers = [
+        { name: '이름', width: '10%' },
+        { name: '입사일', width: '10%' },
+        { name: '연차 기준일', width: '10%' },
+        { name: '다음 갱신일', width: '10%' },
+        { name: '법정', width: '5%' },
+        { name: '조정', width: '8%' },
+        { name: '확정', width: '5%' },
+        { name: '사용', width: '5%' },
+        { name: '잔여', width: '5%' },
+        { name: '이월 예정', width: '22%' },
+        { name: '관리', width: '10%' }
+    ];
+    
+    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
+    
+    const rows = employees.map(emp => {
+        const leaveData = getLeaveDetails(emp);
+        const used = leaveRequests.filter(r => r.employee_id === emp.id && r.status === 'approved').reduce((sum, r) => sum + (r.dates?.length || 0), 0);
+        const remaining = leaveData.final - used;
+        
+        // 다음 갱신일 계산
+        const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
+        const renewalThisYear = dayjs(`${dayjs().year()}-${baseDate.format('MM-DD')}`);
+        const nextRenewalDate = renewalThisYear.isAfter(dayjs()) ? renewalThisYear.format('YYYY-MM-DD') : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
+        
+        const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
+        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
+        
+        return `<tr class="border-t">
+            <td class="p-2 text-sm font-semibold">${emp.name}</td>
+            <td class="p-2 text-sm">${entryDateValue}</td>
+            <td class="p-2"><input type="date" id="leave-renewal-${emp.id}" value="${renewalDateValue}" class="table-input text-xs"></td>
+            <td class="p-2 text-sm text-center" id="leave-next-renewal-${emp.id}">${nextRenewalDate}</td>
+            <td class="p-2 text-sm text-center">${leaveData.legal}</td>
+            <td class="p-2"><input type="number" id="leave-adj-${emp.id}" value="${leaveData.adjustment || 0}" class="table-input text-center text-xs w-16"></td>
+            <td class="p-2 text-sm text-center font-bold">${leaveData.final}</td>
+            <td class="p-2 text-sm text-center">${used}</td>
+            <td class="p-2 text-sm text-center font-bold ${remaining < 0 ? 'text-red-600' : ''}">${remaining}</td>
+            <td class="p-2 text-xs text-gray-600">${leaveData.note || '-'}</td>
+            <td class="p-2 text-center">
+                <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateLeave(${emp.id})">저장</button>
+            </td>
+        </tr>`;
+    }).join('');
+    
+    return `
+        <div class="mb-3">
+            <h2 class="text-lg font-semibold">연차 관리</h2>
+            <p class="text-sm text-gray-600 mt-1">직원별 연차 기준일과 조정값을 관리합니다.</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="fixed-table whitespace-nowrap text-sm mb-6">
+                <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+// 연차 정보 업데이트
+window.handleUpdateLeave = async function(id) {
+    const leave_renewal_date = _(`#leave-renewal-${id}`).value || null;
+    const leave_adjustment = parseInt(_(`#leave-adj-${id}`).value) || 0;
+    
+    console.log('💾 연차 업데이트:', { id, leave_renewal_date, leave_adjustment });
+    
+    const { data, error } = await db.from('employees').update({
+        leave_renewal_date,
+        leave_adjustment
+    }).eq('id', id).select();
+    
+    console.log('✅ DB 응답:', { data, error });
+    
+    if (error) {
+        alert('연차 정보 업데이트 실패: ' + error.message);
+    } else {
+        alert('연차 정보가 성공적으로 저장되었습니다.');
+        await window.loadAndRenderManagement();
+    }
+};

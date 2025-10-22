@@ -43,6 +43,28 @@ export async function renderEmployeePortal() {
     
     // ✅ isManager 필드 확인 (디버깅용 로그)
     console.log('👤 현재 사용자:', user.name, '/ isManager:', user.isManager);
+    console.log('📅 연차 갱신일:', user.leave_renewal_date);
+    console.log('👤 전체 사용자 정보:', user);
+    
+    // 갱신일 계산
+    let renewalDateText = '미설정';
+    if (user.leave_renewal_date) {
+        // DB에 갱신일이 설정되어 있으면 그 날짜 사용
+        const today = dayjs();
+        const renewalThisYear = dayjs(user.leave_renewal_date).year(today.year());
+        const nextRenewal = today.isAfter(renewalThisYear) 
+            ? renewalThisYear.add(1, 'year') 
+            : renewalThisYear;
+        renewalDateText = nextRenewal.format('YYYY-MM-DD');
+    } else if (user.entryDate) {
+        // 갱신일이 없으면 입사일 기준으로 계산
+        const today = dayjs();
+        const entryAnniversaryThisYear = dayjs(user.entryDate).year(today.year());
+        const nextAnniversary = today.isAfter(entryAnniversaryThisYear) 
+            ? entryAnniversaryThisYear.add(1, 'year') 
+            : entryAnniversaryThisYear;
+        renewalDateText = nextAnniversary.format('YYYY-MM-DD');
+    }
 
     portal.innerHTML = `
         <div class="max-w-full mx-auto">
@@ -69,7 +91,7 @@ export async function renderEmployeePortal() {
                 </div>
                 <div class="bg-purple-100 p-4 rounded shadow">
                     <p class="text-sm text-gray-700">연차 갱신일</p>
-                    <p class="text-lg font-bold">${user.leave_renewal_date ? dayjs(user.leave_renewal_date).format('YYYY-MM-DD') : '미설정'}</p>
+                    <p class="text-lg font-bold">${renewalDateText}</p>
                 </div>
             </div>
 
