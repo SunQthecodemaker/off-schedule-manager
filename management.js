@@ -706,8 +706,8 @@ window.renderLeaveCalendar = function() {
     const calendar = new FullCalendar.Calendar(_('#leave-fullcalendar'), {
         initialView: 'dayGridMonth',
         headerToolbar: {
-            left: 'prev,next today',
-            center: 'title',
+            left: 'today',
+            center: 'prev title next',
             right: 'dayGridMonth'
         },
         locale: 'ko',
