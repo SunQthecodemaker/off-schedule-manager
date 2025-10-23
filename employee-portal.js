@@ -48,6 +48,7 @@ export async function renderEmployeePortal() {
     
     // 갱신일 계산
     let renewalDateText = '미설정';
+    let renewalDateShort = '미설정';
     if (user.leave_renewal_date) {
         // DB에 갱신일이 설정되어 있으면 그 날짜 사용
         const today = dayjs();
@@ -56,6 +57,7 @@ export async function renderEmployeePortal() {
             ? renewalThisYear.add(1, 'year') 
             : renewalThisYear;
         renewalDateText = nextRenewal.format('YYYY-MM-DD');
+        renewalDateShort = nextRenewal.format('YY-MM-DD');
     } else if (user.entryDate) {
         // 갱신일이 없으면 입사일 기준으로 계산
         const today = dayjs();
@@ -64,6 +66,7 @@ export async function renderEmployeePortal() {
             ? entryAnniversaryThisYear.add(1, 'year') 
             : entryAnniversaryThisYear;
         renewalDateText = nextAnniversary.format('YYYY-MM-DD');
+        renewalDateShort = nextAnniversary.format('YY-MM-DD');
     }
 
     portal.innerHTML = `
@@ -76,22 +79,22 @@ export async function renderEmployeePortal() {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div class="bg-blue-100 p-4 rounded shadow">
-                    <p class="text-sm text-gray-700">확정 연차</p>
-                    <p class="text-2xl font-bold">${leaveDetails.final}일</p>
+            <div class="grid grid-cols-4 gap-2 sm:gap-4 mb-6">
+                <div class="bg-blue-100 p-2 sm:p-4 rounded shadow">
+                    <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">확정 연차</p>
+                    <p class="text-xl sm:text-2xl font-bold">${leaveDetails.final}일</p>
                 </div>
-                <div class="bg-green-100 p-4 rounded shadow">
-                    <p class="text-sm text-gray-700">사용 연차</p>
-                    <p class="text-2xl font-bold" id="used-leaves">계산 중...</p>
+                <div class="bg-green-100 p-2 sm:p-4 rounded shadow">
+                    <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">사용 연차</p>
+                    <p class="text-xl sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
                 </div>
-                <div class="bg-yellow-100 p-4 rounded shadow">
-                    <p class="text-sm text-gray-700">잔여 연차</p>
-                    <p class="text-2xl font-bold" id="remaining-leaves">계산 중...</p>
+                <div class="bg-yellow-100 p-2 sm:p-4 rounded shadow">
+                    <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">잔여 연차</p>
+                    <p class="text-xl sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
                 </div>
-                <div class="bg-purple-100 p-4 rounded shadow">
-                    <p class="text-sm text-gray-700">연차 갱신일</p>
-                    <p class="text-lg font-bold">${renewalDateText}</p>
+                <div class="bg-purple-100 p-2 sm:p-4 rounded shadow">
+                    <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">갱신일</p>
+                    <p class="text-base sm:text-xl font-semibold whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
             </div>
 
@@ -805,18 +808,44 @@ function renderMyLeaveRequests(requests) {
     }
 
     const statusBadges = {
-        pending: '<span class="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded-full">대기중</span>',
-        approved: '<span class="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full">승인됨</span>',
-        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full">반려됨</span>'
+        pending: '<span class="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">대기중</span>',
+        approved: '<span class="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">승인됨</span>',
+        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">반려됨</span>'
     };
 
-    const rows = requests.map(req => `
-        <tr class="border-b">
-            <td class="p-3">${(req.dates || []).join(', ')}</td>
-            <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD HH:mm')}</td>
-            <td class="p-3">${statusBadges[req.status] || req.status}</td>
-        </tr>
-    `).join('');
+    const rows = requests.map(req => {
+        // 날짜 간소화 로직
+        const dates = req.dates || [];
+        let dateDisplay = '';
+        
+        if (dates.length > 0) {
+            const firstDate = dayjs(dates[0]);
+            const parts = [firstDate.format('YYYY-MM-DD')];
+            
+            for (let i = 1; i < dates.length; i++) {
+                const currentDate = dayjs(dates[i]);
+                const prevDate = dayjs(dates[i-1]);
+                
+                if (currentDate.year() === prevDate.year() && currentDate.month() === prevDate.month()) {
+                    parts.push(currentDate.format('DD'));
+                } else if (currentDate.year() === prevDate.year()) {
+                    parts.push(currentDate.format('MM-DD'));
+                } else {
+                    parts.push(currentDate.format('YYYY-MM-DD'));
+                }
+            }
+            
+            dateDisplay = parts.join(', ');
+        }
+        
+        return `
+            <tr class="border-b">
+                <td class="p-3">${dateDisplay}</td>
+                <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')}</td>
+                <td class="p-3">${statusBadges[req.status] || req.status}</td>
+            </tr>
+        `;
+    }).join('');
 
     container.innerHTML = `
         <table class="min-w-full text-sm">
