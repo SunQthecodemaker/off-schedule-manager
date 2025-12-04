@@ -1122,8 +1122,24 @@ function renderCalendar() {
             const gridSlots = new Array(GRID_SIZE).fill(null);
             
             // 해당 날짜의 스케줄을 그리드 위치에 배치
+            
+            // ✅ 부서 필터 적용된 직원 ID 목록
+            const filteredEmployeeIds = new Set();
+            if (state.schedule.activeDepartmentFilters.size > 0) {
+                state.management.employees.forEach(emp => {
+                    if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
+                        filteredEmployeeIds.add(emp.id);
+                    }
+                });
+            }
             state.schedule.schedules.forEach(schedule => {
                 if (schedule.date === dateStr && schedule.status === '근무' && schedule.grid_position != null) {
+                    // ✅ 부서 필터가 있으면 필터링된 직원만 표시
+                    if (state.schedule.activeDepartmentFilters.size > 0) {
+                        if (!filteredEmployeeIds.has(schedule.employee_id) && schedule.employee_id > 0) {
+                            return; // 필터에 해당하지 않는 직원은 스킵
+                        }
+                    }
                     const pos = schedule.grid_position;
                     if (pos >= 0 && pos < GRID_SIZE) {
                         gridSlots[pos] = schedule;
