@@ -1,7 +1,7 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister } from './management.js';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js';
 import { renderEmployeePortal } from './employee-portal.js';
 
@@ -171,6 +171,10 @@ function renderManagementContent() {
         case 'schedule':
             renderScheduleManagement(container);
             break;
+        case 'leaveStatus':
+            container.innerHTML = getLeaveStatusHTML();
+            addLeaveStatusEventListeners();
+            break;
         case 'submittedDocs':
             renderDocumentReviewTab(container);
             break;
@@ -202,6 +206,7 @@ function renderManagementTabs() {
     const tabs = [
         { id: 'leaveList', text: '연차 신청 목록' },
         { id: 'schedule', text: '스케줄 관리' },
+        { id: 'leaveStatus', text: '연차 현황' },
         { id: 'submittedDocs', text: '서류 검토' },
         { id: 'management', text: '직원 관리' },
         { id: 'leaveManagement', text: '연차 관리' },

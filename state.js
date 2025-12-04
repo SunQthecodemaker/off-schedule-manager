@@ -35,6 +35,7 @@ export const state = {
         documentRequests: [],
         activeFilters: new Set(['pending', 'approved']),
         editingTemplateId: null,
+        positions: [],
     },
     schedule: {
         currentDate: dayjs().format('YYYY-MM-DD'),

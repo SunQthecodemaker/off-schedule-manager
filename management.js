@@ -1031,3 +1031,174 @@ window.handleUpdateLeave = async function(id) {
         await window.loadAndRenderManagement();
     }
 };
+// =========================================================================================
+// 연차 현황 기능
+// =========================================================================================
+
+export function getLeaveStatusHTML() {
+    const { employees, leaveRequests } = state.management;
+    
+    // 각 직원의 연차 데이터 수집
+    const employeeLeaveData = employees.map(emp => {
+        const leaveDetails = getLeaveDetails(emp);
+        const usedDays = leaveRequests
+            .filter(req => req.employee_id === emp.id && req.status === 'approved')
+            .reduce((sum, req) => sum + (req.dates?.length || 0), 0);
+        
+        const usedDates = leaveRequests
+            .filter(req => req.employee_id === emp.id && req.status === 'approved')
+            .flatMap(req => req.dates || [])
+            .sort();
+        
+        const remainingDays = leaveDetails.final - usedDays;
+        const usagePercent = leaveDetails.final > 0 ? Math.round((usedDays / leaveDetails.final) * 100) : 0;
+        
+        return {
+            ...emp,
+            leaveDetails,
+            usedDays,
+            remainingDays,
+            usagePercent,
+            usedDates
+        };
+    });
+    
+    // 부서별 필터링을 위한 부서 목록
+    const departments = [...new Set(employees.map(e => e.dept || e.departments?.name).filter(Boolean))];
+    
+    return `
+        <div class="leave-status-container">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">연차 현황</h2>
+                <div class="flex gap-2">
+                    <select id="dept-filter" class="border rounded px-3 py-2">
+                        <option value="">전체 부서</option>
+                        ${departments.map(dept => `<option value="${dept}">${dept}</option>`).join('')}
+                    </select>
+                    <select id="sort-filter" class="border rounded px-3 py-2">
+                        <option value="name">이름순</option>
+                        <option value="remaining-asc">잔여 적은 순</option>
+                        <option value="remaining-desc">잔여 많은 순</option>
+                        <option value="usage-desc">사용률 높은 순</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="leave-status-table-wrapper">
+                <table class="leave-status-table">
+                    <thead>
+                        <tr>
+                            <th>이름</th>
+                            <th>부서</th>
+                            <th>입사일</th>
+                            <th>확정연차</th>
+                            <th>사용연차</th>
+                            <th>잔여연차</th>
+                            <th>사용 현황</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leave-status-tbody">
+                        ${employeeLeaveData.map(emp => getLeaveStatusRow(emp)).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function getLeaveStatusRow(emp) {
+    const progressColor = emp.usagePercent <= 30 ? 'bg-green-500' :
+                         emp.usagePercent <= 70 ? 'bg-yellow-500' :
+                         emp.usagePercent <= 90 ? 'bg-orange-500' : 'bg-red-500';
+    
+    const deptName = emp.dept || emp.departments?.name || '-';
+    const formattedDates = emp.usedDates.map(d => dayjs(d).format('M/D')).join(', ');
+    const dateDisplay = emp.usedDates.length > 0 ? formattedDates : '사용 내역 없음';
+    
+    return `
+        <tr class="leave-status-row" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
+            <td class="font-semibold">${emp.name}</td>
+            <td>${deptName}</td>
+            <td>${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
+            <td class="text-center font-bold">${emp.leaveDetails.final}</td>
+            <td class="text-center">${emp.usedDays}</td>
+            <td class="text-center font-bold ${emp.remainingDays <= 3 ? 'text-red-600' : ''}">${emp.remainingDays}</td>
+            <td class="leave-progress-cell">
+                <div class="progress-bar-container">
+                    <div class="progress-bar ${progressColor}" style="width: ${emp.usagePercent}%"></div>
+                    <span class="progress-text">${emp.usagePercent}%</span>
+                </div>
+                <button class="toggle-dates-btn text-xs text-blue-600 mt-1" data-emp-id="${emp.id}">
+                    ▼ 상세 보기
+                </button>
+                <div class="used-dates-detail hidden" id="dates-${emp.id}">
+                    <div class="text-xs text-gray-600 mt-2 p-2 bg-gray-50 rounded">
+                        ${dateDisplay}
+                    </div>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+export function addLeaveStatusEventListeners() {
+    const deptFilter = document.getElementById('dept-filter');
+    const sortFilter = document.getElementById('sort-filter');
+    
+    if (deptFilter) {
+        deptFilter.addEventListener('change', filterAndSortLeaveStatus);
+    }
+    
+    if (sortFilter) {
+        sortFilter.addEventListener('change', filterAndSortLeaveStatus);
+    }
+    
+    // 상세 보기 토글
+    document.querySelectorAll('.toggle-dates-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const empId = e.target.dataset.empId;
+            const detailDiv = document.getElementById(`dates-${empId}`);
+            if (detailDiv) {
+                detailDiv.classList.toggle('hidden');
+                e.target.textContent = detailDiv.classList.contains('hidden') ? '▼ 상세 보기' : '▲ 접기';
+            }
+        });
+    });
+}
+
+function filterAndSortLeaveStatus() {
+    const deptFilter = document.getElementById('dept-filter').value;
+    const sortFilter = document.getElementById('sort-filter').value;
+    const tbody = document.getElementById('leave-status-tbody');
+    const rows = Array.from(tbody.querySelectorAll('.leave-status-row'));
+    
+    // 필터링
+    rows.forEach(row => {
+        const dept = row.dataset.dept;
+        if (deptFilter === '' || dept === deptFilter) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    // 정렬
+    const visibleRows = rows.filter(row => row.style.display !== 'none');
+    visibleRows.sort((a, b) => {
+        switch(sortFilter) {
+            case 'name':
+                return a.querySelector('td').textContent.localeCompare(b.querySelector('td').textContent);
+            case 'remaining-asc':
+                return parseInt(a.dataset.remaining) - parseInt(b.dataset.remaining);
+            case 'remaining-desc':
+                return parseInt(b.dataset.remaining) - parseInt(a.dataset.remaining);
+            case 'usage-desc':
+                return parseInt(b.dataset.usage) - parseInt(a.dataset.usage);
+            default:
+                return 0;
+        }
+    });
+    
+    // 재배치
+    visibleRows.forEach(row => tbody.appendChild(row));
+}
