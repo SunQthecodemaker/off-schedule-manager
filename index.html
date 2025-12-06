@@ -1,19 +1,22 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>연차 및 스케줄 관리 시스템</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="style.css?v=20251022-mobile" />
-    
+
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/isSameOrAfter.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
 </head>
+
 <body class="bg-gray-100 min-h-screen p-4">
 
     <div id="app">
@@ -24,8 +27,10 @@
                     <div id="employeeLoginContainer" class="space-y-4">
                         <h2 class="text-xl font-semibold">직원 로그인</h2>
                         <form id="employeeLoginForm" class="space-y-3">
-                            <input type="text" id="empLoginName" placeholder="직원 이름" class="w-full border p-3 rounded" required />
-                            <input type="password" id="empLoginPass" placeholder="비밀번호" class="w-full border p-3 rounded" required />
+                            <input type="text" id="empLoginName" placeholder="직원 이름" class="w-full border p-3 rounded"
+                                required />
+                            <input type="password" id="empLoginPass" placeholder="비밀번호"
+                                class="w-full border p-3 rounded" required />
                             <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded">로그인</button>
                         </form>
                         <button type="button" id="goToOwnerLoginBtn" class="text-blue-600 underline">관리자 로그인</button>
@@ -33,18 +38,22 @@
                     <div id="ownerLoginContainer" class="hidden space-y-4">
                         <h2 class="text-xl font-semibold">관리자 로그인</h2>
                         <form id="adminLoginForm" class="space-y-3">
-                            <input type="email" id="adminLoginId" placeholder="관리자 이메일" class="w-full border p-3 rounded" required />
-                            <input type="password" id="adminLoginPass" placeholder="비밀번호" class="w-full border p-3 rounded" required />
+                            <input type="email" id="adminLoginId" placeholder="관리자 이메일"
+                                class="w-full border p-3 rounded" required />
+                            <input type="password" id="adminLoginPass" placeholder="비밀번호"
+                                class="w-full border p-3 rounded" required />
                             <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">로그인</button>
                         </form>
-                        <button type="button" id="goToEmployeeLoginBtn" class="text-blue-600 underline">직원 로그인으로</button>
+                        <button type="button" id="goToEmployeeLoginBtn" class="text-blue-600 underline">직원
+                            로그인으로</button>
                     </div>
                 </div>
                 <div id="password-reset-container" class="hidden space-y-4">
                     <h2 class="text-xl font-semibold">새 비밀번호 설정</h2>
                     <p class="text-sm text-gray-600">새롭게 사용할 비밀번호를 입력해주세요.</p>
                     <form id="passwordResetForm" class="space-y-3">
-                        <input type="password" id="newPassword" placeholder="새 비밀번호 (6자리 이상)" class="w-full border p-3 rounded" required />
+                        <input type="password" id="newPassword" placeholder="새 비밀번호 (6자리 이상)"
+                            class="w-full border p-3 rounded" required />
                         <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded">비밀번호 변경하기</button>
                     </form>
                 </div>
@@ -62,10 +71,11 @@
                 <button id="close-reorder-modal-btn" class="text-3xl">&times;</button>
             </div>
             <div id="reorder-list" class="space-y-2 mb-4 min-h-[100px] max-h-[400px] overflow-y-auto">
-                </div>
+            </div>
             <div class="flex justify-end space-x-3 pt-4 border-t">
                 <button type="button" id="cancel-reorder-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
-                <button type="button" id="save-reorder-btn" class="px-4 py-2 bg-blue-600 text-white rounded">순서 저장</button>
+                <button type="button" id="save-reorder-btn" class="px-4 py-2 bg-blue-600 text-white rounded">순서
+                    저장</button>
             </div>
         </div>
     </div>
@@ -77,7 +87,7 @@
                 <button id="close-modal-btn" class="text-3xl">&times;</button>
             </div>
             <div>
-                 <div class="space-y-4">
+                <div class="space-y-4">
                     <div>
                         <label class="font-semibold">신청자</label>
                         <p id="form-applicant-name" class="mt-1 p-2 bg-gray-100 rounded"></p>
@@ -93,15 +103,18 @@
                     <div>
                         <div class="flex justify-between items-center">
                             <label class="font-semibold">서명</label>
-                            <button type="button" id="clear-signature-btn" class="text-sm text-blue-600">다시 서명하기</button>
+                            <button type="button" id="clear-signature-btn" class="text-sm text-blue-600">다시
+                                서명하기</button>
                         </div>
                         <canvas id="signature-canvas" class="signature-canvas mt-1 w-full h-32 border"></canvas>
                     </div>
-                     <div class="flex justify-end space-x-3 pt-4 border-t">
-                        <button type="button" id="cancel-submission-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
-                        <button type="button" id="submit-leave-form-btn" class="px-4 py-2 bg-blue-600 text-white rounded">최종 제출</button>
-                     </div>
-                 </div>
+                    <div class="flex justify-end space-x-3 pt-4 border-t">
+                        <button type="button" id="cancel-submission-btn"
+                            class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                        <button type="button" id="submit-leave-form-btn"
+                            class="px-4 py-2 bg-blue-600 text-white rounded">최종 제출</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -125,7 +138,8 @@
             <div id="submission-modal-body" class="document-preview-body bg-white p-8"></div>
             <div class="flex justify-end space-x-3 pt-4 mt-4 border-t">
                 <button type="button" id="cancel-doc-submission-btn" class="px-6 py-2 bg-gray-300 rounded">취소</button>
-                <button type="button" id="submit-doc-submission-btn" class="px-6 py-2 bg-blue-600 text-white rounded">제출하기</button>
+                <button type="button" id="submit-doc-submission-btn"
+                    class="px-6 py-2 bg-blue-600 text-white rounded">제출하기</button>
             </div>
         </div>
     </div>
@@ -154,7 +168,8 @@
                     </div>
                     <div>
                         <label for="issue-details" class="font-semibold">상세 내용</label>
-                        <textarea id="issue-details" rows="3" class="w-full mt-1 p-2 border rounded" placeholder="직원에게 전달될 내용을 입력하세요. (예: 9/17 무단결근으로 인한 경위서 제출 요청)"></textarea>
+                        <textarea id="issue-details" rows="3" class="w-full mt-1 p-2 border rounded"
+                            placeholder="직원에게 전달될 내용을 입력하세요. (예: 9/17 무단결근으로 인한 경위서 제출 요청)"></textarea>
                     </div>
                     <div>
                         <label for="issue-required-doc" class="font-semibold">요청할 서류 (선택)</label>
@@ -164,7 +179,8 @@
                     </div>
                     <div class="flex justify-end space-x-3 pt-4 border-t">
                         <button type="button" id="cancel-issue-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">요청 생성</button>
+                        <button type="submit"
+                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">요청 생성</button>
                     </div>
                 </div>
             </form>
@@ -183,67 +199,73 @@
                     <p class="text-sm text-gray-600 mb-2">
                         - 한 줄에 한 명씩 입력해주세요.<br>
                         - 각 항목은 탭(Tab)으로 구분되어야 합니다.<br>
-                        - 순서: <span class="font-mono text-blue-600">이름 (Tab) 입사일(YYYY-MM-DD) (Tab) 이메일 (Tab) 초기비밀번호 (Tab) 부서명</span>
+                        - 순서: <span class="font-mono text-blue-600">이름 (Tab) 입사일(YYYY-MM-DD) (Tab) 이메일 (Tab) 초기비밀번호
+                            (Tab) 부서명</span>
                     </p>
-                    <textarea id="bulk-employee-data" rows="10" class="w-full mt-1 p-2 border rounded font-mono text-sm" placeholder="예시)&#10;홍길동	2025-01-15	hong@example.com	123456	진료팀&#10;이순신	2024-03-01	lee@example.com	123456	데스크팀"></textarea>
+                    <textarea id="bulk-employee-data" rows="10" class="w-full mt-1 p-2 border rounded font-mono text-sm"
+                        placeholder="예시)&#10;홍길동	2025-01-15	hong@example.com	123456	진료팀&#10;이순신	2024-03-01	lee@example.com	123456	데스크팀"></textarea>
                 </div>
-                <div id="bulk-register-result" class="text-sm p-2 bg-gray-100 rounded min-h-[80px] whitespace-pre-wrap overflow-y-auto"></div>
+                <div id="bulk-register-result"
+                    class="text-sm p-2 bg-gray-100 rounded min-h-[80px] whitespace-pre-wrap overflow-y-auto"></div>
                 <div class="flex justify-end space-x-3 pt-4 border-t">
-                    <button type="button" id="cancel-bulk-submission-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
-                    <button type="button" id="submit-bulk-register-btn" class="px-4 py-2 bg-blue-600 text-white rounded">등록하기</button>
+                    <button type="button" id="cancel-bulk-submission-btn"
+                        class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                    <button type="button" id="submit-bulk-register-btn"
+                        class="px-4 py-2 bg-blue-600 text-white rounded">등록하기</button>
                 </div>
             </div>
         </div>
     </div>
 
     <style>
-    @media print {
-        .fc-event-main-custom {
-            font-size: 6pt !important;
+        @media print {
+            .fc-event-main-custom {
+                font-size: 6pt !important;
+            }
+
+            .custom-event-name {
+                font-size: 5pt !important;
+                font-weight: 600 !important;
+            }
         }
-        
-        .custom-event-name {
-            font-size: 5pt !important;
-            font-weight: 600 !important;
+
+        .employee-tab-btn {
+            transition: all 0.2s ease;
         }
-    }
-    
-    .employee-tab-btn {
-        transition: all 0.2s ease;
-    }
-    
-    .employee-tab-btn:hover {
-        background-color: #f3f4f6;
-    }
+
+        .employee-tab-btn:hover {
+            background-color: #f3f4f6;
+        }
     </style>
 
     <script type="module" src="main.js"></script>
     <script type="module">
         import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal.js';
-        
+
         document.addEventListener('DOMContentLoaded', () => {
             // 연차 신청 모달 관련
             document.getElementById('close-modal-btn')?.addEventListener('click', closeLeaveFormModal);
             document.getElementById('cancel-submission-btn')?.addEventListener('click', closeLeaveFormModal);
             document.getElementById('submit-leave-form-btn')?.addEventListener('click', handleSubmitLeaveRequest);
-            
+
             document.getElementById('clear-signature-btn')?.addEventListener('click', () => {
                 if (window.signaturePad) {
                     window.signaturePad.clear();
                 }
             });
-            
+
             // 이슈 모달 관련
             document.getElementById('close-issue-modal-btn')?.addEventListener('click', () => {
                 document.getElementById('issue-modal').classList.add('hidden');
             });
-            
+
             document.getElementById('cancel-issue-btn')?.addEventListener('click', () => {
                 document.getElementById('issue-modal').classList.add('hidden');
             });
-            
+
             document.getElementById('issue-form')?.addEventListener('submit', window.handleIssueSubmit);
         });
     </script>
 </body>
+
 </html>
