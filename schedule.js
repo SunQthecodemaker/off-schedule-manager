@@ -109,9 +109,9 @@ function getSpacerHtml() {
     const spacerName = `빈칸${-spacerId}`;
     return `<div class="draggable-employee" data-employee-id="${spacerId}" data-type="employee">
         <span class="handle">☰</span>
-        <div class="fc-draggable-item spacer-item">
-            <span class="department-dot spacer-dot"></span>
-            <span class="flex-grow font-semibold spacer-text">${spacerName}</span>
+        <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+            <span style="background-color: #f3f4f6;" class="department-dot"></span>
+            <span class="flex-grow font-semibold" style="color: #f3f4f6;">${spacerName}</span>
         </div>
     </div>`;
 }
@@ -145,9 +145,9 @@ function getTeamHtml(team, allEmployees) {
             const spacerName = `빈칸${-memberId}`;
             return `<div class="draggable-employee" data-employee-id="${memberId}" data-type="employee">
                 <span class="handle">☰</span>
-                <div class="fc-draggable-item spacer-item">
-                    <span class="department-dot spacer-dot"></span>
-                    <span class="flex-grow font-semibold spacer-text">${spacerName}</span>
+                <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+                    <span style="background-color: #f3f4f6;" class="department-dot"></span>
+                    <span class="flex-grow font-semibold" style="color: #f3f4f6;">${spacerName}</span>
                 </div>
             </div>`;
         }
@@ -1485,8 +1485,8 @@ async function renderScheduleSidebar() {
             // 빈칸: 배경색과 텍스트색 동일
             return `<div class="draggable-employee" data-employee-id="${item.id}" data-type="employee">
                 <span class="handle">☰</span>
-                <div class="fc-draggable-item spacer-item">
-                    <span class="department-dot spacer-dot"></span>
+                <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+                    <span style="background-color: #f3f4f6;" class="department-dot"></span>
                     <span class="flex-grow font-semibold" style="color: #f3f4f6;">${item.name}</span>
                 </div>
             </div>`;

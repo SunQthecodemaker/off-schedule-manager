@@ -7,12 +7,12 @@ import { _, show, hide } from './utils.js';
 
 export function renderDocumentReviewTab(container) {
     container.innerHTML = getDocumentReviewHTML();
-
+    
     // 데이터 로드 및 렌더링
     renderRequestedDocuments();
     renderPendingDocuments();
     renderCompletedDocuments();
-
+    
     // 이벤트 리스너
     _('#create-doc-request-btn')?.addEventListener('click', openCreateRequestModal);
 }
@@ -21,22 +21,22 @@ function getDocumentReviewHTML() {
     return `
         <div class="space-y-6">
             <!-- 서류 요청 목록 (제출 전) -->
-            <div class="card">
+            <div class="bg-white p-4 rounded-lg border">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-semibold">서류 제출 요청 관리 <span class="text-sm text-gray-500">(직원에게 요청한 서류)</span></h3>
-                    <button id="create-doc-request-btn" class="btn btn-primary btn-sm">+ 새 요청 생성</button>
+                    <button id="create-doc-request-btn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold">+ 새 요청 생성</button>
                 </div>
                 <div id="requested-documents-list"></div>
             </div>
             
             <!-- 승인 대기 중인 서류 -->
-            <div class="card">
+            <div class="bg-white p-4 rounded-lg border">
                 <h3 class="text-lg font-semibold mb-4">제출된 서류 <span class="text-sm text-gray-500">(승인 대기 중)</span></h3>
                 <div id="pending-documents-list"></div>
             </div>
             
             <!-- 처리 완료된 서류 -->
-            <div class="card">
+            <div class="bg-white p-4 rounded-lg border">
                 <h3 class="text-lg font-semibold mb-4">처리 완료된 서류 <span class="text-sm text-gray-500">(승인/반려 완료)</span></h3>
                 <div id="completed-documents-list"></div>
             </div>
@@ -50,22 +50,22 @@ function renderRequestedDocuments() {
         console.error('⛔ requested-documents-list 컨테이너를 찾을 수 없습니다');
         return;
     }
-
+    
     const { documentRequests, employees } = state.management;
-
+    
     if (!documentRequests || documentRequests.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">서류 제출 요청이 없습니다.</p>';
         return;
     }
-
+    
     // pending 상태만 표시
     const requestedDocs = documentRequests.filter(req => req.status === 'pending');
-
+    
     if (requestedDocs.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">대기 중인 요청이 없습니다.</p>';
         return;
     }
-
+    
     const rows = requestedDocs.map(req => {
         return `
             <tr class="border-b hover:bg-gray-50">
@@ -74,15 +74,15 @@ function renderRequestedDocuments() {
                 <td class="p-3 text-sm text-gray-600">${req.message || '-'}</td>
                 <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD HH:mm')}</td>
                 <td class="p-3">
-                    <span class="badge badge-warning">제출 대기</span>
+                    <span class="bg-yellow-200 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">제출 대기</span>
                 </td>
                 <td class="p-3 text-center">
-                    <button onclick="window.cancelDocumentRequest(${req.id})" class="btn btn-danger btn-sm">취소</button>
+                    <button onclick="window.cancelDocumentRequest(${req.id})" class="text-sm bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600">취소</button>
                 </td>
             </tr>
         `;
     }).join('');
-
+    
     container.innerHTML = `
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50">
@@ -103,21 +103,21 @@ function renderRequestedDocuments() {
 function renderPendingDocuments() {
     const container = _('#pending-documents-list');
     if (!container) return;
-
+    
     const { submittedDocs } = state.management;
-
+    
     if (!submittedDocs || submittedDocs.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">제출된 서류가 없습니다.</p>';
         return;
     }
-
+    
     const pendingDocs = submittedDocs.filter(doc => doc.status === 'submitted');
-
+    
     if (pendingDocs.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">승인 대기 중인 서류가 없습니다.</p>';
         return;
     }
-
+    
     const rows = pendingDocs.map(doc => {
         return `
             <tr class="border-b hover:bg-gray-50">
@@ -125,17 +125,17 @@ function renderPendingDocuments() {
                 <td class="p-3">${doc.template_name || '일반 서류'}</td>
                 <td class="p-3 text-sm text-gray-600">${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</td>
                 <td class="p-3">
-                    <span class="badge badge-warning">검토 대기</span>
+                    <span class="bg-yellow-200 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">검토 대기</span>
                 </td>
                 <td class="p-3 text-center">
-                    <button onclick="window.viewDocument(${doc.id})" class="btn btn-secondary btn-sm mr-2">내용 보기</button>
-                    <button onclick="window.approveDocument(${doc.id})" class="btn btn-success btn-sm mr-2">승인</button>
-                    <button onclick="window.rejectDocument(${doc.id})" class="btn btn-danger btn-sm">반려</button>
+                    <button onclick="window.viewDocument(${doc.id})" class="text-sm bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 mr-2">내용 보기</button>
+                    <button onclick="window.approveDocument(${doc.id})" class="text-sm bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 mr-2">승인</button>
+                    <button onclick="window.rejectDocument(${doc.id})" class="text-sm bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600">반려</button>
                 </td>
             </tr>
         `;
     }).join('');
-
+    
     container.innerHTML = `
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50">
@@ -155,30 +155,30 @@ function renderPendingDocuments() {
 function renderCompletedDocuments() {
     const container = _('#completed-documents-list');
     if (!container) return;
-
+    
     const { submittedDocs } = state.management;
-
+    
     if (!submittedDocs || submittedDocs.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">제출된 서류가 없습니다.</p>';
         return;
     }
-
+    
     const completedDocs = submittedDocs.filter(doc => doc.status === 'approved' || doc.status === 'rejected');
-
+    
     if (completedDocs.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">처리 완료된 서류가 없습니다.</p>';
         return;
     }
-
+    
     const rows = completedDocs.map(doc => {
         let statusBadge = '';
-
+        
         if (doc.status === 'approved') {
-            statusBadge = '<span class="badge badge-success">승인됨</span>';
+            statusBadge = '<span class="bg-green-200 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">승인됨</span>';
         } else if (doc.status === 'rejected') {
-            statusBadge = '<span class="badge badge-danger">반려됨</span>';
+            statusBadge = '<span class="bg-red-200 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">반려됨</span>';
         }
-
+        
         return `
             <tr class="border-b hover:bg-gray-50">
                 <td class="p-3">${doc.employee_name || '알 수 없음'}</td>
@@ -186,12 +186,12 @@ function renderCompletedDocuments() {
                 <td class="p-3 text-sm text-gray-600">${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</td>
                 <td class="p-3">${statusBadge}</td>
                 <td class="p-3 text-center">
-                    <button onclick="window.viewDocument(${doc.id})" class="btn btn-secondary btn-sm">내용 보기</button>
+                    <button onclick="window.viewDocument(${doc.id})" class="text-sm bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">내용 보기</button>
                 </td>
             </tr>
         `;
     }).join('');
-
+    
     container.innerHTML = `
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50">
@@ -214,18 +214,18 @@ function renderCompletedDocuments() {
 
 function openCreateRequestModal() {
     const { employees, templates } = state.management;
-
-    const employeeOptions = employees.map(emp =>
+    
+    const employeeOptions = employees.map(emp => 
         `<option value="${emp.id}">${emp.name} (${emp.departments?.name || '부서 미지정'})</option>`
     ).join('');
-
+    
     // 서식 목록을 동적으로 가져오기
-    const templateOptions = templates && templates.length > 0
-        ? templates.map(template =>
+    const templateOptions = templates && templates.length > 0 
+        ? templates.map(template => 
             `<option value="${template.template_name}" data-template-id="${template.id}" data-requires-attachment="${template.requires_attachment || false}">${template.template_name}</option>`
-        ).join('')
+          ).join('')
         : '<option value="기타">기타</option>';
-
+    
     const modalHTML = `
         <div id="temp-request-modal" class="modal-overlay">
             <div class="modal-content">
@@ -252,16 +252,16 @@ function openCreateRequestModal() {
                         <textarea id="req-message" rows="3" class="w-full p-2 border rounded" placeholder="예: 무단결근으로 인한 경위서 제출" required></textarea>
                     </div>
                     <div class="flex justify-end space-x-3 pt-4 border-t">
-                        <button type="button" id="cancel-request-btn" class="btn btn-secondary">취소</button>
-                        <button type="submit" class="btn btn-primary">요청 생성</button>
+                        <button type="button" id="cancel-request-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">요청 생성</button>
                     </div>
                 </form>
             </div>
         </div>
     `;
-
+    
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-
+    
     _('#close-temp-request-modal').addEventListener('click', closeRequestModal);
     _('#cancel-request-btn').addEventListener('click', closeRequestModal);
     _('#document-request-form').addEventListener('submit', handleCreateRequest);
@@ -274,17 +274,17 @@ function closeRequestModal() {
 
 async function handleCreateRequest(e) {
     e.preventDefault();
-
+    
     const employeeId = parseInt(_('#req-employee-id').value);
     const employee = state.management.employees.find(emp => emp.id === employeeId);
     const type = _('#req-type').value;
     const message = _('#req-message').value.trim();
-
+    
     if (!employee) {
         alert('직원을 선택해주세요.');
         return;
     }
-
+    
     try {
         const { error } = await db.from('document_requests').insert({
             employeeId: employeeId,
@@ -294,11 +294,11 @@ async function handleCreateRequest(e) {
             status: 'pending',
             created_at: new Date().toISOString()
         });
-
+        
         if (error) throw error;
-
+        
         alert(`${employee.name} 직원에게 서류 제출 요청이 전송되었습니다.`);
-
+        
         closeRequestModal();
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -311,23 +311,23 @@ async function handleCreateRequest(e) {
 // 서류 승인/반려
 // =========================================================================================
 
-window.approveDocument = async function (docId) {
+window.approveDocument = async function(docId) {
     if (!confirm('이 서류를 승인하시겠습니까?')) return;
-
+    
     try {
         const { error: docError } = await db.from('submitted_documents')
             .update({ status: 'approved' })
             .eq('id', docId);
-
+        
         if (docError) throw docError;
-
+        
         const doc = state.management.submittedDocs.find(d => d.id === docId);
         if (doc && doc.related_issue_id) {
             await db.from('document_requests')
                 .update({ status: 'approved' })
                 .eq('id', doc.related_issue_id);
         }
-
+        
         alert('서류가 승인되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -336,27 +336,27 @@ window.approveDocument = async function (docId) {
     }
 };
 
-window.rejectDocument = async function (docId) {
+window.rejectDocument = async function(docId) {
     const feedback = prompt('반려 사유를 입력해주세요:');
     if (!feedback) return;
-
+    
     try {
         const { error: docError } = await db.from('submitted_documents')
             .update({ status: 'rejected' })
             .eq('id', docId);
-
+        
         if (docError) throw docError;
-
+        
         const doc = state.management.submittedDocs.find(d => d.id === docId);
         if (doc && doc.related_issue_id) {
             await db.from('document_requests')
-                .update({
+                .update({ 
                     status: 'pending',
                     message: `${doc.message || ''}\n\n[반려 사유: ${feedback}]`
                 })
                 .eq('id', doc.related_issue_id);
         }
-
+        
         alert('서류가 반려되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -365,16 +365,16 @@ window.rejectDocument = async function (docId) {
     }
 };
 
-window.cancelDocumentRequest = async function (requestId) {
+window.cancelDocumentRequest = async function(requestId) {
     if (!confirm('이 요청을 취소하시겠습니까?')) return;
-
+    
     try {
         const { error } = await db.from('document_requests')
             .delete()
             .eq('id', requestId);
-
+        
         if (error) throw error;
-
+        
         alert('요청이 취소되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -383,17 +383,17 @@ window.cancelDocumentRequest = async function (requestId) {
     }
 };
 
-window.viewDocument = function (docId) {
+window.viewDocument = function(docId) {
     const doc = state.management.submittedDocs.find(d => d.id === docId);
     if (!doc) {
         alert('서류를 찾을 수 없습니다.');
         return;
     }
-
+    
     const content = doc.submission_data?.text || doc.text || '내용 없음';
-    const attachmentHtml = doc.attachment_url ?
+    const attachmentHtml = doc.attachment_url ? 
         `<div class="mb-4"><strong>첨부파일:</strong> <a href="${doc.attachment_url}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>` : '';
-
+    
     const modalHTML = `
         <div class="modal-overlay" id="view-doc-modal">
             <div class="modal-content-lg" style="max-height: 90vh; overflow-y: auto;">
@@ -412,14 +412,14 @@ window.viewDocument = function (docId) {
                     ${doc.signature ? `<div class="text-right"><img src="${doc.signature}" alt="서명" class="inline-block border-2 border-gray-800" style="width: 180px; height: 90px;"></div>` : ''}
                 </div>
                 <div class="flex justify-end pt-4 mt-4 border-t">
-                    <button id="close-view-doc-btn" class="btn btn-secondary">닫기</button>
+                    <button id="close-view-doc-btn" class="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400">닫기</button>
                 </div>
             </div>
         </div>
     `;
-
+    
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-
+    
     _('#close-view-doc-modal')?.addEventListener('click', () => {
         _('#view-doc-modal')?.remove();
     });
@@ -475,10 +475,10 @@ export function getManagementTemplatesHTML() {
                     </div>
                     
                     <div class="flex gap-2">
-                        <button type="submit" class="btn btn-primary w-full">
+                        <button type="submit" class="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-bold">
                             저장하기
                         </button>
-                        <button type="button" id="reset-form-btn" class="btn btn-secondary w-full">
+                        <button type="button" id="reset-form-btn" class="px-6 py-3 bg-gray-300 rounded-lg hover:bg-gray-400">
                             초기화
                         </button>
                     </div>
@@ -490,7 +490,7 @@ export function getManagementTemplatesHTML() {
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-xl font-bold">실시간 미리보기</h3>
                     <button id="preview-print-btn" 
-                            class="btn btn-secondary btn-sm">
+                            class="text-sm px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700">
                         인쇄 미리보기
                     </button>
                 </div>
@@ -516,36 +516,36 @@ export function getManagementTemplatesHTML() {
 export async function renderTemplatesManagement(container) {
     try {
         container.innerHTML = getManagementTemplatesHTML();
-
+        
         const templateForm = _('#template-form');
         const templateContent = _('#templateContent');
         const templateName = _('#templateName');
         const printBtn = _('#preview-print-btn');
         const resetBtn = _('#reset-form-btn');
-
+        
         if (templateForm) {
             templateForm.addEventListener('submit', handleSaveTemplate);
         }
-
+        
         if (templateContent) {
             templateContent.addEventListener('input', updateLivePreview);
         }
-
+        
         if (templateName) {
             templateName.addEventListener('input', updateLivePreview);
         }
-
+        
         if (printBtn) {
             printBtn.addEventListener('click', handlePrintPreview);
         }
-
+        
         if (resetBtn) {
             resetBtn.addEventListener('click', resetTemplateForm);
         }
-
+        
         await renderTemplatesList();
         updateLivePreview();
-
+        
     } catch (error) {
         console.error('renderTemplatesManagement 에러:', error);
         container.innerHTML = `<div class="p-4 text-red-600">
@@ -559,18 +559,18 @@ function updateLivePreview() {
     const content = _('#templateContent')?.value || '';
     const name = _('#templateName')?.value || '서식 제목';
     const previewEl = _('#preview-content');
-
+    
     if (!previewEl) return;
-
+    
     if (!content.trim()) {
         previewEl.innerHTML = '<p class="text-gray-400 text-center py-8">왼쪽에서 서식을 작성하면 여기에 미리보기가 표시됩니다.</p>';
         return;
     }
-
+    
     let preview = content
         .replace(/{{(.*?)}}/g, '<span class="template-variable">{{$1}}</span>')
         .replace(/\n/g, '<br>');
-
+    
     previewEl.innerHTML = `
         <div class="text-center mb-4">
             <h2 class="text-xl font-bold">${name}</h2>
@@ -582,21 +582,21 @@ function updateLivePreview() {
 async function renderTemplatesList() {
     const { templates } = state.management;
     const container = _('#templatesList');
-
+    
     if (!container) return;
-
+    
     if (!templates || templates.length === 0) {
         container.innerHTML = '<p class="text-gray-500 col-span-full text-center py-8">등록된 서식이 없습니다.</p>';
         return;
     }
-
+    
     const cards = templates.map(template => {
         const name = template.template_name || '이름 없음';
         const description = template.template_fields?.description || '설명 없음';
         const requiresAttachment = template.requires_attachment ? '첨부 필수' : '';
-
+        
         return `
-        <div class="template-card card hover:shadow-md transition">
+        <div class="template-card bg-white border rounded-lg p-4 hover:shadow-md transition">
             <div class="flex justify-between items-start mb-2">
                 <h4 class="font-bold text-lg">${name}</h4>
                 <div class="flex gap-1">
@@ -616,26 +616,26 @@ async function renderTemplatesList() {
         </div>
     `;
     }).join('');
-
+    
     container.innerHTML = cards;
 }
 
 async function handleSaveTemplate(e) {
     e.preventDefault();
-
+    
     const templateId = _('#template-id').value;
     const name = _('#templateName').value.trim();
     const description = _('#templateDescription').value.trim() || '';
     const content = _('#templateContent').value.trim();
     const requires_attachment = _('#requiresAttachment').checked;
-
+    
     console.log('서식 저장 시도:', { templateId, name, description, content, requires_attachment });
-
+    
     if (!name || !content) {
         alert('서식 이름과 본문은 필수입니다.');
         return;
     }
-
+    
     try {
         const data = {
             template_name: name,
@@ -645,11 +645,11 @@ async function handleSaveTemplate(e) {
             },
             requires_attachment: requires_attachment
         };
-
+        
         console.log('저장할 데이터:', data);
-
+        
         let result;
-
+        
         if (templateId && templateId !== '') {
             // 수정
             result = await db.from('document_templates')
@@ -663,9 +663,9 @@ async function handleSaveTemplate(e) {
             result = await db.from('document_templates').insert(data).select();
             alert('서식이 저장되었습니다.');
         }
-
+        
         if (result.error) throw result.error;
-
+        
         resetTemplateForm();
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -674,22 +674,22 @@ async function handleSaveTemplate(e) {
     }
 }
 
-window.editTemplate = function (templateId) {
+window.editTemplate = function(templateId) {
     const template = state.management.templates.find(t => t.id === templateId);
-
+    
     if (!template) {
         alert('서식을 찾을 수 없습니다.');
         return;
     }
-
+    
     _('#template-id').value = template.id;
     _('#templateName').value = template.template_name || '';
     _('#templateDescription').value = template.template_fields?.description || '';
     _('#templateContent').value = template.template_fields?.content || '';
     _('#requiresAttachment').checked = template.requires_attachment || false;
-
+    
     updateLivePreview();
-
+    
     // 스크롤 이동
     _('#template-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
@@ -700,26 +700,26 @@ function resetTemplateForm() {
     updateLivePreview();
 }
 
-window.previewTemplate = function (templateId) {
+window.previewTemplate = function(templateId) {
     const template = state.management.templates.find(t => t.id === templateId);
-
+    
     if (!template) {
         alert('서식을 찾을 수 없습니다.');
         return;
     }
-
+    
     const templateContent = template.template_fields?.content || '';
     const templateName = template.template_name || '서식';
-
+    
     if (!templateContent) {
         alert('서식 내용이 없습니다.');
         return;
     }
-
+    
     const previewContent = templateContent
         .replace(/{{(.*?)}}/g, '<span class="template-variable">{{$1}}</span>')
         .replace(/\n/g, '<br>');
-
+    
     const modalHTML = `
         <div class="modal-overlay" id="template-preview-modal">
             <div class="modal-content-lg" style="max-height: 90vh; overflow-y: auto;">
@@ -738,15 +738,15 @@ window.previewTemplate = function (templateId) {
                 </div>
                 
                 <div class="flex justify-end pt-4 mt-4 border-t">
-                    <button id="print-template-btn" class="btn btn-primary mr-2">인쇄</button>
-                    <button id="close-preview-btn" class="btn btn-secondary">닫기</button>
+                    <button id="print-template-btn" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2">인쇄</button>
+                    <button id="close-preview-btn" class="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400">닫기</button>
                 </div>
             </div>
         </div>
     `;
-
+    
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-
+    
     _('#close-preview-modal')?.addEventListener('click', () => {
         _('#template-preview-modal')?.remove();
     });
@@ -758,16 +758,16 @@ window.previewTemplate = function (templateId) {
     });
 };
 
-window.deleteTemplate = async function (templateId) {
+window.deleteTemplate = async function(templateId) {
     if (!confirm('이 서식을 삭제하시겠습니까?')) return;
-
+    
     try {
         const { error } = await db.from('document_templates')
             .delete()
             .eq('id', templateId);
-
+        
         if (error) throw error;
-
+        
         alert('서식이 삭제되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -779,12 +779,12 @@ window.deleteTemplate = async function (templateId) {
 function handlePrintPreview() {
     const content = _('#preview-content')?.innerHTML;
     const name = _('#templateName')?.value || '서식 미리보기';
-
+    
     if (!content || content.includes('왼쪽에서 서식을')) {
         alert('미리보기할 내용이 없습니다.');
         return;
     }
-
+    
     printTemplateContent(name, content);
 }
 
