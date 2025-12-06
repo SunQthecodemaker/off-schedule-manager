@@ -22,15 +22,15 @@ function updateScheduleSortOrders(dateStr) {
     if (!dayEl) return;
     const eventContainer = dayEl.querySelector('.day-events');
     if (!eventContainer) return;
-    
+
     // ✅ 현재 화면의 실제 직원 카드만 수집 (data-position 기준)
     const currentCards = [];
     const allSlots = eventContainer.querySelectorAll('.event-card, .event-slot');
-    
+
     allSlots.forEach((slot, domIndex) => {
         const position = parseInt(slot.dataset.position, 10);
         const empId = parseInt(slot.dataset.employeeId, 10);
-        
+
         // ✅ 실제 직원(양수 ID)만 수집, 빈 슬롯과 빈칸은 제외
         if (!isNaN(empId) && empId > 0 && !isNaN(position)) {
             currentCards.push({
@@ -40,17 +40,17 @@ function updateScheduleSortOrders(dateStr) {
             });
         }
     });
-    
+
     console.log(`📍 [${dateStr}] 그리드 위치 업데이트:`, currentCards);
-    
+
     let changeCount = 0;
-    
+
     // ✅ 변경 감지: 화면의 모든 카드를 state와 비교
     currentCards.forEach(cardData => {
         let schedule = state.schedule.schedules.find(
             s => s.date === dateStr && s.employee_id === cardData.employee_id && s.status === '근무'
         );
-        
+
         if (schedule) {
             // 기존 스케줄: grid_position이 다르면 업데이트
             if (schedule.grid_position !== cardData.grid_position) {
@@ -64,11 +64,11 @@ function updateScheduleSortOrders(dateStr) {
             // 새 스케줄 생성
             console.log(`  ➕ New schedule: ${cardData.employee_id} at ${cardData.grid_position}`);
             const tempId = `temp-${Date.now()}-${cardData.employee_id}-${cardData.grid_position}`;
-            const newSchedule = { 
-                id: tempId, 
-                date: dateStr, 
+            const newSchedule = {
+                id: tempId,
+                date: dateStr,
                 employee_id: cardData.employee_id,
-                status: '근무', 
+                status: '근무',
                 sort_order: cardData.grid_position,
                 grid_position: cardData.grid_position
             };
@@ -77,7 +77,7 @@ function updateScheduleSortOrders(dateStr) {
             changeCount++;
         }
     });
-    
+
     // 화면에 없는 스케줄은 삭제 표시
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '근무') {
@@ -89,7 +89,7 @@ function updateScheduleSortOrders(dateStr) {
             }
         }
     });
-    
+
     console.log(`  💾 이번 호출에서 변경: ${changeCount}건, 전체 unsavedChanges: ${unsavedChanges.size}건`);
 }
 
@@ -130,7 +130,10 @@ function getFilteredEmployees() {
     const { employees } = state.management;
     const { activeDepartmentFilters } = state.schedule;
     if (activeDepartmentFilters.size === 0) return employees;
-    return employees.filter(emp => activeDepartmentFilters.has(emp.department_id));
+    return employees.filter(emp => {
+        const deptId = emp.department_id ?? emp.departments?.id;
+        return activeDepartmentFilters.has(deptId);
+    });
 }
 
 function getTeamHtml(team, allEmployees) {
@@ -189,20 +192,20 @@ function handleViewModeChange(e) {
 // ✨ 모든 날짜의 grid_position 업데이트
 function updateAllGridPositions() {
     console.log('🔄 모든 날짜의 grid_position 업데이트 시작');
-    
+
     document.querySelectorAll('.calendar-day').forEach(dayEl => {
         const dateStr = dayEl.dataset.date;
         const eventContainer = dayEl.querySelector('.day-events');
         if (!eventContainer) return;
-        
+
         const eventCards = eventContainer.querySelectorAll('.event-card');
         eventCards.forEach((card, gridIndex) => {
             const empId = parseInt(card.dataset.employeeId, 10);
             // ✅ 양수 ID(실제 직원)만 처리
             if (isNaN(empId) || empId <= 0) return;
-            
+
             let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
-            
+
             if (schedule) {
                 if (schedule.grid_position !== gridIndex) {
                     schedule.grid_position = gridIndex;
@@ -224,7 +227,7 @@ function updateAllGridPositions() {
             }
         });
     });
-    
+
     console.log('✅ grid_position 업데이트 완료');
 }
 
@@ -244,7 +247,7 @@ async function handleSaveSchedules() {
     try {
         const startOfMonth = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const endOfMonth = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
-        
+
         console.log('📅 대상 기간:', startOfMonth, '~', endOfMonth);
 
         // ✅ STEP 1: 해당 월의 기존 스케줄 완전 삭제
@@ -253,7 +256,7 @@ async function handleSaveSchedules() {
             .delete()
             .gte('date', startOfMonth)
             .lte('date', endOfMonth);
-        
+
         if (deleteError) {
             console.error('❌ 삭제 오류:', deleteError);
             throw deleteError;
@@ -262,28 +265,28 @@ async function handleSaveSchedules() {
 
         // ✅ STEP 2: 현재 화면의 모든 카드 수집
         const schedulesToSave = [];
-        
+
         document.querySelectorAll('.calendar-day').forEach(dayEl => {
             const dateStr = dayEl.dataset.date;
             if (!dateStr) return;
-            
+
             // 해당 월의 날짜만 처리
             if (dateStr < startOfMonth || dateStr > endOfMonth) return;
-            
+
             const eventContainer = dayEl.querySelector('.day-events');
             if (!eventContainer) return;
-            
+
             const eventCards = eventContainer.querySelectorAll('.event-card, .event-slot');
             eventCards.forEach((card) => {
                 const empId = parseInt(card.dataset.employeeId, 10);
                 const type = card.dataset.type;
                 const position = parseInt(card.dataset.position, 10);
-                
+
                 // ✅ 실제 직원만 저장 (양수 ID), 빈칸/빈슬롯/연차 제외
                 if (isNaN(empId) || empId <= 0 || type === 'leave' || type === 'empty') return;
-                
+
                 const status = card.classList.contains('event-off') ? '휴무' : '근무';
-                
+
                 schedulesToSave.push({
                     date: dateStr,
                     employee_id: empId,
@@ -293,7 +296,7 @@ async function handleSaveSchedules() {
                 });
             });
         });
-        
+
         console.log('📊 수집된 스케줄:', schedulesToSave.length, '건');
 
         if (schedulesToSave.length === 0) {
@@ -302,10 +305,10 @@ async function handleSaveSchedules() {
             // ✅ STEP 3: 전체 삽입
             console.log('➕ 새 스케줄 삽입 중...');
             console.log('삽입 데이터 샘플:', schedulesToSave.slice(0, 3));
-            
+
             const { error: insertError } = await db.from('schedules')
                 .insert(schedulesToSave);
-            
+
             if (insertError) {
                 console.error('❌ 삽입 오류:', insertError);
                 throw insertError;
@@ -316,7 +319,7 @@ async function handleSaveSchedules() {
         // ✅ STEP 6: 회사 휴무일 저장
         const holidaysToAdd = Array.from(unsavedHolidayChanges.toAdd);
         const holidaysToRemove = Array.from(unsavedHolidayChanges.toRemove);
-        
+
         if (holidaysToAdd.length > 0) {
             console.log('🏢 휴무일 추가:', holidaysToAdd);
             const { error: holidayAddError } = await db.from('company_holidays')
@@ -326,7 +329,7 @@ async function handleSaveSchedules() {
                 throw holidayAddError;
             }
         }
-        
+
         if (holidaysToRemove.length > 0) {
             console.log('🏢 휴무일 제거:', holidaysToRemove);
             const { error: holidayRemoveError } = await db.from('company_holidays')
@@ -340,12 +343,12 @@ async function handleSaveSchedules() {
 
         console.log('✅ ========== 저장 완료 ==========');
         alert('스케줄이 성공적으로 저장되었습니다.');
-        
+
         // ✅ STEP 7: 다시 불러오기
         console.log('🔄 데이터 다시 불러오는 중...');
         await loadAndRenderScheduleData(state.schedule.currentDate);
         console.log('✅ 화면 갱신 완료');
-        
+
     } catch (error) {
         console.error('❌ ========== 저장 실패 ==========');
         console.error('오류 상세:', error);
@@ -360,20 +363,20 @@ async function handleResetSchedule() {
     if (!confirm('현재 달의 모든 스케줄을 리셋하고 사이드바 순서대로 근무자로 초기화하시겠습니까?')) {
         return;
     }
-    
+
     const resetBtn = _('#reset-schedule-btn');
     resetBtn.disabled = true;
     resetBtn.textContent = '리셋 중...';
-    
+
     try {
         // 1. 사이드바에서 순서 가져오기 (제외 목록 제외)
         const orderedEmployees = [];
         let gridPosition = 0;
-        
+
         // ✅ 직원 목록(.employee-list)에서만 가져오기
         document.querySelectorAll('.employee-list .draggable-employee').forEach(memberEl => {
             const empId = parseInt(memberEl.dataset.employeeId, 10);
-            
+
             if (!isNaN(empId)) {
                 if (empId < 0) {
                     // 음수 ID = 빈칸 (DB에 저장하지 않음)
@@ -391,43 +394,43 @@ async function handleResetSchedule() {
                 }
             }
         });
-        
+
         console.log('📋 리셋에 포함될 항목:', orderedEmployees.length, '개');
-        
+
         // ✅ 제외 목록 확인 (로그용)
         const excludedCount = document.querySelectorAll('.excluded-list .draggable-employee').length;
         console.log('🚫 제외된 직원:', excludedCount, '명');
-        
+
         // 2. 해당 월의 모든 날짜 가져오기
         const currentDate = dayjs(state.schedule.currentDate);
         const startOfMonth = currentDate.startOf('month');
         const endOfMonth = currentDate.endOf('month');
-        
+
         const allDates = [];
         let currentLoop = startOfMonth.clone();
         while (currentLoop.valueOf() <= endOfMonth.valueOf()) {
             allDates.push(currentLoop.format('YYYY-MM-DD'));
             currentLoop = currentLoop.add(1, 'day');
         }
-        
+
         console.log('📅 대상 날짜:', allDates.length, '일');
-        
+
         // 3. 기존 스케줄 삭제
         const { error: deleteError } = await db.from('schedules')
             .delete()
             .gte('date', startOfMonth.format('YYYY-MM-DD'))
             .lte('date', endOfMonth.format('YYYY-MM-DD'));
-        
+
         if (deleteError) {
             console.error('❌ 삭제 오류:', deleteError);
             throw deleteError;
         }
-        
+
         console.log('✅ 기존 스케줄 삭제 완료');
-        
+
         // 4. 모든 날짜에 대해 근무자로 삽입
         const schedulesToInsert = [];
-        
+
         allDates.forEach(dateStr => {
             orderedEmployees.forEach(item => {
                 // ✅ 실제 직원만 저장 (빈칸은 제외)
@@ -443,25 +446,25 @@ async function handleResetSchedule() {
                 // spacer는 DB에 저장하지 않음 (렌더링 시 빈 공간으로 표시됨)
             });
         });
-        
+
         console.log('➕ 삽입할 스케줄:', schedulesToInsert.length, '건');
-        
+
         // 5. 새 스케줄 삽입
         const { error: insertError } = await db.from('schedules')
             .insert(schedulesToInsert);
-        
+
         if (insertError) {
             console.error('❌ 삽입 오류:', insertError);
             throw insertError;
         }
-        
+
         console.log('✅ 스케줄 리셋 완료');
-        
+
         // 6. 화면 다시 로드
         await loadAndRenderScheduleData(state.schedule.currentDate);
-        
+
         alert('스케줄이 성공적으로 리셋되었습니다.');
-        
+
     } catch (error) {
         console.error('❌ 리셋 실패:', error);
         alert(`스케줄 리셋에 실패했습니다.\n\n오류: ${error.message}`);
@@ -512,7 +515,7 @@ async function handleSaveEmployeeOrder() {
     const saveBtn = _('#save-employee-order-btn');
     saveBtn.disabled = true;
     saveBtn.textContent = '저장중...';
-    
+
     // ✅ 직원 목록(.employee-list)에서만 순서 수집
     const employeeOrder = [];
     document.querySelectorAll('.employee-list .draggable-employee').forEach(memberEl => {
@@ -521,19 +524,19 @@ async function handleSaveEmployeeOrder() {
             employeeOrder.push(empId); // 음수(빈칸)도 포함
         }
     });
-    
+
     console.log('💾 직원 순서 저장:', employeeOrder);
-    
+
     const month = dayjs(state.schedule.currentDate).format('YYYY-MM-01');
     const managerUuid = state.currentUser?.auth_uuid;
-    
+
     if (!managerUuid) {
         alert('로그인 정보가 올바르지 않습니다. 다시 로그인해주세요.');
         saveBtn.disabled = false;
         saveBtn.textContent = '순서저장';
         return;
     }
-    
+
     try {
         // ✅ 간단한 형식으로 저장 (하나의 팀으로)
         const layoutData = [{
@@ -541,16 +544,16 @@ async function handleSaveEmployeeOrder() {
             name: '직원 목록',
             members: employeeOrder
         }];
-        
+
         const { error } = await db.from('team_layouts')
-            .upsert({ 
-                month, 
-                layout_data: layoutData, 
-                manager_id: managerUuid 
+            .upsert({
+                month,
+                layout_data: layoutData,
+                manager_id: managerUuid
             }, { onConflict: 'month' });
-            
+
         if (error) throw error;
-        
+
         alert('직원 순서가 성공적으로 저장되었습니다.');
         await loadAndRenderScheduleData(state.schedule.currentDate);
     } catch (error) {
@@ -578,12 +581,12 @@ function handleDepartmentFilterChange(e) {
 // ✅ 같은 날짜 내 이동 처리 (24칸 고정 그리드)
 function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     console.log(`🔄 [${dateStr}] ${movedEmployeeId}번 이동: ${oldIndex} → ${newIndex}`);
-    
+
     const GRID_SIZE = 24;
-    
+
     // 1. 현재 24칸 상태 구성
     const currentGrid = new Array(GRID_SIZE).fill(null);
-    
+
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '근무' && schedule.grid_position != null) {
             const pos = schedule.grid_position;
@@ -592,15 +595,15 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
             }
         }
     });
-    
+
     console.log('  기존 그리드:', currentGrid.map((id, i) => id === null ? `${i}:_` : id === -1 ? `${i}:[]` : `${i}:${id}`).join(' '));
-    
+
     // 2. 이동 처리
     const newGrid = [...currentGrid];
-    
+
     // 원래 위치 비우기 (빈 슬롯으로)
     newGrid[oldIndex] = null;
-    
+
     // 새 위치에 배치
     if (newGrid[newIndex] === null) {
         // 빈 슬롯이면 단순 이동
@@ -614,7 +617,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
                 newGrid[i] = null;
             }
         }
-        
+
         // 삽입
         newGrid[newIndex] = movedEmployeeId;
         let insertPos = newIndex + 1;
@@ -628,9 +631,9 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
             }
         });
     }
-    
+
     console.log('  새 그리드:', newGrid.map((id, i) => id === null ? `${i}:_` : id === -1 ? `${i}:[]` : `${i}:${id}`).join(' '));
-    
+
     // 3. state 업데이트 (기존 스케줄 삭제 표시)
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '근무') {
@@ -643,15 +646,15 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
             }
         }
     });
-    
+
     // 4. 새 그리드 상태로 스케줄 생성/업데이트
     newGrid.forEach((employeeId, position) => {
         if (employeeId === null) return; // 빈 슬롯은 스킵
-        
+
         let schedule = state.schedule.schedules.find(
             s => s.date === dateStr && s.employee_id === employeeId
         );
-        
+
         if (schedule) {
             // 기존 스케줄 업데이트
             if (schedule.grid_position !== position) {
@@ -674,7 +677,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
             unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
         }
     });
-    
+
     // 5. 즉시 재렌더링
     renderCalendar();
     updateSaveButtonState();
@@ -683,14 +686,14 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
 function initializeDayDragDrop(dayEl, dateStr) {
     const eventContainer = dayEl.querySelector('.day-events');
     if (!eventContainer) return;
-    
+
     if (eventContainer.sortableInstance) {
         eventContainer.sortableInstance.destroy();
     }
-    
+
     // ✨ 날짜 칸에 드롭존 설정
     let dragSourceInfo = null; // 드래그 시작 정보 저장
-    
+
     eventContainer.sortableInstance = new Sortable(eventContainer, {
         group: {
             name: 'calendar-group',
@@ -708,19 +711,19 @@ function initializeDayDragDrop(dayEl, dateStr) {
         forceFallback: false,
         fallbackTolerance: 5,
         emptyInsertThreshold: 30,
-        
+
         onStart(evt) {
             isDragging = true;
             dragStartTime = Date.now();
             document.body.style.userSelect = 'none';
-            
+
             // ✅ 드래그 시작 시 현재 상태 저장
             const draggedCard = evt.item;
             const empIdStr = draggedCard.dataset.employeeId;
-            
+
             // ✅ 빈 슬롯도 드래그 가능하게 변경
             const empId = empIdStr === 'empty' ? null : parseInt(empIdStr, 10);
-            
+
             dragSourceInfo = {
                 employeeId: empId,
                 oldIndex: evt.oldIndex,
@@ -729,16 +732,16 @@ function initializeDayDragDrop(dayEl, dateStr) {
                     .filter(s => s.date === dateStr && s.status === '근무')
                     .map(s => ({ employee_id: s.employee_id, grid_position: s.grid_position }))
             };
-            
+
             console.log('📅 Drag started:', dragSourceInfo);
-            
+
             document.querySelectorAll('.day-events').forEach(el => {
                 el.style.minHeight = '100px';
                 el.style.backgroundColor = 'rgba(59, 130, 246, 0.05)';
                 el.style.border = '2px dashed rgba(59, 130, 246, 0.3)';
             });
         },
-        
+
         onEnd(evt) {
             setTimeout(() => {
                 isDragging = false;
@@ -749,18 +752,18 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 el.style.backgroundColor = '';
                 el.style.border = '';
             });
-            
+
             console.log('📅 [onEnd] Drag ended');
             dragSourceInfo = null;
         },
-        
+
         onUpdate(evt) {
             // ✅ 같은 날짜 내 이동 처리
             const oldIndex = evt.oldIndex;
             const newIndex = evt.newIndex;
-            
+
             console.log('📅 [onUpdate] 같은 날짜 내 이동:', oldIndex, '→', newIndex);
-            
+
             if (oldIndex !== newIndex) {
                 // ✅ DOM 순서가 바뀌었으므로 모든 슬롯의 data-position 재설정
                 const eventContainer = evt.to;
@@ -768,17 +771,17 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 allSlots.forEach((slot, idx) => {
                     slot.dataset.position = idx;
                 });
-                
+
                 // ✅ 위치가 바뀌면 전체 position 재계산
                 updateScheduleSortOrders(dateStr);
                 updateSaveButtonState();
             }
         },
-        
+
         onAdd(evt) {
             console.log('🎯 Calendar onAdd triggered! Date:', dateStr);
             const employeeEl = evt.item;
-            
+
             // ✅ event-card인 경우는 다른 날짜에서 온 것 (규칙 5)
             if (employeeEl.classList.contains('event-card')) {
                 console.log('✅ Moved from another date');
@@ -786,29 +789,29 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 updateSaveButtonState();
                 return;
             }
-            
+
             // ✅ draggable-employee인 경우 사이드바에서 온 것
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
             console.log('📝 Dropped employee ID:', empId);
-            
+
             if (isNaN(empId)) {
                 console.log('❌ Invalid employee ID, removing element');
                 employeeEl.remove();
                 return;
             }
-            
+
             // ✅ 중복 체크 (규칙 4-2)
             const alreadyExists = state.schedule.schedules.some(
                 s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
             );
-            
+
             if (alreadyExists) {
                 console.log('❌ Employee already exists on this date - drop cancelled');
                 employeeEl.remove();
                 alert('이미 해당 날짜에 배치된 직원입니다.');
                 return;
             }
-            
+
             // ✅ 음수 ID는 빈칸으로 처리
             let employee = null;
             let employeeName = '';
@@ -825,7 +828,7 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 employeeName = employee.name;
                 console.log('✅ Found employee:', employeeName, 'at position:', evt.newIndex);
             }
-            
+
             // ✅ 새 스케줄 추가 (기존 스케줄의 position은 건드리지 않음)
             const tempId = `temp-${Date.now()}-${empId}`;
             const newSchedule = {
@@ -839,11 +842,11 @@ function initializeDayDragDrop(dayEl, dateStr) {
             state.schedule.schedules.push(newSchedule);
             unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
             console.log('✅ Added new schedule:', empId, 'at position:', evt.newIndex);
-            
+
             // ✅ DOM 정리 및 재렌더링
             employeeEl.remove();
             renderCalendar();
-            
+
             // ✅ 모든 카드의 position 재계산 (밀린 카드들 감지)
             updateScheduleSortOrders(dateStr);
             updateSaveButtonState();
@@ -853,7 +856,7 @@ function initializeDayDragDrop(dayEl, dateStr) {
 
 function getWorkingEmployeesOnDate(dateStr) {
     const workingEmps = [];
-    
+
     // ✅ DB에 명시적으로 '근무' 상태로 저장된 직원만 표시
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '근무') {
@@ -884,7 +887,7 @@ function getWorkingEmployeesOnDate(dateStr) {
 
 function getOffEmployeesOnDate(dateStr) {
     const offEmps = [];
-    
+
     // ✅ 1. DB에 명시적으로 '휴무' 상태로 저장된 직원
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '휴무') {
@@ -894,7 +897,7 @@ function getOffEmployeesOnDate(dateStr) {
             }
         }
     });
-    
+
     // ✅ 2. 승인된 연차 (DB에 스케줄 없어도 표시)
     state.management.leaveRequests.forEach(req => {
         if (req.status === 'approved' && req.dates?.includes(dateStr)) {
@@ -906,7 +909,7 @@ function getOffEmployeesOnDate(dateStr) {
             }
         }
     });
-    
+
     // ✅ grid_position 기준 정렬
     offEmps.sort((a, b) => {
         const posA = a.schedule?.grid_position;
@@ -926,33 +929,33 @@ function getOffEmployeesOnDate(dateStr) {
 function handleEventCardClick(e) {
     const card = e.target.closest('.event-card');
     if (!card) return;
-    
+
     // ✨ 드래그 중이거나 드래그 직후면 클릭 무시
     if (isDragging || (Date.now() - dragStartTime < 200)) {
         console.log('Click ignored: dragging or just after drag');
         return;
     }
-    
+
     const dateStr = card.closest('.calendar-day').dataset.date;
     const empId = parseInt(card.dataset.employeeId);
     const type = card.dataset.type;
-    
+
     // 연차와 빈칸은 클릭 불가
     if (type === 'leave') {
         return;
     }
-    
+
     // ✅ 빈칸(음수 ID)은 클릭해도 상태 변경 안함
     if (empId < 0) {
         console.log('Spacer clicked - no action');
         return;
     }
-    
+
     // ✨ 카드 클릭: 상태 전환
     console.log('Card clicked:', empId, 'on', dateStr);
-    
+
     let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
-    
+
     if (schedule) {
         // 기존 스케줄: 상태 전환
         schedule.status = schedule.status === '근무' ? '휴무' : '근무';
@@ -962,13 +965,13 @@ function handleEventCardClick(e) {
         // 새 스케줄 생성
         const currentlyWorking = getWorkingEmployeesOnDate(dateStr).some(emp => emp.id === empId);
         const newStatus = currentlyWorking ? '휴무' : '근무';
-        
+
         const existingOrders = state.schedule.schedules
             .filter(s => s.date === dateStr)
             .map(s => s.sort_order)
             .filter(o => o !== null && o !== undefined);
         const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1;
-        
+
         const tempId = `temp-${Date.now()}-${empId}`;
         const newSchedule = {
             id: tempId,
@@ -981,31 +984,31 @@ function handleEventCardClick(e) {
         unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
         console.log('Created schedule:', newSchedule);
     }
-    
+
     renderCalendar();
     updateSaveButtonState();
 }
 
 function handleDateNumberClick(e) {
     const target = e.target;
-    
+
     if (!target.classList.contains('day-number')) return;
-    
+
     e.stopPropagation();
-    
+
     const dayEl = target.closest('.calendar-day');
     if (!dayEl) return;
-    
+
     const clickedDate = dayEl.dataset.date;
-    
+
     console.log('Date clicked:', clickedDate, 'Mode:', state.schedule.viewMode);
-    
+
     const allEmployees = getFilteredEmployees();
-    
+
     if (state.schedule.viewMode === 'working') {
         allEmployees.forEach((emp, index) => {
             let schedule = state.schedule.schedules.find(s => s.date === clickedDate && s.employee_id === emp.id);
-            
+
             if (schedule) {
                 if (schedule.status !== '휴무') {
                     schedule.status = '휴무';
@@ -1025,18 +1028,18 @@ function handleDateNumberClick(e) {
                 unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
             }
         });
-        
+
         state.schedule.companyHolidays.add(clickedDate);
         if (unsavedHolidayChanges.toRemove.has(clickedDate)) {
             unsavedHolidayChanges.toRemove.delete(clickedDate);
         } else {
             unsavedHolidayChanges.toAdd.add(clickedDate);
         }
-    } 
+    }
     else {
         allEmployees.forEach((emp, index) => {
             let schedule = state.schedule.schedules.find(s => s.date === clickedDate && s.employee_id === emp.id);
-            
+
             if (schedule) {
                 if (schedule.status !== '근무') {
                     schedule.status = '근무';
@@ -1056,7 +1059,7 @@ function handleDateNumberClick(e) {
                 unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
             }
         });
-        
+
         state.schedule.companyHolidays.delete(clickedDate);
         if (unsavedHolidayChanges.toAdd.has(clickedDate)) {
             unsavedHolidayChanges.toAdd.delete(clickedDate);
@@ -1064,7 +1067,7 @@ function handleDateNumberClick(e) {
             unsavedHolidayChanges.toRemove.add(clickedDate);
         }
     }
-    
+
     renderCalendar();
     updateSaveButtonState();
 }
@@ -1075,18 +1078,18 @@ function renderCalendar() {
         console.error('Calendar container not found');
         return;
     }
-    
+
     const currentDate = dayjs(state.schedule.currentDate);
     const year = currentDate.year();
     const month = currentDate.month();
-    
+
     const firstDay = dayjs(new Date(year, month, 1));
     const lastDay = dayjs(new Date(year, month + 1, 0));
     const startDate = firstDay.startOf('week');
     const endDate = lastDay.endOf('week');
-    
+
     let calendarHTML = '<div class="calendar-grid">';
-    
+
     const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
     weekDays.forEach((day, idx) => {
         let colorClass = '';
@@ -1094,7 +1097,7 @@ function renderCalendar() {
         else if (idx === 6) colorClass = 'text-blue-500';
         calendarHTML += `<div class="calendar-header ${colorClass}">${day}</div>`;
     });
-    
+
     let currentLoop = startDate.clone();
     while (currentLoop.valueOf() <= endDate.valueOf()) {
         const dateStr = currentLoop.format('YYYY-MM-DD');
@@ -1104,30 +1107,31 @@ function renderCalendar() {
         const isSunday = currentLoop.day() === 0;
         const isSaturday = currentLoop.day() === 6;
         const isHoliday = state.schedule.companyHolidays.has(dateStr);
-        
+
         let dayClasses = 'calendar-day';
         if (!isCurrentMonth) dayClasses += ' other-month';
         if (isToday) dayClasses += ' today';
         if (isHoliday) dayClasses += ' company-holiday';
         if (isSunday) dayClasses += ' sunday-col';
-        
+
         let numberClass = 'day-number';
         if (isSunday) numberClass += ' text-red-500';
         else if (isSaturday) numberClass += ' text-blue-500';
-        
+
         let eventsHTML = '';
         if (state.schedule.viewMode === 'working') {
             // ✅ 항상 24칸 고정 렌더링
             const GRID_SIZE = 24;
             const gridSlots = new Array(GRID_SIZE).fill(null);
-            
+
             // 해당 날짜의 스케줄을 그리드 위치에 배치
-            
+
             // ✅ 부서 필터 적용된 직원 ID 목록
             const filteredEmployeeIds = new Set();
             if (state.schedule.activeDepartmentFilters.size > 0) {
                 state.management.employees.forEach(emp => {
-                    if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
+                    const deptId = emp.department_id ?? emp.departments?.id;
+                    if (state.schedule.activeDepartmentFilters.has(deptId)) {
                         filteredEmployeeIds.add(emp.id);
                     }
                 });
@@ -1146,7 +1150,7 @@ function renderCalendar() {
                     }
                 }
             });
-            
+
             // 각 슬롯을 HTML로 변환
             eventsHTML = gridSlots.map((schedule, position) => {
                 if (!schedule) {
@@ -1172,7 +1176,7 @@ function renderCalendar() {
                             <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
                         </div>`;
                     }
-                    
+
                     const deptColor = getDepartmentColor(emp.departments?.id);
                     return `<div class="event-card event-working" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working">
                         <span class="event-dot" style="background-color: ${deptColor};"></span>
@@ -1194,7 +1198,7 @@ function renderCalendar() {
                 </div>`;
             }).join('');
         }
-        
+
         calendarHTML += `
             <div class="${dayClasses}" data-date="${dateStr}">
                 <div class="day-header">
@@ -1202,23 +1206,23 @@ function renderCalendar() {
                 </div>
                 <div class="day-events">${eventsHTML}</div>
             </div>`;
-        
+
         currentLoop = currentLoop.add(1, 'day');
     }
-    
+
     calendarHTML += '</div>';
     container.innerHTML = calendarHTML;
-    
+
     // ✨ 모든 날짜에 드래그 앤 드롭 초기화
     document.querySelectorAll('.calendar-day').forEach(dayEl => {
         const dateStr = dayEl.dataset.date;
         initializeDayDragDrop(dayEl, dateStr);
     });
-    
+
     // ✨ 이벤트 위임으로 클릭 처리
     container.removeEventListener('click', handleCalendarClick);
     container.addEventListener('click', handleCalendarClick);
-    
+
     console.log('Calendar rendered successfully');
 }
 
@@ -1229,7 +1233,7 @@ function handleCalendarClick(e) {
         handleDateNumberClick(e);
         return;
     }
-    
+
     // 이벤트 카드 클릭 (드래그 아닐 때만)
     const card = e.target.closest('.event-card');
     if (card && !isDragging) {
@@ -1243,13 +1247,13 @@ function navigateMonth(direction) {
     if (totalChanges > 0 && !confirm("저장되지 않은 변경사항이 있습니다. 다른 달로 이동하면 변경사항이 사라집니다. 정말 이동하시겠습니까?")) {
         return;
     }
-    
+
     const current = dayjs(state.schedule.currentDate);
     let newDate;
     if (direction === 'prev') newDate = current.subtract(1, 'month');
     else if (direction === 'next') newDate = current.add(1, 'month');
     else newDate = dayjs();
-    
+
     state.schedule.currentDate = newDate.format('YYYY-MM-DD');
     loadAndRenderScheduleData(state.schedule.currentDate);
 }
@@ -1264,26 +1268,26 @@ async function loadAndRenderScheduleData(date) {
         state.schedule.activeReorder.date = null;
         state.schedule.activeReorder.sortable = null;
     }
-    
+
     unsavedChanges.clear();
     unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
     updateSaveButtonState();
-    
+
     const currentMonth = dayjs(date).format('YYYY-MM-01');
     const startOfMonth = dayjs(date).startOf('month').format('YYYY-MM-DD');
     const endOfMonth = dayjs(date).endOf('month').format('YYYY-MM-DD');
-    
+
     console.log('Loading data for:', { currentMonth, startOfMonth, endOfMonth });
-    
+
     try {
         const [layoutRes, scheduleRes, holidayRes] = await Promise.all([
             db.from('team_layouts').select('layout_data').lte('month', currentMonth).order('month', { ascending: false }).limit(1),
             db.from('schedules').select('*').gte('date', startOfMonth).lte('date', endOfMonth),
             db.from('company_holidays').select('date').gte('date', startOfMonth).lte('date', endOfMonth)
         ]);
-        
+
         console.log('Data loaded:', { layoutRes, scheduleRes, holidayRes });
-        
+
         if (layoutRes.error) throw layoutRes.error;
         if (scheduleRes.error) throw scheduleRes.error;
         if (holidayRes.error) throw holidayRes.error;
@@ -1295,30 +1299,30 @@ async function loadAndRenderScheduleData(date) {
             // 첫 번째 팀의 members를 순서로 사용
             employeeOrder = latestLayout.layout_data[0].members || [];
         }
-        state.schedule.teamLayout = { 
-            month: dayjs(date).format('YYYY-MM'), 
+        state.schedule.teamLayout = {
+            month: dayjs(date).format('YYYY-MM'),
             data: employeeOrder.length > 0 ? [{ id: 'main', name: '직원 목록', members: employeeOrder }] : []
         };
         state.schedule.schedules = scheduleRes.data || [];
         state.schedule.companyHolidays = new Set((holidayRes.data || []).map(h => h.date));
-        
+
         console.log('State updated:', {
             teamLayout: state.schedule.teamLayout,
             schedulesCount: state.schedule.schedules.length,
             holidaysCount: state.schedule.companyHolidays.size
         });
-        
+
         const titleEl = _('#calendar-title');
         if (titleEl) {
             titleEl.textContent = dayjs(date).format('YYYY년 M월');
         }
-        
+
         // ✨ 순서 변경: 달력을 먼저 렌더링
         renderCalendar();
-        
+
         // ✨ 그 다음 사이드바 렌더링 (이때 달력의 day-events가 존재함)
         await renderScheduleSidebar();
-        
+
         console.log('Rendering complete');
     } catch (error) {
         console.error("스케줄 데이터 로딩 실패:", error);
@@ -1329,14 +1333,14 @@ async function loadAndRenderScheduleData(date) {
 function initializeSortableAndDraggable() {
     state.schedule.sortableInstances.forEach(s => s.destroy());
     state.schedule.sortableInstances = [];
-    
+
     // ✅ 직원 리스트에 Sortable 적용
     const employeeList = document.querySelector('.employee-list');
     if (employeeList) {
-        const sortableInstance = new Sortable(employeeList, { 
+        const sortableInstance = new Sortable(employeeList, {
             group: {
                 name: 'sidebar-employees',
-                pull: function(to, from, dragEl) {
+                pull: function (to, from, dragEl) {
                     // 달력으로 드래그할 때는 복사, 제외 목록으로는 이동
                     if (to.el.classList.contains('day-events')) {
                         return 'clone'; // 복사 모드
@@ -1347,18 +1351,18 @@ function initializeSortableAndDraggable() {
                 put: true
             },
             draggable: '.draggable-employee, .list-spacer',
-            animation: 150, 
+            animation: 150,
             ghostClass: 'sortable-ghost',
             sort: true,
             forceFallback: false,
-            
+
             onStart(evt) {
                 isDragging = true;
                 dragStartTime = Date.now();
                 document.body.style.userSelect = 'none';
                 const empId = evt.item.dataset.employeeId;
                 console.log(`👉 [Sidebar] Drag started - Employee ID: ${empId}`);
-                
+
                 // ✨ 달력 영역 강조
                 document.querySelectorAll('.day-events').forEach(el => {
                     el.style.minHeight = '100px';
@@ -1366,18 +1370,18 @@ function initializeSortableAndDraggable() {
                     el.style.border = '2px dashed rgba(59, 130, 246, 0.3)';
                 });
             },
-            
+
             onEnd(evt) {
                 setTimeout(() => {
                     isDragging = false;
                 }, 100);
                 document.body.style.userSelect = '';
-                
+
                 const toClasses = evt.to.className;
                 const isCalendar = toClasses.includes('day-events');
                 const isExcluded = toClasses.includes('excluded-list');
                 console.log(`👉 [Sidebar] Drag ended - To: ${toClasses}, Calendar: ${isCalendar}, Excluded: ${isExcluded}`);
-                
+
                 // ✨ 달력 강조 제거
                 document.querySelectorAll('.day-events').forEach(el => {
                     el.style.minHeight = '';
@@ -1385,15 +1389,15 @@ function initializeSortableAndDraggable() {
                     el.style.border = '';
                 });
             },
-            
+
             onClone(evt) {
                 console.log(`👉 [Sidebar] Employee cloned for drag`);
             },
         });
-        
+
         state.schedule.sortableInstances.push(sortableInstance);
     }
-    
+
     // ✅ 제외 목록에도 Sortable 적용
     const excludedList = document.querySelector('.excluded-list');
     if (excludedList) {
@@ -1407,18 +1411,18 @@ function initializeSortableAndDraggable() {
             animation: 150,
             ghostClass: 'sortable-ghost',
             sort: true,
-            
+
             onAdd(evt) {
                 console.log(`🚫 직원이 제외 목록으로 이동됨`);
             }
         });
-        
+
         state.schedule.sortableInstances.push(excludedSortable);
     }
-    
+
     console.log('✅ Initialized', state.schedule.sortableInstances.length, 'sidebar sortable instances');
     console.log('✅ Calendar has', document.querySelectorAll('.day-events').length, 'droppable day-events');
-    
+
     // ✨ 디버깅: 첫 번째 day-events의 Sortable 설정 확인
     const firstDayEvent = document.querySelector('.day-events');
     if (firstDayEvent && firstDayEvent.sortableInstance) {
@@ -1431,22 +1435,22 @@ function initializeSortableAndDraggable() {
 async function renderScheduleSidebar() {
     const sidebar = _('#schedule-sidebar-area');
     if (!sidebar) return;
-    
+
     const filteredEmployees = getFilteredEmployees();
-    
+
     // ✅ 중복 제거: 각 직원을 한 번씩만 표시
     const uniqueEmployees = Array.from(new Map(
         filteredEmployees.map(emp => [emp.id, emp])
     ).values());
-    
+
     // ✅ 저장된 순서가 있으면 그 순서대로 정렬
     let orderedEmployees = [];
     let excludedEmployees = [];
     const savedLayout = state.schedule.teamLayout?.data?.[0];
-    
+
     if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
         console.log('📋 저장된 순서 적용:', savedLayout.members);
-        
+
         // 저장된 순서대로 직원 배치 (빈칸 포함)
         savedLayout.members.forEach(memberId => {
             if (memberId < 0) {
@@ -1459,7 +1463,7 @@ async function renderScheduleSidebar() {
                 }
             }
         });
-        
+
         // ✅ 저장된 순서에 없는 직원들은 제외 목록으로
         uniqueEmployees.forEach(emp => {
             if (!savedLayout.members.includes(emp.id)) {
@@ -1471,7 +1475,7 @@ async function renderScheduleSidebar() {
         orderedEmployees = uniqueEmployees;
         console.log('📋 기본 순서 사용');
     }
-    
+
     console.log('📋 사이드바 직원 수:', orderedEmployees.length);
     console.log('🚫 제외된 직원 수:', excludedEmployees.length);
 
@@ -1490,7 +1494,7 @@ async function renderScheduleSidebar() {
             return getEmployeeHtml(item);
         }
     }).join('');
-    
+
     // HTML 생성 - 제외 목록
     const excludedListHtml = excludedEmployees.map(emp => getEmployeeHtml(emp)).join('');
 
@@ -1516,17 +1520,17 @@ async function renderScheduleSidebar() {
                 <p class="text-xs text-gray-400 mt-1">여기로 드래그하면 리셋 시 제외됩니다</p>
             </div>
         </div>`;
-    
+
     _('#add-spacer-btn')?.addEventListener('click', handleAddSpacer);
     _('#save-employee-order-btn')?.addEventListener('click', handleSaveEmployeeOrder);
     sidebar.addEventListener('click', handleDeleteSpacer);
-    
+
     initializeSortableAndDraggable();
 }
 
 export async function renderScheduleManagement(container) {
     console.log('renderScheduleManagement called');
-    
+
     if (!state.schedule) {
         state.schedule = {
             currentDate: dayjs().format('YYYY-MM-DD'),
@@ -1539,21 +1543,21 @@ export async function renderScheduleManagement(container) {
             sortableInstances: []
         };
     }
-    
+
     if (!state.management) {
         console.error('state.management is not initialized');
         container.innerHTML = '<div class="p-4 text-red-600">관리 데이터를 불러올 수 없습니다. 페이지를 새로고침해주세요.</div>';
         return;
     }
-    
+
     const departments = state.management.departments || [];
-    const deptFilterHtml = departments.map(dept => 
+    const deptFilterHtml = departments.map(dept =>
         `<div class="flex items-center">
             <input id="dept-${dept.id}" type="checkbox" value="${dept.id}" class="dept-filter-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
             <label for="dept-${dept.id}" class="ml-2 text-sm text-gray-700">${dept.name}</label>
         </div>`
     ).join('');
-    
+
     container.innerHTML = `
         <div class="schedule-grid">
             <div class="schedule-main-content">
@@ -1583,9 +1587,9 @@ export async function renderScheduleManagement(container) {
             <div id="schedule-sidebar-area"></div>
         </div>
     `;
-    
+
     console.log('HTML rendered');
-    
+
     _('#schedule-view-toggle')?.addEventListener('click', handleViewModeChange);
     _('#department-filters')?.addEventListener('change', handleDepartmentFilterChange);
     _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
@@ -1595,9 +1599,9 @@ export async function renderScheduleManagement(container) {
     _('#calendar-today')?.addEventListener('click', () => navigateMonth('today'));
     _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
     _('#print-schedule-btn')?.addEventListener('click', handlePrintSchedule);
-    
+
     console.log('Event listeners attached');
-    
+
     try {
         await loadAndRenderScheduleData(state.schedule.currentDate);
         updateViewModeButtons();
@@ -1612,20 +1616,20 @@ export async function renderScheduleManagement(container) {
 async function handlePrintSchedule() {
     const currentDate = dayjs(state.schedule.currentDate);
     const viewModeText = state.schedule.viewMode === 'working' ? '근무자 명단' : '휴무자 명단';
-    
+
     // 달력 요소
     const calendarEl = _('#pure-calendar');
     if (!calendarEl) {
         alert('달력을 찾을 수 없습니다.');
         return;
     }
-    
+
     try {
         // 버튼 비활성화
         const printBtn = _('#print-schedule-btn');
         printBtn.disabled = true;
         printBtn.textContent = '캡쳐 중...';
-        
+
         // html2canvas로 달력 캡쳐
         const canvas = await html2canvas(calendarEl, {
             scale: 2, // 고해상도
@@ -1633,11 +1637,11 @@ async function handlePrintSchedule() {
             backgroundColor: '#ffffff',
             logging: false,
         });
-        
+
         // 새 창에 이미지 표시 및 인쇄
         const imgData = canvas.toDataURL('image/png');
         const printWindow = window.open('', '_blank');
-        
+
         printWindow.document.write(`
             <!DOCTYPE html>
             <html>
@@ -1701,9 +1705,9 @@ async function handlePrintSchedule() {
             </body>
             </html>
         `);
-        
+
         printWindow.document.close();
-        
+
     } catch (error) {
         console.error('캡쳐 실패:', error);
         alert('캡쳐에 실패했습니다: ' + error.message);
