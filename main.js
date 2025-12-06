@@ -244,12 +244,12 @@ async function renderAdminPortal() {
                 <h1 class="text-3xl font-bold">최고 관리자 포털</h1>
                 <div class="text-right">
                     <p id="admin-welcome-msg" class="text-gray-700 text-sm font-semibold">${state.currentUser.name}님, 환영합니다.</p>
-                    <button id="adminLogoutBtn" class="mt-1 px-3 py-1 text-sm bg-gray-300 rounded">로그아웃</button>
+                    <button id="adminLogoutBtn" class="mt-1 btn btn-secondary btn-sm">로그아웃</button>
                 </div>
              </div>
             <div id="admin-summary" class="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center mb-6 text-sm"></div>
             <div id="admin-tabs" class="flex flex-wrap gap-4 mb-4 border-b"></div>
-            <div id="admin-content" class="bg-white shadow rounded p-4 overflow-x-auto"></div>
+            <div id="admin-content" class="card overflow-x-auto"></div>
         </div>`;
 
     _('#adminLogoutBtn').addEventListener('click', handleLogout);

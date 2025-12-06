@@ -1522,3 +1522,17 @@ select:focus {
         font-size: 10px;
     }
 }
+
+/* Spacer Styles */
+.spacer-item {
+    background-color: var(--bg-color);
+    color: transparent;
+}
+
+.spacer-dot {
+    background-color: var(--bg-color);
+}
+
+.spacer-text {
+    color: var(--bg-color);
+}
