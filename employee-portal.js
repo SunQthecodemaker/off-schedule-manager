@@ -240,6 +240,13 @@ async function renderManagerLeaveList() {
         // 관리자 모드와 동일하게 getLeaveListHTML()만 사용 (이 안에 달력 포함됨)
         container.innerHTML = getLeaveListHTML();
 
+        // 📅 달력 렌더링 (DOM에 추가된 후 실행)
+        setTimeout(() => {
+            if (typeof window.renderLeaveCalendar === 'function') {
+                window.renderLeaveCalendar();
+            }
+        }, 100);
+
     } catch (error) {
         console.error('연차 목록 로드 오류:', error);
         container.innerHTML = '<div class="p-4 text-red-600">데이터를 불러오는데 실패했습니다: ' + error.message + '</div>';
