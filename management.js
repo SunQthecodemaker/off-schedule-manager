@@ -733,14 +733,16 @@ window.renderLeaveCalendar = function (containerSelector) {
     });
 
     // 달력이 이미 있으면 제거
-    container.innerHTML = '<div id="leave-fullcalendar"></div>';
+    container.innerHTML = '';
+    const calendarEl = document.createElement('div');
+    container.appendChild(calendarEl);
 
     if (typeof FullCalendar === 'undefined') {
         container.innerHTML = '<p class="text-red-600 text-center py-4">달력 라이브러리를 로드할 수 없습니다.</p>';
         return;
     }
 
-    const calendar = new FullCalendar.Calendar(_('#leave-fullcalendar'), {
+    const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         headerToolbar: {
             left: 'today',
