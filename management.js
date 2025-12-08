@@ -13,6 +13,9 @@ export function assignManagementEventHandlers() {
     window.handleUpdateDepartment = handleUpdateDepartment;
     window.handleDeleteDepartment = handleDeleteDepartment;
     window.openDocumentRequestModal = openDocumentRequestModal;
+    window.handleRetireEmployee = handleRetireEmployee;
+    window.handleRestoreEmployee = handleRestoreEmployee;
+    window.toggleEmployeeFilter = toggleEmployeeFilter;
 }
 
 // =========================================================================================
@@ -261,8 +264,77 @@ window.handleIssueSubmit = async function (e) {
 // 직원 관리 HTML
 // =========================================================================================
 
+// 직원 관리 필터 상태
+let currentEmployeeFilter = 'active'; // active | retired
+
+window.toggleEmployeeFilter = function (filter) {
+    currentEmployeeFilter = filter;
+
+    // 버튼 스타일 업데이트
+    const activeBtn = document.getElementById('filter-btn-active');
+    const retiredBtn = document.getElementById('filter-btn-retired');
+
+    if (filter === 'active') {
+        activeBtn.classList.remove('bg-gray-200', 'text-gray-600');
+        activeBtn.classList.add('bg-blue-600', 'text-white');
+        retiredBtn.classList.remove('bg-blue-600', 'text-white');
+        retiredBtn.classList.add('bg-gray-200', 'text-gray-600');
+    } else {
+        retiredBtn.classList.remove('bg-gray-200', 'text-gray-600');
+        retiredBtn.classList.add('bg-blue-600', 'text-white');
+        activeBtn.classList.remove('bg-blue-600', 'text-white');
+        activeBtn.classList.add('bg-gray-200', 'text-gray-600');
+    }
+
+    window.loadAndRenderManagement();
+};
+
+window.handleRetireEmployee = async function (id) {
+    const defaultDate = dayjs().format('YYYY-MM-DD');
+    const date = prompt("퇴사 일자를 입력해주세요 (YYYY-MM-DD):", defaultDate);
+
+    if (date === null) return; // 취소
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        alert("올바른 날짜 형식이 아닙니다.");
+        return;
+    }
+
+    if (confirm("해당 직원을 퇴사 처리하시겠습니까? 퇴사 처리 된 직원은 [퇴사자] 탭에서 확인할 수 있습니다.")) {
+        const { error } = await db.from('employees').update({ resignation_date: date }).eq('id', id);
+        if (error) {
+            alert('퇴사 처리 실패: ' + error.message);
+        } else {
+            alert('퇴사 처리가 완료되었습니다.');
+            await window.loadAndRenderManagement();
+        }
+    }
+};
+
+window.handleRestoreEmployee = async function (id) {
+    if (confirm("해당 직원을 복직 처리하시겠습니까? 다시 [재직자] 탭으로 이동됩니다.")) {
+        const { error } = await db.from('employees').update({ resignation_date: null }).eq('id', id);
+        if (error) {
+            alert('복직 처리 실패: ' + error.message);
+        } else {
+            alert('복직 처리가 완료되었습니다.');
+            await window.loadAndRenderManagement();
+        }
+    }
+};
+
 export function getManagementHTML() {
     const { employees, departments } = state.management;
+
+    // 필터링
+    const filteredEmployees = employees.filter(emp => {
+        if (currentEmployeeFilter === 'active') {
+            return !emp.resignation_date;
+        } else {
+            return emp.resignation_date;
+        }
+    });
+
     const departmentOptions = (currentDeptId = null) => {
         let options = departments.map(d => `<option value="${d.id}" ${d.id === currentDeptId ? 'selected' : ''}>${d.name}</option>`).join('');
         if (currentDeptId === null) {
@@ -278,17 +350,35 @@ export function getManagementHTML() {
         { name: '입사일', width: '15%' },
         { name: '이메일', width: '20%' },
         { name: '비밀번호', width: '10%' },
-        { name: '매니저', width: '8%' },
+        { name: filterLabel(), width: '8%' }, // 동적 헤더 (매니저/퇴사일)
         { name: '관리', width: '12%' }
     ];
+
+    function filterLabel() {
+        return currentEmployeeFilter === 'active' ? '매니저' : '퇴사일';
+    }
+
     const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
 
-    const rows = employees.map(emp => {
+    const rows = filteredEmployees.map(emp => {
         const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
-        const managementButtons = `
-            <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateEmployee(${emp.id})">저장</button> 
-            <button class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1" onclick="handleDeleteEmployee(${emp.id})">삭제</button>
-        `;
+
+        let managementButtons = '';
+        if (currentEmployeeFilter === 'active') {
+            managementButtons = `
+                <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateEmployee(${emp.id})">저장</button> 
+                <button class="text-xs bg-orange-500 text-white px-2 py-1 rounded ml-1" onclick="handleRetireEmployee(${emp.id})">퇴사</button>
+            `;
+        } else {
+            managementButtons = `
+                <button class="text-xs bg-green-500 text-white px-2 py-1 rounded" onclick="handleRestoreEmployee(${emp.id})">복직</button>
+                <button class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1" onclick="handleDeleteEmployee(${emp.id})">삭제</button>
+            `;
+        }
+
+        const extraColumn = currentEmployeeFilter === 'active'
+            ? `<input type="checkbox" id="manager-${emp.id}" ${emp.isManager ? 'checked' : ''} class="cursor-pointer w-4 h-4">`
+            : `<span class="text-gray-500 text-xs">${emp.resignation_date || '-'}</span>`;
 
         return `<tr class="border-t">
             <td class="p-2 text-center"><input type="checkbox" class="employee-checkbox cursor-pointer" value="${emp.id}"></td>
@@ -297,12 +387,12 @@ export function getManagementHTML() {
             <td class="p-2"><input type="date" id="entry-${emp.id}" value="${entryDateValue}" class="table-input"></td>
             <td class="p-2"><input type="email" id="email-${emp.id}" value="${emp.email || ''}" class="table-input"></td>
             <td class="p-2 text-center"><button class="text-xs bg-gray-500 text-white px-2 py-1 rounded">재설정</button></td>
-            <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${emp.isManager ? 'checked' : ''} class="cursor-pointer w-4 h-4"></td>
+            <td class="p-2 text-center">${extraColumn}</td>
             <td class="p-2 text-center">${managementButtons}</td>
         </tr>`;
     }).join('');
 
-    const newRow = `
+    const newRow = currentEmployeeFilter === 'active' ? `
         <tr class="border-t bg-gray-50">
             <td class="p-2"></td>
             <td class="p-2"><input type="text" id="newName" class="table-input" placeholder="이름"></td>
@@ -316,7 +406,7 @@ export function getManagementHTML() {
             <td class="p-2"><input type="password" id="newPassword" class="table-input" placeholder="초기 비밀번호"></td>
             <td class="p-2"></td>
             <td class="p-2 text-center"><button class="text-sm bg-green-600 text-white px-2 py-1 rounded w-full" onclick="handleAddEmployee()">추가</button></td>
-        </tr>`;
+        </tr>` : '';
 
     setTimeout(addManagementEventListeners, 0);
 
@@ -324,8 +414,11 @@ export function getManagementHTML() {
         <div class="flex justify-between items-center mb-3">
             <h2 class="text-lg font-semibold">직원 관리</h2>
             <div class="flex space-x-2">
-                <button id="bulkDeleteBtn" class="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold disabled:bg-gray-400" disabled>선택 직원 삭제 (0)</button>
-                <button id="open-bulk-register-btn" class="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-bold">엑셀 붙여넣기 대량 등록</button>
+                <button id="bulkDeleteBtn" class="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold disabled:bg-gray-400 hidden" disabled>선택 삭제 (0)</button>
+                <div class="flex bg-gray-200 rounded p-1">
+                    <button id="filter-btn-active" onclick="window.toggleEmployeeFilter('active')" class="${currentEmployeeFilter === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors">재직자</button>
+                    <button id="filter-btn-retired" onclick="window.toggleEmployeeFilter('retired')" class="${currentEmployeeFilter === 'retired' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors ml-1">퇴사자</button>
+                </div>
             </div>
         </div>
         <div class="overflow-x-auto">
@@ -334,7 +427,12 @@ export function getManagementHTML() {
                 <tbody>${rows}</tbody>
                 <tfoot>${newRow}</tfoot>
             </table>
-        </div>`;
+        </div>
+        ${currentEmployeeFilter === 'active' ? `
+        <div class="flex justify-end mt-2">
+             <button id="open-bulk-register-btn" class="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-bold">엑셀 붙여넣기 대량 등록</button>
+        </div>` : ''}
+        `;
 }
 
 // =========================================================================================
@@ -433,7 +531,8 @@ export function getLeaveListHTML() {
     const { leaveRequests, employees } = state.management;
 
     const employeeNameMap = employees.reduce((map, emp) => {
-        map[emp.id] = emp.name;
+        const suffix = emp.resignation_date ? ' (퇴사)' : '';
+        map[emp.id] = emp.name + suffix;
         return map;
     }, {});
 
