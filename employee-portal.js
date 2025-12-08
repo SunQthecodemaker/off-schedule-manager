@@ -1,6 +1,6 @@
 import { state, db } from './state.js';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails } from './main.js';
+import { getLeaveDetails } from './leave-utils.js';
 import { renderScheduleManagement } from './schedule.js';
 import { getLeaveListHTML } from './management.js';
 
@@ -11,21 +11,21 @@ import { getLeaveListHTML } from './management.js';
 export async function renderEmployeePortal() {
     const portal = _('#employee-portal');
     const user = state.currentUser;
-    
+
     if (!user) {
         portal.innerHTML = '<p class="text-red-600">사용자 정보를 불러올 수 없습니다.</p>';
         return;
     }
 
     let departmentName = '부서 미지정';
-    
+
     if (user.department_id) {
         try {
             const { data: dept, error } = await db.from('departments')
                 .select('*')
                 .eq('id', user.department_id)
                 .single();
-            
+
             if (!error && dept) {
                 departmentName = dept.name;
                 user.departments = dept;
@@ -40,12 +40,12 @@ export async function renderEmployeePortal() {
     }
 
     const leaveDetails = getLeaveDetails(user);
-    
+
     // ✅ isManager 필드 확인 (디버깅용 로그)
     console.log('👤 현재 사용자:', user.name, '/ isManager:', user.isManager);
     console.log('📅 연차 갱신일:', user.leave_renewal_date);
     console.log('👤 전체 사용자 정보:', user);
-    
+
     // 갱신일 계산
     let renewalDateText = '미설정';
     let renewalDateShort = '미설정';
@@ -53,8 +53,8 @@ export async function renderEmployeePortal() {
         // DB에 갱신일이 설정되어 있으면 그 날짜 사용
         const today = dayjs();
         const renewalThisYear = dayjs(user.leave_renewal_date).year(today.year());
-        const nextRenewal = today.isAfter(renewalThisYear) 
-            ? renewalThisYear.add(1, 'year') 
+        const nextRenewal = today.isAfter(renewalThisYear)
+            ? renewalThisYear.add(1, 'year')
             : renewalThisYear;
         renewalDateText = nextRenewal.format('YYYY-MM-DD');
         renewalDateShort = nextRenewal.format('YY-MM-DD');
@@ -62,8 +62,8 @@ export async function renderEmployeePortal() {
         // 갱신일이 없으면 입사일 기준으로 계산
         const today = dayjs();
         const entryAnniversaryThisYear = dayjs(user.entryDate).year(today.year());
-        const nextAnniversary = today.isAfter(entryAnniversaryThisYear) 
-            ? entryAnniversaryThisYear.add(1, 'year') 
+        const nextAnniversary = today.isAfter(entryAnniversaryThisYear)
+            ? entryAnniversaryThisYear.add(1, 'year')
             : entryAnniversaryThisYear;
         renewalDateText = nextAnniversary.format('YYYY-MM-DD');
         renewalDateShort = nextAnniversary.format('YY-MM-DD');
@@ -153,7 +153,7 @@ export async function renderEmployeePortal() {
 
     _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
-    
+
     if (user.isManager) {
         console.log('✅ 매니저 탭 이벤트 리스너 연결');
         _('#tab-leave-list-btn')?.addEventListener('click', () => switchEmployeeTab('leaveList'));
@@ -165,7 +165,7 @@ export async function renderEmployeePortal() {
 
 function switchEmployeeTab(tab) {
     state.employee.activeTab = tab;
-    
+
     const leaveBtn = _('#tab-leave-btn');
     const docsBtn = _('#tab-docs-btn');
     const leaveListBtn = _('#tab-leave-list-btn');
@@ -174,7 +174,7 @@ function switchEmployeeTab(tab) {
     const docsTab = _('#employee-docs-tab');
     const leaveListTab = _('#employee-leave-list-tab');
     const scheduleTab = _('#employee-schedule-tab');
-    
+
     // 모든 버튼 비활성화
     [leaveBtn, docsBtn, leaveListBtn, scheduleBtn].forEach(btn => {
         if (btn) {
@@ -182,12 +182,12 @@ function switchEmployeeTab(tab) {
             btn.classList.add('border-transparent', 'text-gray-500');
         }
     });
-    
+
     // 모든 탭 숨김
     [leaveTab, docsTab, leaveListTab, scheduleTab].forEach(t => {
         if (t) t.classList.add('hidden');
     });
-    
+
     // 선택된 탭만 활성화
     if (tab === 'leave' && leaveBtn && leaveTab) {
         leaveBtn.classList.add('border-blue-600', 'text-blue-600');
@@ -214,7 +214,7 @@ function switchEmployeeTab(tab) {
 async function renderManagerLeaveList() {
     const container = _('#employee-leave-list-tab');
     if (!container) return;
-    
+
     // state.management 초기화 (없으면)
     if (!state.management) {
         state.management = {
@@ -223,23 +223,23 @@ async function renderManagerLeaveList() {
             departments: []
         };
     }
-    
+
     // 데이터 로드
     try {
         const [requestsRes, employeesRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id')
         ]);
-        
+
         if (requestsRes.error) throw requestsRes.error;
         if (employeesRes.error) throw employeesRes.error;
-        
+
         state.management.leaveRequests = requestsRes.data || [];
         state.management.employees = employeesRes.data || [];
-        
+
         // 관리자 모드와 동일하게 getLeaveListHTML()만 사용 (이 안에 달력 포함됨)
         container.innerHTML = getLeaveListHTML();
-        
+
     } catch (error) {
         console.error('연차 목록 로드 오류:', error);
         container.innerHTML = '<div class="p-4 text-red-600">데이터를 불러오는데 실패했습니다: ' + error.message + '</div>';
@@ -250,7 +250,7 @@ async function renderManagerLeaveList() {
 async function renderManagerScheduleTab() {
     const container = _('#employee-schedule-tab');
     if (!container) return;
-    
+
     // state.management와 state.schedule 초기화
     if (!state.management) {
         state.management = {
@@ -259,7 +259,7 @@ async function renderManagerScheduleTab() {
             departments: []
         };
     }
-    
+
     if (!state.schedule) {
         state.schedule = {
             currentDate: dayjs().format('YYYY-MM-DD'),
@@ -272,7 +272,7 @@ async function renderManagerScheduleTab() {
             sortableInstances: []
         };
     }
-    
+
     // 데이터 로드
     try {
         const [requestsRes, employeesRes, departmentsRes] = await Promise.all([
@@ -280,18 +280,18 @@ async function renderManagerScheduleTab() {
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('departments').select('*').order('id')
         ]);
-        
+
         if (requestsRes.error) throw requestsRes.error;
         if (employeesRes.error) throw employeesRes.error;
         if (departmentsRes.error) throw departmentsRes.error;
-        
+
         state.management.leaveRequests = requestsRes.data || [];
         state.management.employees = employeesRes.data || [];
         state.management.departments = departmentsRes.data || [];
-        
+
         // 관리자 스케줄 관리 화면 그대로 렌더링
         await renderScheduleManagement(container);
-        
+
     } catch (error) {
         console.error('스케줄 로드 오류:', error);
         container.innerHTML = '<div class="p-4 text-red-600">데이터를 불러오는데 실패했습니다: ' + error.message + '</div>';
@@ -301,7 +301,7 @@ async function renderManagerScheduleTab() {
 async function loadEmployeeData() {
     try {
         const userId = state.currentUser.id;
-        
+
         const [requestsRes, docRequestsRes, submittedDocsRes] = await Promise.all([
             db.from('leave_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
             db.from('document_requests').select('*').eq('employeeId', userId).order('created_at', { ascending: false }),
@@ -317,7 +317,7 @@ async function loadEmployeeData() {
         const approved = requests.filter(r => r.status === 'approved');
         const usedDays = approved.reduce((sum, r) => sum + (r.dates?.length || 0), 0);
         const leaveDetails = getLeaveDetails(state.currentUser);
-        
+
         _('#used-leaves').textContent = `${usedDays}일`;
         _('#remaining-leaves').textContent = `${leaveDetails.final - usedDays}일`;
 
@@ -325,10 +325,10 @@ async function loadEmployeeData() {
         initializeEmployeeCalendar(approved);
         renderDocumentRequests();
         renderSubmittedDocuments();
-        
+
         // 배지 업데이트
         updateDocumentBadge();
-        
+
         // 알림 표시 (미제출 서류가 있을 때)
         const pendingCount = state.employee.documentRequests.filter(req => req.status === 'pending').length;
         if (pendingCount > 0) {
@@ -345,7 +345,7 @@ async function loadEmployeeData() {
 function updateDocumentBadge() {
     const pendingCount = state.employee.documentRequests.filter(req => req.status === 'pending').length;
     const tabBadge = _('#doc-tab-badge');
-    
+
     // 탭 버튼 배지만 업데이트
     if (tabBadge) {
         if (pendingCount > 0) {
@@ -364,28 +364,28 @@ function updateDocumentBadge() {
 function renderDocumentRequests() {
     const container = _('#document-requests-list');
     if (!container) return;
-    
+
     const requests = state.employee.documentRequests;
-    
+
     if (requests.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">서류 제출 요청이 없습니다.</p>';
         return;
     }
-    
+
     // pending 상태인 요청만 표시 (아직 제출하지 않은 요청)
     const pendingRequests = requests.filter(req => req.status === 'pending');
-    
+
     if (pendingRequests.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">대기 중인 서류 요청이 없습니다. 모든 요청이 처리되었습니다.</p>';
         return;
     }
-    
+
     const rows = pendingRequests.map(req => {
         let statusBadge = '<span class="bg-yellow-200 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">제출 대기</span>';
         let actionButton = `<button onclick="window.openDocSubmissionModal(${req.id})" class="text-sm bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 font-bold">작성하기</button>`;
-        
+
         const docType = req.type || '일반 서류';
-        
+
         return `
             <tr class="border-b hover:bg-gray-50">
                 <td class="p-3">${docType}</td>
@@ -396,7 +396,7 @@ function renderDocumentRequests() {
             </tr>
         `;
     }).join('');
-    
+
     container.innerHTML = `
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50">
@@ -416,18 +416,18 @@ function renderDocumentRequests() {
 function renderSubmittedDocuments() {
     const container = _('#submitted-docs-list');
     if (!container) return;
-    
+
     const docs = state.employee.submittedDocuments;
-    
+
     if (docs.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">제출한 서류가 없습니다.</p>';
         return;
     }
-    
+
     // 제출된 모든 서류 표시 (submitted, approved, rejected)
     const rows = docs.map(doc => {
         let statusBadge = '';
-        
+
         switch (doc.status) {
             case 'submitted':
                 statusBadge = '<span class="bg-yellow-200 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">검토 대기</span>';
@@ -439,7 +439,7 @@ function renderSubmittedDocuments() {
                 statusBadge = '<span class="bg-red-200 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">반려됨</span>';
                 break;
         }
-        
+
         return `
             <tr class="border-b hover:bg-gray-50">
                 <td class="p-3">${doc.template_name || '일반 서류'}</td>
@@ -451,7 +451,7 @@ function renderSubmittedDocuments() {
             </tr>
         `;
     }).join('');
-    
+
     container.innerHTML = `
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50">
@@ -471,20 +471,20 @@ function renderSubmittedDocuments() {
 // 서류 작성 모달 - 파일 첨부 기능 추가
 // =========================================================================================
 
-window.openDocSubmissionModal = async function(requestId) {
+window.openDocSubmissionModal = async function (requestId) {
     const request = state.employee.documentRequests.find(req => req.id === requestId);
     if (!request) {
         alert('요청을 찾을 수 없습니다.');
         return;
     }
-    
+
     state.docSubmission.currentRequestId = requestId;
-    
+
     const today = dayjs().format('YYYY년 MM월 DD일');
-    
+
     // 해당 서류 유형이 파일 첨부 필수인지 확인
     const isAttachmentRequired = await checkIfAttachmentRequired(request.type);
-    
+
     const modalHTML = `
         <div id="temp-doc-submission-modal" class="modal-overlay">
             <div class="modal-content-lg" style="max-height: 90vh; overflow-y: auto;">
@@ -565,20 +565,20 @@ window.openDocSubmissionModal = async function(requestId) {
             </div>
         </div>
     `;
-    
+
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    
+
     // 서명 패드 초기화
     const canvas = document.getElementById('doc-signature-canvas');
     window.docSignaturePad = new SignaturePad(canvas, {
         backgroundColor: 'rgb(249, 250, 251)',
         penColor: 'rgb(0, 0, 0)'
     });
-    
+
     document.getElementById('clear-doc-signature').addEventListener('click', () => {
         window.docSignaturePad.clear();
     });
-    
+
     document.getElementById('close-temp-doc-modal').addEventListener('click', closeDocSubmissionModal);
     document.getElementById('cancel-temp-doc-btn').addEventListener('click', closeDocSubmissionModal);
     document.getElementById('submit-temp-doc-btn').addEventListener('click', handleDocumentSubmit);
@@ -591,7 +591,7 @@ async function checkIfAttachmentRequired(docType) {
             .select('requires_attachment')
             .eq('template_name', docType)
             .single();
-        
+
         if (error || !templates) return false;
         return templates.requires_attachment || false;
     } catch (error) {
@@ -610,78 +610,78 @@ async function handleDocumentSubmit() {
     const content = _('#doc-content')?.value.trim();
     const requestId = state.docSubmission.currentRequestId;
     const attachmentInput = _('#doc-attachment');
-    
+
     if (!content) {
         alert('서류 내용을 작성해주세요.');
         return;
     }
-    
+
     if (!window.docSignaturePad || window.docSignaturePad.isEmpty()) {
         alert('서명을 해주세요.');
         return;
     }
-    
+
     // 파일 첨부 필수인 경우 검증
     if (attachmentInput && attachmentInput.hasAttribute('required') && !attachmentInput.files[0]) {
         alert('파일 첨부가 필수입니다.');
         return;
     }
-    
+
     const request = state.employee.documentRequests.find(req => req.id === requestId);
     if (!request) {
         alert('요청 정보를 찾을 수 없습니다.');
         return;
     }
-    
+
     const signatureData = window.docSignaturePad.toDataURL();
-    
+
     // 제출 버튼 비활성화
     const submitBtn = _('#submit-temp-doc-btn');
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.textContent = '제출 중...';
     }
-    
+
     try {
         let attachmentUrl = null;
-        
+
         // 파일 업로드 처리 (파일이 있는 경우)
         if (attachmentInput && attachmentInput.files[0]) {
             const file = attachmentInput.files[0];
-            
+
             // 파일 크기 검증 (10MB)
             if (file.size > 10 * 1024 * 1024) {
                 alert('파일 크기는 10MB 이하여야 합니다.');
                 return;
             }
-            
+
             // Supabase Storage에 파일 업로드
             const fileName = `${state.currentUser.id}_${Date.now()}_${file.name}`;
             const { data: uploadData, error: uploadError } = await db.storage
                 .from('document-attachments')
                 .upload(fileName, file);
-            
+
             if (uploadError) {
                 console.error('파일 업로드 실패:', uploadError);
                 alert('파일 업로드에 실패했습니다. 다시 시도해주세요.');
                 return;
             }
-            
+
             // 업로드된 파일의 공개 URL 생성
             const { data: urlData } = db.storage
                 .from('document-attachments')
                 .getPublicUrl(fileName);
-            
+
             attachmentUrl = urlData.publicUrl;
         }
-        
+
         console.log('서류 제출 시도:', {
             employee_id: state.currentUser.id,
             employee_name: state.currentUser.name,
             template_name: request.type || '일반 서류',
             related_issue_id: requestId
         });
-        
+
         // Supabase JS SDK 사용
         const { data, error } = await db
             .from('submitted_documents')
@@ -696,33 +696,33 @@ async function handleDocumentSubmit() {
                 related_issue_id: requestId
             })
             .select();
-        
+
         if (error) {
             console.error('Supabase 오류:', error);
             throw new Error(`${error.message}\n\n⚠️ Supabase SQL 편집기에서 다음 명령을 실행해주세요:\n\nALTER TABLE submitted_documents DISABLE ROW LEVEL SECURITY;`);
         }
-        
+
         console.log('서류 제출 성공:', data);
-        
+
         // document_requests 상태 업데이트 (pending → submitted로 변경)
         const { error: updateError } = await db
             .from('document_requests')
             .update({ status: 'submitted' })
             .eq('id', requestId);
-        
+
         if (updateError) {
             console.error('상태 업데이트 실패:', updateError);
         }
-        
+
         alert('서류가 제출되었습니다.');
         closeDocSubmissionModal();
         await loadEmployeeData();
     } catch (error) {
         console.error('서류 제출 실패:', error);
-        
+
         // 사용자 친화적인 오류 메시지
         let userMessage = '서류 제출에 실패했습니다.\n\n';
-        
+
         if (error.message.includes('row-level security')) {
             userMessage += '관리자에게 다음 조치를 요청하세요:\n\n';
             userMessage += '1. Supabase 대시보드 접속\n';
@@ -733,9 +733,9 @@ async function handleDocumentSubmit() {
         } else {
             userMessage += '오류 내용: ' + error.message;
         }
-        
+
         alert(userMessage);
-        
+
         // 버튼 복구
         if (submitBtn) {
             submitBtn.disabled = false;
@@ -745,17 +745,17 @@ async function handleDocumentSubmit() {
 }
 
 // 제출한 서류 보기 함수
-window.viewSubmittedDocument = function(docId) {
+window.viewSubmittedDocument = function (docId) {
     const doc = state.employee.submittedDocuments.find(d => d.id === docId);
     if (!doc) {
         alert('서류를 찾을 수 없습니다.');
         return;
     }
-    
+
     const content = doc.submission_data?.text || doc.text || '내용 없음';
-    const attachmentHtml = doc.attachment_url ? 
+    const attachmentHtml = doc.attachment_url ?
         `<div class="mb-4"><strong>첨부파일:</strong> <a href="${doc.attachment_url}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>` : '';
-    
+
     const modalHTML = `
         <div class="modal-overlay" id="view-submitted-doc-modal">
             <div class="modal-content-lg" style="max-height: 90vh; overflow-y: auto;">
@@ -769,9 +769,9 @@ window.viewSubmittedDocument = function(docId) {
                         <div class="text-xs text-gray-600">제출자: ${doc.employee_name}</div>
                         <div class="text-xs text-gray-600">제출일시: ${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</div>
                         <div class="text-xs text-gray-600">상태: 
-                            ${doc.status === 'submitted' ? '검토 대기' : 
-                              doc.status === 'approved' ? '승인됨' : 
-                              doc.status === 'rejected' ? '반려됨' : doc.status}
+                            ${doc.status === 'submitted' ? '검토 대기' :
+            doc.status === 'approved' ? '승인됨' :
+                doc.status === 'rejected' ? '반려됨' : doc.status}
                         </div>
                     </div>
                     ${attachmentHtml}
@@ -784,9 +784,9 @@ window.viewSubmittedDocument = function(docId) {
             </div>
         </div>
     `;
-    
+
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    
+
     _('#close-view-submitted-doc-modal')?.addEventListener('click', () => {
         _('#view-submitted-doc-modal')?.remove();
     });
@@ -801,7 +801,7 @@ window.viewSubmittedDocument = function(docId) {
 
 function renderMyLeaveRequests(requests) {
     const container = _('#my-leave-requests');
-    
+
     if (requests.length === 0) {
         container.innerHTML = '<p class="text-gray-500 text-center py-4">신청 내역이 없습니다.</p>';
         return;
@@ -817,15 +817,15 @@ function renderMyLeaveRequests(requests) {
         // 날짜 간소화 로직
         const dates = req.dates || [];
         let dateDisplay = '';
-        
+
         if (dates.length > 0) {
             const firstDate = dayjs(dates[0]);
             const parts = [firstDate.format('YYYY-MM-DD')];
-            
+
             for (let i = 1; i < dates.length; i++) {
                 const currentDate = dayjs(dates[i]);
-                const prevDate = dayjs(dates[i-1]);
-                
+                const prevDate = dayjs(dates[i - 1]);
+
                 if (currentDate.year() === prevDate.year() && currentDate.month() === prevDate.month()) {
                     parts.push(currentDate.format('DD'));
                 } else if (currentDate.year() === prevDate.year()) {
@@ -834,10 +834,10 @@ function renderMyLeaveRequests(requests) {
                     parts.push(currentDate.format('YYYY-MM-DD'));
                 }
             }
-            
+
             dateDisplay = parts.join(', ');
         }
-        
+
         return `
             <tr class="border-b">
                 <td class="p-3">${dateDisplay}</td>
@@ -868,31 +868,31 @@ let employeeCalendarInstance = null;
 function initializeEmployeeCalendar(approvedRequests) {
     console.log('📅 달력 초기화 시작');
     const container = _('#employee-calendar-container');
-    
+
     if (!container) {
         console.error('❌ 달력 컨테이너를 찾을 수 없습니다');
         return;
     }
-    
+
     // 기존 인스턴스 제거
     if (employeeCalendarInstance) {
         try {
             employeeCalendarInstance.destroy();
-        } catch(e) {
+        } catch (e) {
             console.log('기존 달력 제거 중 에러:', e);
         }
         employeeCalendarInstance = null;
     }
-    
+
     const approvedDates = approvedRequests.flatMap(r => r.dates || []);
     console.log('✅ 승인된 날짜:', approvedDates);
-    
+
     // 선택 날짜 초기화
     selectedDatesForLeave.length = 0;
-    
+
     // ⚡ 수정: 컨테이너 완전히 초기화
     container.innerHTML = '';
-    
+
     const buttonContainer = document.createElement('div');
     buttonContainer.className = 'flex justify-between items-center mb-4';
     buttonContainer.innerHTML = `
@@ -903,13 +903,13 @@ function initializeEmployeeCalendar(approvedRequests) {
             <button id="submit-leave-request-btn" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">연차 신청하기</button>
         </div>
     `;
-    
+
     const calendarEl = document.createElement('div');
     calendarEl.id = 'employee-calendar';
-    
+
     container.appendChild(buttonContainer);
     container.appendChild(calendarEl);
-    
+
     console.log('✅ 버튼 컨테이너 추가 완료');
 
     if (typeof FullCalendar === 'undefined') {
@@ -932,7 +932,7 @@ function initializeEmployeeCalendar(approvedRequests) {
         selectMirror: false,
         unselectAuto: false,
         editable: false,
-        events: function(info, successCallback) {
+        events: function (info, successCallback) {
             const events = [
                 ...approvedDates.map(date => ({
                     title: '연차 (승인됨)',
@@ -953,15 +953,15 @@ function initializeEmployeeCalendar(approvedRequests) {
             ];
             successCallback(events);
         },
-        dateClick: function(info) {
+        dateClick: function (info) {
             console.log('📅 날짜 클릭:', info.dateStr);
             const dateStr = info.dateStr;
-            
+
             if (approvedDates.includes(dateStr)) {
                 alert('이미 승인된 연차가 있는 날짜입니다.');
                 return;
             }
-            
+
             const index = selectedDatesForLeave.indexOf(dateStr);
             if (index > -1) {
                 selectedDatesForLeave.splice(index, 1);
@@ -970,7 +970,7 @@ function initializeEmployeeCalendar(approvedRequests) {
                 selectedDatesForLeave.push(dateStr);
                 console.log('✅ 날짜 선택 추가:', dateStr);
             }
-            
+
             console.log('📋 현재 선택된 날짜:', selectedDatesForLeave);
             updateSelectionUI();
             employeeCalendarInstance.refetchEvents();
@@ -981,23 +981,23 @@ function initializeEmployeeCalendar(approvedRequests) {
     function updateSelectionUI() {
         const count = selectedDatesForLeave.length;
         const countEl = _('#selected-dates-count');
-        
+
         // ✅ 선택된 날짜 개수만 업데이트 (버튼은 항상 표시)
         if (countEl) countEl.textContent = `선택된 날짜: ${count}일`;
-        
+
         console.log('📊 선택된 날짜 개수:', count);
     }
 
     console.log('📅 달력 렌더링 시작');
     employeeCalendarInstance.render();
     console.log('✅ 달력 렌더링 완료');
-    
+
     updateSelectionUI();
-    
+
     // ⚡ 수정: 이벤트 리스너를 즉시 연결
     const clearBtn = _('#clear-selection-btn');
     const submitBtn = _('#submit-leave-request-btn');
-    
+
     if (clearBtn) {
         clearBtn.onclick = () => {
             console.log('🗑️ 선택 취소 클릭');
@@ -1010,7 +1010,7 @@ function initializeEmployeeCalendar(approvedRequests) {
     } else {
         console.error('❌ 선택 취소 버튼을 찾을 수 없음');
     }
-    
+
     if (submitBtn) {
         submitBtn.onclick = () => {
             console.log('📝 연차 신청 버튼 클릭, 선택된 날짜:', selectedDatesForLeave);
@@ -1024,17 +1024,17 @@ function initializeEmployeeCalendar(approvedRequests) {
     } else {
         console.error('❌ 연차 신청 버튼을 찾을 수 없음');
     }
-    
+
     console.log('✅ 달력 초기화 완료');
 }
 
 function openLeaveFormModal(dates) {
     _('#form-applicant-name').textContent = state.currentUser.name;
-    _('#form-selected-dates').innerHTML = dates.sort().map(d => 
+    _('#form-selected-dates').innerHTML = dates.sort().map(d =>
         `<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded mr-2 mb-2">${d}</span>`
     ).join('');
     _('#form-reason').value = '';
-    
+
     const canvas = _('#signature-canvas');
     if (canvas) {
         resizeGivenCanvas(canvas, window.signaturePad);
@@ -1043,7 +1043,7 @@ function openLeaveFormModal(dates) {
         }
         window.signaturePad.clear();
     }
-    
+
     state.employee.selectedDates = dates;
     show('#leave-form-modal');
 }
@@ -1060,32 +1060,32 @@ export async function handleSubmitLeaveRequest() {
     const dates = state.employee.selectedDates;
     const reason = _('#form-reason').value.trim();
     const signatureData = window.signaturePad?.toDataURL();
-    
+
     if (!dates || dates.length === 0) {
         alert('날짜를 선택해주세요.');
         return;
     }
-    
+
     if (!signatureData || window.signaturePad.isEmpty()) {
         alert('서명을 해주세요.');
         return;
     }
-    
+
     // 미제출 서류 확인 (document_requests 테이블 사용)
     const { data: pendingRequests, error: checkError } = await db.from('document_requests')
         .select('*')
         .eq('employeeId', state.currentUser.id)
         .eq('status', 'pending');
-    
+
     if (checkError) {
         console.error('서류 확인 오류:', checkError);
     }
-    
+
     if (pendingRequests && pendingRequests.length > 0) {
         alert('⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.');
         return;
     }
-    
+
     try {
         const { error } = await db.from('leave_requests').insert({
             employee_id: state.currentUser.id,
@@ -1096,15 +1096,15 @@ export async function handleSubmitLeaveRequest() {
             status: 'pending',
             created_at: new Date().toISOString()
         });
-        
+
         if (error) throw error;
-        
+
         alert('연차 신청이 완료되었습니다.');
         closeLeaveFormModal();
-        
-        
+
+
         renderEmployeePortal();
-        
+
         // ✅ 포털 재렌더링 후 선택 초기화
         selectedDatesForLeave.length = 0;
     } catch (error) {

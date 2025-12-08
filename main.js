@@ -4,6 +4,7 @@ import { renderScheduleManagement } from './schedule.js';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js';
 import { renderEmployeePortal } from './employee-portal.js';
+import { getLeaveDetails } from './leave-utils.js';
 
 dayjs.extend(window.dayjs_plugin_isSameOrAfter);
 
@@ -11,104 +12,7 @@ dayjs.extend(window.dayjs_plugin_isSameOrAfter);
 // 공유 함수
 // =========================================================================================
 
-export function getLeaveDetails(employee, referenceDate = null) {
-    if (!employee || !employee.entryDate) return { legal: 0, adjustment: 0, final: 0, carriedOver: 0, note: '' };
-    
-    const { entryDate, leave_renewal_date, leave_adjustment, work_days_per_week } = employee;
-    const workDays = work_days_per_week || 5; // 기본값 5일
-    const today = referenceDate ? dayjs(referenceDate) : dayjs();
-    const entryDay = dayjs(entryDate);
-    const firstAnniversary = entryDay.add(1, 'year');
-    
-    let legalLeaves = 0;
-    let carriedOver = 0;
-    let note = '';
-    
-    // 입사 1년 미만 → 월차만
-    if (today.isBefore(firstAnniversary)) {
-        const monthsFromEntry = today.diff(entryDay, 'month');
-        legalLeaves = Math.floor(monthsFromEntry);
-    }
-    // 입사 1년 이상
-    else {
-        // 연차 기준일이 설정된 경우
-        if (leave_renewal_date) {
-            const renewalBase = dayjs(leave_renewal_date);
-            
-            // 올해/작년 갱신일 계산
-            const renewalThisYear = dayjs(`${today.year()}-${renewalBase.format('MM-DD')}`);
-            const renewalLastYear = renewalThisYear.subtract(1, 'year');
-            const renewalNextYear = renewalThisYear.add(1, 'year');
-            
-            // 현재 속한 갱신 주기 찾기
-            let periodStart, periodEnd;
-            if (today.isAfter(renewalThisYear) || today.isSame(renewalThisYear, 'day')) {
-                periodStart = renewalThisYear;
-                periodEnd = renewalNextYear;
-            } else {
-                periodStart = renewalLastYear;
-                periodEnd = renewalThisYear;
-            }
-            
-            // 입사 1주년이 현재 주기 내에 있는 경우
-            if (firstAnniversary.isAfter(periodStart) && (firstAnniversary.isBefore(periodEnd) || firstAnniversary.isSame(periodEnd, 'day'))) {
-                // 주기 시작 ~ 입사 1주년 전날: 월차
-                const daysBeforeAnniversary = firstAnniversary.diff(periodStart, 'day');
-                const monthsBeforeAnniversary = Math.floor(daysBeforeAnniversary / 30);
-                
-                // 입사 1주년 ~ 주기 끝: 15일의 비례 계산
-                const totalDaysInPeriod = periodEnd.diff(periodStart, 'day');
-                const daysAfterAnniversary = periodEnd.diff(firstAnniversary, 'day');
-                const prorataLeavesExact = 15 * (daysAfterAnniversary / totalDaysInPeriod);
-                const prorataLeaves = Math.floor(prorataLeavesExact);
-                carriedOver = prorataLeavesExact - prorataLeaves;
-                
-                legalLeaves = monthsBeforeAnniversary + prorataLeaves;
-                
-                if (carriedOver > 0) {
-                    note = `다음 갱신일(${periodEnd.format('YYYY-MM-DD')})에 ${carriedOver.toFixed(2)}일 이월 예정`;
-                }
-            }
-            // 입사 1주년이 이미 지난 경우
-            else {
-                // 현재 주기 시작일로부터 경과 연수
-                const yearsFromPeriodStart = today.diff(periodStart, 'year');
-                legalLeaves = 15 + Math.floor(yearsFromPeriodStart / 2);
-            }
-        }
-        // 연차 기준일이 없는 경우 (입사일 기준)
-        else {
-            const yearsFromAnniversary = today.diff(firstAnniversary, 'year');
-            legalLeaves = 15 + Math.floor(yearsFromAnniversary / 2);
-        }
-    }
-    
-    // 최대 25일 제한
-    legalLeaves = Math.min(Math.max(0, legalLeaves), 25);
-    
-    // 주 근무일수 비례 계산
-    const prorataLeavesExact = legalLeaves * (workDays / 5);
-    const prorataLeaves = Math.floor(prorataLeavesExact);
-    const workDaysCarriedOver = prorataLeavesExact - prorataLeaves;
-    
-    // 소수점은 다음 갱신일에 이월
-    if (workDaysCarriedOver > 0) {
-        carriedOver += workDaysCarriedOver;
-        if (note) {
-            note = note.replace(/\d+\.\d+일/, (carriedOver).toFixed(2) + '일');
-        } else {
-            const renewalBase = leave_renewal_date ? dayjs(leave_renewal_date) : dayjs(entryDate).add(1, 'year');
-            const renewalThisYear = dayjs(`${today.year()}-${renewalBase.format('MM-DD')}`);
-            const nextRenewal = renewalThisYear.isAfter(today) ? renewalThisYear : renewalThisYear.add(1, 'year');
-            note = `다음 갱신일(${nextRenewal.format('YYYY-MM-DD')})에 ${carriedOver.toFixed(2)}일 이월 예정`;
-        }
-    }
-    
-    const adjustment = leave_adjustment || 0;
-    const finalLeaves = prorataLeaves + adjustment;
-    
-    return { legal: prorataLeaves, adjustment: adjustment, final: finalLeaves, carriedOver: carriedOver, note: note };
-}
+
 
 // =========================================================================================
 // 데이터 로딩 및 렌더링
@@ -125,7 +29,7 @@ async function loadManagementData() {
             db.from('departments').select('*').order('id'),
             db.from('document_requests').select('*').order('created_at', { ascending: false })
         ]);
-        
+
         if (requestsRes.error) throw requestsRes.error;
         if (employeesRes.error) throw employeesRes.error;
         if (templatesRes.error) throw templatesRes.error;
@@ -157,7 +61,7 @@ function renderManagementContent() {
 
     const { activeTab } = state.management;
     console.log('🎯 현재 활성 탭:', activeTab);
-    
+
     switch (activeTab) {
         case 'leaveList':
             container.innerHTML = getLeaveListHTML();
@@ -202,7 +106,7 @@ function renderManagementTabs() {
     const { activeTab } = state.management;
     const container = _('#admin-tabs');
     if (!container) return;
-    
+
     const tabs = [
         { id: 'leaveList', text: '연차 신청 목록' },
         { id: 'schedule', text: '스케줄 관리' },
@@ -213,7 +117,7 @@ function renderManagementTabs() {
         { id: 'department', text: '부서 관리' },
         { id: 'templates', text: '서식 관리' },
     ];
-    
+
     container.innerHTML = tabs.map(tab => `
         <button data-tab="${tab.id}" class="main-tab-btn px-3 py-2 text-sm ${tab.id === activeTab ? 'active' : ''}">${tab.text}</button>
     `).join('');
@@ -391,7 +295,7 @@ function main() {
 
     window.addEventListener('afterprint', () => {
         const printTitleEl = _('#print-title');
-        if(printTitleEl) printTitleEl.classList.add('hidden');
+        if (printTitleEl) printTitleEl.classList.add('hidden');
         document.body.classList.remove('printing');
     });
 
