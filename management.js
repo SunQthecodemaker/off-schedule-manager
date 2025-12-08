@@ -447,21 +447,6 @@ export function getLeaveListHTML() {
         rows = filteredRequests.map(req => {
             const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
 
-            // 매니저 승인 상태
-            const middleStatus = req.middle_manager_status || 'pending';
-            const middleText = {
-                pending: '대기',
-                approved: '승인',
-                rejected: '반려',
-                skipped: '-'
-            }[middleStatus] || '대기';
-            const middleColor = {
-                pending: 'text-yellow-600',
-                approved: 'text-green-600',
-                rejected: 'text-red-600',
-                skipped: 'text-gray-400'
-            }[middleStatus] || 'text-yellow-600';
-
             // 최종 승인 상태
             const finalStatus = req.final_manager_status || 'pending';
             const finalText = {
@@ -474,6 +459,27 @@ export function getLeaveListHTML() {
                 approved: 'text-green-600',
                 rejected: 'text-red-600'
             }[finalStatus] || 'text-yellow-600';
+
+            // 매니저 승인 상태 (최종 승인이 완료된 경우 매니저 상태가 대기여도 생략/완료 처리된 것으로 표시)
+            let middleStatus = req.middle_manager_status || 'pending';
+
+            // UI 표시용 상태 오버라이드: 최종 처리가 끝났는데 매니저가 대기라면 '생략'으로 취급
+            if (finalStatus !== 'pending' && middleStatus === 'pending') {
+                middleStatus = 'skipped';
+            }
+
+            const middleText = {
+                pending: '대기',
+                approved: '승인',
+                rejected: '반려',
+                skipped: '생략'
+            }[middleStatus] || '대기';
+            const middleColor = {
+                pending: 'text-yellow-600',
+                approved: 'text-green-600',
+                rejected: 'text-red-600',
+                skipped: 'text-gray-400 line-through'
+            }[middleStatus] || 'text-yellow-600';
 
             // 버튼 표시 로직
             const currentUser = state.currentUser;
@@ -853,7 +859,7 @@ window.handleFinalApproval = async function (requestId, status) {
             .eq('id', requestId)
             .single();
 
-        if (request && request.middle_manager_status === 'pending') {
+        if (request && request.middle_manager_status !== 'approved' && request.middle_manager_status !== 'rejected') {
             updateData.middle_manager_status = 'skipped';
         }
 
