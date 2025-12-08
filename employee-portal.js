@@ -75,7 +75,10 @@ export async function renderEmployeePortal() {
                 <h1 class="text-3xl font-bold">${user.isManager ? '매니저 포털' : '직원 포털'}</h1>
                 <div class="text-right">
                     <p class="text-gray-700 text-sm font-semibold">${user.name}님 (${departmentName})</p>
-                    <button id="employeeLogoutBtn" class="mt-1 px-3 py-1 text-sm bg-gray-300 rounded">로그아웃</button>
+                    <div class="mt-1 flex gap-2 justify-end">
+                        <button id="changePasswordBtn" class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors">비밀번호 변경</button>
+                        <button id="employeeLogoutBtn" class="px-3 py-1 text-sm bg-gray-300 hover:bg-gray-400 rounded transition-colors">로그아웃</button>
+                    </div>
                 </div>
             </div>
 
@@ -149,6 +152,34 @@ export async function renderEmployeePortal() {
     _('#employeeLogoutBtn').addEventListener('click', async () => {
         sessionStorage.clear();
         window.location.reload();
+    });
+
+    _('#changePasswordBtn')?.addEventListener('click', async () => {
+        const currentPass = prompt("현재 비밀번호를 입력해주세요:");
+        if (currentPass === null) return;
+
+        if (currentPass !== state.currentUser.password) {
+            alert("현재 비밀번호가 일치하지 않습니다.");
+            return;
+        }
+
+        const newPass = prompt("새로운 비밀번호를 입력해주세요:");
+        if (newPass === null) return;
+
+        if (!newPass.trim()) {
+            alert("비밀번호는 공백일 수 없습니다.");
+            return;
+        }
+
+        const { error } = await db.from('employees').update({ password: newPass }).eq('id', state.currentUser.id);
+
+        if (error) {
+            alert("비밀번호 변경 실패: " + error.message);
+        } else {
+            alert("비밀번호가 변경되었습니다. 다시 로그인해주세요.");
+            sessionStorage.clear();
+            window.location.reload();
+        }
     });
 
     _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
