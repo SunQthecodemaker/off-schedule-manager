@@ -463,23 +463,27 @@ export function getLeaveListHTML() {
             // 매니저 승인 상태 (최종 승인이 완료된 경우 매니저 상태가 대기여도 생략/완료 처리된 것으로 표시)
             let middleStatus = req.middle_manager_status || 'pending';
 
-            // UI 표시용 상태 오버라이드: 최종 처리가 끝났는데 매니저가 대기라면 '생략'으로 취급
-            if (finalStatus !== 'pending' && middleStatus === 'pending') {
-                middleStatus = 'skipped';
+            let middleText = '대기';
+            let middleColor = 'text-yellow-600';
+
+            // 1. DB 상태에 따른 기본 텍스트/색상 설정
+            if (middleStatus === 'approved') {
+                middleText = '승인';
+                middleColor = 'text-green-600';
+            } else if (middleStatus === 'rejected') {
+                middleText = '반려';
+                middleColor = 'text-red-600';
+            } else if (middleStatus === 'skipped') {
+                middleText = '생략';
+                middleColor = 'text-gray-400 line-through';
             }
 
-            const middleText = {
-                pending: '대기',
-                approved: '승인',
-                rejected: '반려',
-                skipped: '생략'
-            }[middleStatus] || '대기';
-            const middleColor = {
-                pending: 'text-yellow-600',
-                approved: 'text-green-600',
-                rejected: 'text-red-600',
-                skipped: 'text-gray-400 line-through'
-            }[middleStatus] || 'text-yellow-600';
+            // 2. UI 표시용 상태 오버라이드: 최종 처리가 끝났는데 매니저가 승인/반려 상태가 아니라면 '생략'으로 표시
+            if (finalStatus !== 'pending' && middleStatus !== 'approved' && middleStatus !== 'rejected') {
+                middleText = '생략';
+                middleColor = 'text-gray-400 line-through';
+                middleStatus = 'skipped';
+            }
 
             // 버튼 표시 로직
             const currentUser = state.currentUser;
