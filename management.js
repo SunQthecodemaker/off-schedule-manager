@@ -275,15 +275,15 @@ window.toggleEmployeeFilter = function (filter) {
     const retiredBtn = document.getElementById('filter-btn-retired');
 
     if (filter === 'active') {
-        activeBtn.classList.remove('bg-gray-200', 'text-gray-600');
-        activeBtn.classList.add('bg-blue-600', 'text-white');
-        retiredBtn.classList.remove('bg-blue-600', 'text-white');
-        retiredBtn.classList.add('bg-gray-200', 'text-gray-600');
+        activeBtn.style.backgroundColor = '#2563eb';
+        activeBtn.style.color = 'white';
+        retiredBtn.style.backgroundColor = '#e5e7eb';
+        retiredBtn.style.color = 'black';
     } else {
-        retiredBtn.classList.remove('bg-gray-200', 'text-gray-600');
-        retiredBtn.classList.add('bg-blue-600', 'text-white');
-        activeBtn.classList.remove('bg-blue-600', 'text-white');
-        activeBtn.classList.add('bg-gray-200', 'text-gray-600');
+        retiredBtn.style.backgroundColor = '#2563eb';
+        retiredBtn.style.color = 'white';
+        activeBtn.style.backgroundColor = '#e5e7eb';
+        activeBtn.style.color = 'black';
     }
 
     window.loadAndRenderManagement();
@@ -367,7 +367,7 @@ export function getManagementHTML() {
         if (currentEmployeeFilter === 'active') {
             managementButtons = `
                 <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateEmployee(${emp.id})">저장</button> 
-                <button class="text-xs bg-orange-500 text-white px-2 py-1 rounded ml-1" onclick="handleRetireEmployee(${emp.id})">퇴사</button>
+                <button class="text-xs px-2 py-1 rounded ml-1" style="background-color: #f97316; color: white;" onclick="handleRetireEmployee(${emp.id})">퇴사</button>
             `;
         } else {
             managementButtons = `
@@ -416,8 +416,8 @@ export function getManagementHTML() {
             <div class="flex space-x-2">
                 <button id="bulkDeleteBtn" class="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold disabled:bg-gray-400 hidden" disabled>선택 삭제 (0)</button>
                 <div class="flex bg-gray-200 rounded p-1" style="display: flex !important;">
-                    <button id="filter-btn-active" onclick="window.toggleEmployeeFilter('active')" class="${currentEmployeeFilter === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors" style="display: inline-block !important;">[재직자]</button>
-                    <button id="filter-btn-retired" onclick="window.toggleEmployeeFilter('retired')" class="${currentEmployeeFilter === 'retired' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors ml-1" style="display: inline-block !important;">[퇴사자]</button>
+                    <button id="filter-btn-active" onclick="window.toggleEmployeeFilter('active')" class="${currentEmployeeFilter === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-900'} px-3 py-1 text-sm rounded transition-colors" style="display: inline-block !important; ${currentEmployeeFilter === 'active' ? 'background-color: #2563eb; color: white;' : 'background-color: #e5e7eb; color: black;'}">[재직자]</button>
+                    <button id="filter-btn-retired" onclick="window.toggleEmployeeFilter('retired')" class="${currentEmployeeFilter === 'retired' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-900'} px-3 py-1 text-sm rounded transition-colors ml-1" style="display: inline-block !important; ${currentEmployeeFilter === 'retired' ? 'background-color: #2563eb; color: white;' : 'background-color: #e5e7eb; color: black;'}">[퇴사자]</button>
                 </div>
             </div>
         </div>
