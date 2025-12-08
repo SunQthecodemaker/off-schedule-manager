@@ -367,7 +367,7 @@ export function getManagementHTML() {
         if (currentEmployeeFilter === 'active') {
             managementButtons = `
                 <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateEmployee(${emp.id})">저장</button> 
-                <button class="text-xs px-2 py-1 rounded ml-1" style="background-color: #f97316; color: white;" onclick="handleRetireEmployee(${emp.id})">퇴사</button>
+                <button class="text-xs px-2 py-1 rounded ml-1" style="background-color: #f97316 !important; color: white !important;" onclick="handleRetireEmployee(${emp.id})">퇴사</button>
             `;
         } else {
             managementButtons = `
