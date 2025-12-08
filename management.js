@@ -415,9 +415,9 @@ export function getManagementHTML() {
             <h2 class="text-lg font-semibold">직원 관리</h2>
             <div class="flex space-x-2">
                 <button id="bulkDeleteBtn" class="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold disabled:bg-gray-400 hidden" disabled>선택 삭제 (0)</button>
-                <div class="flex bg-gray-200 rounded p-1">
-                    <button id="filter-btn-active" onclick="window.toggleEmployeeFilter('active')" class="${currentEmployeeFilter === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors">재직자</button>
-                    <button id="filter-btn-retired" onclick="window.toggleEmployeeFilter('retired')" class="${currentEmployeeFilter === 'retired' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors ml-1">퇴사자</button>
+                <div class="flex bg-gray-200 rounded p-1" style="display: flex !important;">
+                    <button id="filter-btn-active" onclick="window.toggleEmployeeFilter('active')" class="${currentEmployeeFilter === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors" style="display: inline-block !important;">[재직자]</button>
+                    <button id="filter-btn-retired" onclick="window.toggleEmployeeFilter('retired')" class="${currentEmployeeFilter === 'retired' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'} px-3 py-1 text-sm rounded transition-colors ml-1" style="display: inline-block !important;">[퇴사자]</button>
                 </div>
             </div>
         </div>
