@@ -243,7 +243,11 @@ async function renderManagerLeaveList() {
         // 📅 달력 렌더링 (DOM에 추가된 후 실행)
         setTimeout(() => {
             if (typeof window.renderLeaveCalendar === 'function') {
-                window.renderLeaveCalendar();
+                // 명시적으로 현재 탭 내의 컨테이너를 지정
+                window.renderLeaveCalendar('#employee-leave-list-tab #leave-calendar-container');
+            } else {
+                console.error('window.renderLeaveCalendar 함수가 정의되지 않았습니다.');
+                alert('달력 기능을 불러올 수 없습니다. 새로고침을 해주세요.');
             }
         }, 100);
 

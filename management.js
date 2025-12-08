@@ -669,9 +669,24 @@ window.filterCalendarByEmployee = function (employeeId) {
 };
 
 // 연차 신청 달력 렌더링
-window.renderLeaveCalendar = function () {
-    const container = _('#leave-calendar-container');
-    if (!container) return;
+window.renderLeaveCalendar = function (containerSelector) {
+    // 선택자가 전달되지 않으면 기본값 사용, 전달되면 해당 선택자 사용
+    const targetSelector = containerSelector || '#leave-calendar-container';
+
+    // 우선 지정된 선택자로 찾기
+    let container = document.querySelector(targetSelector);
+
+    // 찾지 못했고 선택자가 기본값인 경우, 현재 활성화된 포털 내에서 찾기 시도
+    if (!container && !containerSelector) {
+        const visibleContainer = document.querySelector('#employee-portal:not(.hidden) #leave-calendar-container') ||
+            document.querySelector('#admin-portal:not(.hidden) #leave-calendar-container');
+        if (visibleContainer) container = visibleContainer;
+    }
+
+    if (!container) {
+        console.warn('Calendar container not found. Selector:', targetSelector);
+        return;
+    }
 
     const { leaveRequests, employees } = state.management;
 
