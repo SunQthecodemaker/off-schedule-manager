@@ -342,7 +342,7 @@ function departmentOptions(selectedId) {
     return departments.map(d => `<option value="${d.id}" ${d.id === selectedId ? 'selected' : ''}>${d.name}</option>`).join('');
 }
 
-export function getEmployeeManagementHTML() {
+export function getManagementHTML() {
     const { employees } = state.management;
     const filter = currentEmployeeFilter; // 'active' or 'retired'
 
