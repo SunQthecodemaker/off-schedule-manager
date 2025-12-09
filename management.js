@@ -500,18 +500,18 @@ async function handleDeleteDepartment(id) {
 export function getDepartmentManagementHTML() {
     const { departments } = state.management;
     const rows = departments.map(dept => `
-        < tr class="border-b" >
+        <tr class="border-b" >
             <td class="p-2">${dept.id}</td>
             <td class="p-2"><input type="text" id="dept-name-${dept.id}" class="table-input" value="${dept.name}"></td>
             <td class="p-2 text-center">
                 <button onclick="handleUpdateDepartment(${dept.id})" class="text-xs bg-blue-500 text-white px-3 py-1 rounded">저장</button>
                 <button onclick="handleDeleteDepartment(${dept.id})" class="text-xs bg-red-500 text-white px-3 py-1 rounded ml-2">삭제</button>
             </td>
-        </tr >
+        </tr>
         `).join('');
 
     return `
-        < h2 class="text-lg font-semibold mb-4" > 부서 관리</h2 >
+        <h2 class="text-lg font-semibold mb-4" > 부서 관리</h2>
             <table class="min-w-full text-sm mb-6">
                 <thead class="bg-gray-50">
                     <tr>
@@ -552,7 +552,7 @@ export function getLeaveListHTML() {
 
     let rows = '';
     if (leaveRequests.length === 0) {
-        rows = `< tr > <td colspan="5" class="text-center text-gray-500 py-8">연차 신청 기록이 없습니다.</td></tr > `;
+        rows = `<tr ><td colspan="5" class="text-center text-gray-500 py-8">연차 신청 기록이 없습니다.</td></tr> `;
     } else {
         rows = filteredRequests.map(req => {
             const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
@@ -601,14 +601,14 @@ export function getLeaveListHTML() {
 
             if (finalStatus === 'rejected') {
                 // 반려됨
-                actions = `< span class="text-xs text-gray-400" > 반려됨</span > `;
+                actions = `<span class="text-xs text-gray-400" > 반려됨</span> `;
             } else if (finalStatus === 'approved') {
                 // 최종 승인 완료
-                actions = `< span class="text-xs text-gray-400" > 승인완료</span > `;
+                actions = `<span class="text-xs text-gray-400" > 승인완료</span> `;
             } else if (currentUser.role === 'admin') {
                 // 관리자: 최종 승인/반려 버튼
                 actions = `
-        < button onclick = "window.handleFinalApproval(${req.id}, 'approved')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700" > 승인</button >
+        <button onclick = "window.handleFinalApproval(${req.id}, 'approved')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700" > 승인</button >
             <button onclick="window.handleFinalApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>
     `;
             } else if (currentUser.isManager) {
@@ -616,21 +616,21 @@ export function getLeaveListHTML() {
                 if (middleStatus === 'pending') {
                     // 매니저 승인 대기 중
                     actions = `
-        < button onclick = "window.handleMiddleApproval(${req.id}, 'approved')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700" > 승인</button >
+        <button onclick = "window.handleMiddleApproval(${req.id}, 'approved')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700" > 승인</button >
             <button onclick="window.handleMiddleApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>
     `;
                 } else {
                     // 이미 매니저가 처리함 (최종 승인 대기)
-                    actions = `< span class="text-xs text-gray-400" > 최종승인 대기</span > `;
+                    actions = `<span class="text-xs text-gray-400" > 최종승인 대기</span> `;
                 }
             } else {
-                actions = `< span class="text-xs text-gray-400" > -</span > `;
+                actions = `<span class="text-xs text-gray-400" > -</span> `;
             }
 
             const datesText = (req.dates || []).join(', ');
             const dateCount = req.dates?.length || 0;
 
-            return `< tr class="border-b hover:bg-gray-50 leave-row" data - status="${finalStatus}" data - employee - id="${req.employee_id}" >
+            return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" >
             <td class="p-2 text-sm">${employeeName}</td>
             <td class="p-2 text-sm">${datesText}</td>
             <td class="p-2 text-sm text-center">${dateCount}일</td>
@@ -645,7 +645,7 @@ export function getLeaveListHTML() {
                 </div>
             </td>
             <td class="p-2 text-center">${actions}</td>
-        </tr > `;
+        </tr> `;
         }).join('');
     }
 
@@ -654,13 +654,13 @@ export function getLeaveListHTML() {
     const employeeOptions = employeeIds.map(id => {
         const name = employeeNameMap[id] || '알 수 없음';
         const count = filteredRequests.filter(req => req.employee_id === id).length;
-        return `< option value = "${id}" > ${name} (${count}건)</option > `;
+        return `<option value = "${id}" > ${name} (${count}건)</option > `;
     }).join('');
 
     return `
-        < h2 class="text-lg font-semibold mb-4" > 연차 신청 목록</h2 >
+        <h2 class="text-lg font-semibold mb-4" > 연차 신청 목록</h2>
         
-        < !--필터 -->
+        <!--필터 -->
         <div class="flex flex-wrap gap-2 mb-4 items-center">
             <div class="flex gap-2">
                 <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 (${filteredRequests.length})</button>
@@ -1091,7 +1091,7 @@ export function getLeaveManagementHTML() {
         { name: '관리', width: '10%' }
     ];
 
-    const headerHtml = headers.map(h => `< th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${h.name}</th > `).join('');
+    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${h.name}</th> `).join('');
 
     const rows = employees.map(emp => {
         const leaveData = getLeaveDetails(emp);
@@ -1107,7 +1107,7 @@ export function getLeaveManagementHTML() {
         const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
         const workDaysValue = emp.work_days_per_week || 5;
 
-        return `< tr class="border-t" >
+        return `<tr class="border-t" >
             <td class="p-2 text-sm font-semibold">${emp.name}</td>
             <td class="p-2 text-sm">${entryDateValue}</td>
             <td class="p-2">
@@ -1133,14 +1133,14 @@ export function getLeaveManagementHTML() {
             <td class="p-2 text-center">
                 <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateLeave(${emp.id})">저장</button>
             </td>
-        </tr > `;
+        </tr> `;
     }).join('');
 
     return `
-        < div class="mb-3" >
+        <div class="mb-3" >
             <h2 class="text-lg font-semibold">연차 관리</h2>
             <p class="text-sm text-gray-600 mt-1">직원별 연차 기준일과 조정값을 관리합니다. 법정 연차는 주5일 기준으로 계산 후 근무일수에 비례 적용됩니다.</p>
-        </div >
+        </div>
         <div class="overflow-x-auto">
             <table class="fixed-table whitespace-nowrap text-sm mb-6">
                 <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
@@ -1208,7 +1208,7 @@ export function getLeaveStatusHTML() {
     const departments = [...new Set(employees.map(e => e.dept || e.departments?.name).filter(Boolean))];
 
     return `
-        < div class="leave-status-container" >
+        <div class="leave-status-container" >
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-bold">연차 현황</h2>
                 <div class="flex gap-2">
@@ -1243,7 +1243,7 @@ export function getLeaveStatusHTML() {
                     </tbody>
                 </table>
             </div>
-        </div >
+        </div>
         `;
 }
 
@@ -1257,7 +1257,7 @@ function getLeaveStatusRow(emp) {
     const dateDisplay = emp.usedDates.length > 0 ? formattedDates : '사용 내역 없음';
 
     return `
-        < tr class="leave-status-row" data - dept="${deptName}" data - remaining="${emp.remainingDays}" data - usage="${emp.usagePercent}" >
+        <tr class="leave-status-row" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}" >
             <td class="font-semibold">${emp.name}</td>
             <td>${deptName}</td>
             <td>${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
@@ -1278,7 +1278,7 @@ function getLeaveStatusRow(emp) {
                     </div>
                 </div>
             </td>
-        </tr >
+        </tr>
         `;
 }
 
