@@ -1180,15 +1180,18 @@ export function getLeaveStatusHTML() {
     // 각 직원의 연차 데이터 수집
     const employeeLeaveData = employees.map(emp => {
         const leaveDetails = getLeaveDetails(emp);
-        const usedDays = leaveRequests
-            .filter(req => req.employee_id === emp.id && req.status === 'approved')
-            .reduce((sum, req) => sum + (req.dates?.length || 0), 0);
+        const usedRequests = leaveRequests
+            .filter(req => req.employee_id === emp.id && req.status === 'approved');
 
-        const usedDates = leaveRequests
-            .filter(req => req.employee_id === emp.id && req.status === 'approved')
+        // 사용한 날짜들을 모두 수집하여 평탄화 및 정렬
+        let usedDates = usedRequests
             .flatMap(req => req.dates || [])
             .sort();
 
+        // 날짜 형식 변환 (YYYY-MM-DD -> MM.DD)
+        usedDates = usedDates.map(d => dayjs(d).format('M.D'));
+
+        const usedDays = usedDates.length;
         const remainingDays = leaveDetails.final - usedDays;
         const usagePercent = leaveDetails.final > 0 ? Math.round((usedDays / leaveDetails.final) * 100) : 0;
 
@@ -1206,7 +1209,33 @@ export function getLeaveStatusHTML() {
     const departments = [...new Set(employees.map(e => e.dept || e.departments?.name).filter(Boolean))];
 
     return `
-        <div class="leave-status-container" >
+        <style>
+            .leave-grid-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+                max-width: 800px; /* 너무 넓어지지 않도록 제한 */
+            }
+            .leave-box {
+                width: 42px;
+                height: 32px;
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                background-color: #f9fafb;
+                color: #374151;
+            }
+            .leave-box.used {
+                background-color: #dbeafe; /* 사용한 연차 배경색 */
+                border-color: #93c5fd;
+                color: #1e40af;
+                font-weight: bold;
+            }
+        </style>
+        <div class="leave-status-container">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-bold">연차 현황</h2>
                 <div class="flex gap-2">
@@ -1223,17 +1252,17 @@ export function getLeaveStatusHTML() {
                 </div>
             </div>
             
-            <div class="leave-status-table-wrapper">
-                <table class="leave-status-table">
-                    <thead>
+            <div class="leave-status-table-wrapper overflow-x-auto">
+                <table class="leave-status-table min-w-full text-sm border">
+                    <thead class="bg-gray-100">
                         <tr>
-                            <th>이름</th>
-                            <th>부서</th>
-                            <th>입사일</th>
-                            <th>확정연차</th>
-                            <th>사용연차</th>
-                            <th>잔여연차</th>
-                            <th>사용 현황</th>
+                            <th class="p-2 w-20 text-center">이름</th>
+                            <th class="p-2 w-24 text-center">부서</th>
+                            <th class="p-2 w-24 text-center">입사일</th>
+                            <th class="p-2 w-16 text-center">확정</th>
+                            <th class="p-2 w-16 text-center">사용</th>
+                            <th class="p-2 w-16 text-center">잔여</th>
+                            <th class="p-2 text-left pl-4">연차 사용 현황 (날짜)</th>
                         </tr>
                     </thead>
                     <tbody id="leave-status-tbody">
@@ -1246,35 +1275,31 @@ export function getLeaveStatusHTML() {
 }
 
 function getLeaveStatusRow(emp) {
-    const progressColor = emp.usagePercent <= 30 ? 'bg-green-500' :
-        emp.usagePercent <= 70 ? 'bg-yellow-500' :
-            emp.usagePercent <= 90 ? 'bg-orange-500' : 'bg-red-500';
-
     const deptName = emp.dept || emp.departments?.name || '-';
-    const formattedDates = emp.usedDates.map(d => dayjs(d).format('M/D')).join(', ');
-    const dateDisplay = emp.usedDates.length > 0 ? formattedDates : '사용 내역 없음';
+
+    // 그리드 생성 로직
+    const totalBoxes = emp.leaveDetails.final; // 확정 연차 개수
+    let gridHTML = '<div class="leave-grid-container">';
+
+    for (let i = 0; i < totalBoxes; i++) {
+        const isUsed = i < emp.usedDates.length;
+        const dateText = isUsed ? emp.usedDates[i] : '';
+        const boxClass = isUsed ? 'leave-box used' : 'leave-box';
+
+        gridHTML += `<div class="${boxClass}">${dateText}</div>`;
+    }
+    gridHTML += '</div>';
 
     return `
-        <tr class="leave-status-row" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}" >
-            <td class="font-semibold">${emp.name}</td>
-            <td>${deptName}</td>
-            <td>${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
-            <td class="text-center font-bold">${emp.leaveDetails.final}</td>
-            <td class="text-center">${emp.usedDays}</td>
-            <td class="text-center font-bold ${emp.remainingDays <= 3 ? 'text-red-600' : ''}">${emp.remainingDays}</td>
-            <td class="leave-progress-cell">
-                <div class="progress-bar-container">
-                    <div class="progress-bar ${progressColor}" style="width: ${emp.usagePercent}%"></div>
-                    <span class="progress-text">${emp.usagePercent}%</span>
-                </div>
-                <button class="toggle-dates-btn text-xs text-blue-600 mt-1" data-emp-id="${emp.id}">
-                    ▼ 상세 보기
-                </button>
-                <div class="used-dates-detail hidden" id="dates-${emp.id}">
-                    <div class="text-xs text-gray-600 mt-2 p-2 bg-gray-50 rounded">
-                        ${dateDisplay}
-                    </div>
-                </div>
+        <tr class="leave-status-row border-b hover:bg-gray-50" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
+            <td class="p-2 text-center font-semibold">${emp.name}</td>
+            <td class="p-2 text-center text-gray-600">${deptName}</td>
+            <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
+            <td class="p-2 text-center font-bold">${emp.leaveDetails.final}</td>
+            <td class="p-2 text-center text-blue-600">${emp.usedDays}</td>
+            <td class="p-2 text-center font-bold ${emp.remainingDays <= 3 ? 'text-red-600' : 'text-green-600'}">${emp.remainingDays}</td>
+            <td class="p-2 text-left pl-4">
+                ${gridHTML}
             </td>
         </tr>
         `;
@@ -1291,18 +1316,6 @@ export function addLeaveStatusEventListeners() {
     if (sortFilter) {
         sortFilter.addEventListener('change', filterAndSortLeaveStatus);
     }
-
-    // 상세 보기 토글
-    document.querySelectorAll('.toggle-dates-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const empId = e.target.dataset.empId;
-            const detailDiv = document.getElementById(`dates - ${empId} `);
-            if (detailDiv) {
-                detailDiv.classList.toggle('hidden');
-                e.target.textContent = detailDiv.classList.contains('hidden') ? '▼ 상세 보기' : '▲ 접기';
-            }
-        });
-    });
 }
 
 function filterAndSortLeaveStatus() {
