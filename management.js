@@ -547,12 +547,12 @@ export function getLeaveListHTML() {
         return map;
     }, {});
 
-    // 반려 제외
-    const filteredRequests = leaveRequests.filter(req => req.status !== 'rejected');
+    // 모든 신청 내역 표시 (반려 포함)
+    const filteredRequests = leaveRequests;
 
     let rows = '';
-    if (leaveRequests.length === 0) {
-        rows = `<tr ><td colspan="5" class="text-center text-gray-500 py-8">연차 신청 기록이 없습니다.</td></tr> `;
+    if (filteredRequests.length === 0) {
+        rows = `<tr ><td colspan="5" class="text-center text-gray-500 py-8">표시할 연차 신청 기록이 없습니다.</td></tr> `;
     } else {
         rows = filteredRequests.map(req => {
             const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
@@ -601,10 +601,10 @@ export function getLeaveListHTML() {
 
             if (finalStatus === 'rejected') {
                 // 반려됨
-                actions = `<span class="text-xs text-gray-400" > 반려됨</span> `;
+                actions = `<span class="text-xs text-red-400" >반려됨</span> `;
             } else if (finalStatus === 'approved') {
                 // 최종 승인 완료
-                actions = `<span class="text-xs text-gray-400" > 승인완료</span> `;
+                actions = `<span class="text-xs text-green-600" >승인완료</span> `;
             } else if (currentUser.role === 'admin') {
                 // 관리자: 최종 승인/반려 버튼
                 actions = `
@@ -666,6 +666,7 @@ export function getLeaveListHTML() {
                 <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 (${filteredRequests.length})</button>
                 <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">최종 대기중 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'pending').length})</button>
                 <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">최종 승인됨 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'approved').length})</button>
+                <button onclick="window.filterLeaveList('rejected')" id="filter-rejected" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려됨 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'rejected').length})</button>
             </div>
             <div class="flex gap-2 items-center ml-4">
                 <label class="text-sm font-semibold">직원:</label>
