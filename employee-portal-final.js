@@ -134,8 +134,8 @@ export async function renderEmployeePortal() {
             </div>
 
             <!-- 근무 스케줄 탭 (신규) -->
-            <div id="employee-work-schedule-tab" class="tab-content hidden h-[800px] bg-white shadow rounded p-4">
-                <!-- 여기에 모바일 친화적 스케줄 리스트가 렌더링됩니다 -->
+            <div id="employee-work-schedule-tab" class="tab-content hidden h-[840px] bg-white shadow rounded p-4">
+                <!-- 모바일 친화적 주간 스케줄 -->
             </div>
 
             ${user.isManager ? `
@@ -234,19 +234,25 @@ function switchEmployeeTab(tab) {
 }
 
 // =========================================================================================
-// [신규] 모바일 친화적 근무 스케줄 리스트 뷰 (주간 뷰 & 확정 확인 + Client Join)
+// [신규] 모바일 친화적 근무 스케줄 리스트 뷰
+//  - 주간 뷰
+//  - 근무자/휴무자 보기 토글
+//  - 네비게이션 줄바꿈 수정
 // =========================================================================================
 
 async function renderEmployeeMobileScheduleList() {
     const container = _('#employee-work-schedule-tab');
     if (!container) return;
 
-    container.innerHTML = '<div class="flex justify-center items-center h-48"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>';
+    // 로딩 인디케이터
+    if (!container.innerHTML.includes('animate-spin')) {
+        container.innerHTML = '<div class="flex justify-center items-center h-48"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>';
+    }
 
     try {
-        if (!state.employee.scheduleViewDate) {
-            state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
-        }
+        // 초기화
+        if (!state.employee.scheduleViewDate) state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
+        if (!state.employee.scheduleViewMode) state.employee.scheduleViewMode = 'working'; // working | off
 
         const currentDate = dayjs(state.employee.scheduleViewDate);
 
@@ -282,28 +288,20 @@ async function renderEmployeeMobileScheduleList() {
                     </div>
                 </div>
             `;
-
-            container.querySelector('#prev-week-btn').addEventListener('click', () => {
-                state.employee.scheduleViewDate = currentDate.subtract(1, 'week').format('YYYY-MM-DD');
-                renderEmployeeMobileScheduleList();
-            });
-            container.querySelector('#next-week-btn').addEventListener('click', () => {
-                state.employee.scheduleViewDate = currentDate.add(1, 'week').format('YYYY-MM-DD');
-                renderEmployeeMobileScheduleList();
-            });
+            attachNavListeners(container);
             return;
         }
 
-        // 2. 데이터 병렬 로딩 (스케줄, 직원, 휴무일, 부서)
+        // 2. 데이터 병렬 로딩 (전체 데이터 가져오기)
+        // ✅ status 필터링 제거: 근무/휴무 모두 가져와서 클라이언트에서 필터링
         const [schedulesRes, employeesRes, departmentsRes, holidaysRes] = await Promise.all([
             db.from('schedules')
                 .select('*')
                 .gte('date', startStr)
                 .lte('date', endStr)
-                .eq('status', '근무') // DB에 '근무'로 저장됨을 확인
                 .order('sort_order', { ascending: true }),
 
-            db.from('employees').select('id, name, department_id'), // 필요한 필드만
+            db.from('employees').select('id, name, department_id'),
             db.from('departments').select('id, name'),
             db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr)
         ]);
@@ -321,7 +319,6 @@ async function renderEmployeeMobileScheduleList() {
         // 데이터 매핑용 Map 생성
         const empMap = new Map(allEmployees.map(e => [e.id, e]));
         const deptMap = new Map(allDepartments.map(d => [d.id, d.name]));
-
         const holidaySet = new Set(holidays.map(h => h.date));
 
         // 4. 스케줄 객체에 직원 정보 매핑 (Join emulation)
@@ -339,7 +336,8 @@ async function renderEmployeeMobileScheduleList() {
             };
         });
 
-        // 5. 날짜별 그룹화
+        // 5. 날짜별 그룹화 (뷰 모드에 따라 필터링)
+        const isWorkingView = state.employee.scheduleViewMode === 'working';
         const scheduleByDate = {};
         for (let i = 0; i < 7; i++) {
             const date = startOfWeek.add(i, 'day').format('YYYY-MM-DD');
@@ -347,26 +345,45 @@ async function renderEmployeeMobileScheduleList() {
         }
 
         enrichedSchedules.forEach(item => {
-            if (scheduleByDate[item.date]) {
-                scheduleByDate[item.date].push(item);
+            const status = item.status; // '근무' 또는 '휴무'
+
+            // 필터링 로직: 
+            // - 근무자 보기: status == '근무'
+            // - 휴무자 보기: status != '근무' (휴무, 연차 등)
+            if (isWorkingView) {
+                if (status === '근무') {
+                    if (scheduleByDate[item.date]) scheduleByDate[item.date].push(item);
+                }
+            } else {
+                if (status !== '근무') {
+                    if (scheduleByDate[item.date]) scheduleByDate[item.date].push(item);
+                }
             }
         });
 
         // 6. UI 렌더링
         let html = `
             <div class="flex flex-col h-full max-h-full">
-                <!-- 상단 네비게이션 -->
+                <!-- 상단 네비게이션: 줄바꿈 방지 적용 -->
                 <div class="flex flex-col border-b pb-2 mb-2">
-                     <div class="flex justify-between items-center px-2">
-                        <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg">◀</button>
-                        <div class="text-center">
-                            <h2 class="text-lg font-bold text-gray-800">${startOfWeek.format('M월 D일')} ~ ${endOfWeek.format('M월 D일')}</h2>
+                     <div class="flex items-center justify-between px-2 mb-2">
+                        <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg flex-shrink-0 w-10 text-center">◀</button>
+                        <div class="text-center flex-grow px-2 min-w-0">
+                            <h2 class="text-lg font-bold text-gray-800 whitespace-nowrap overflow-hidden text-ellipsis">
+                                ${startOfWeek.format('M월 D일')} ~ ${endOfWeek.format('M월 D일')}
+                            </h2>
                             <p class="text-xs text-gray-500">${currentDate.format('YYYY년')}</p>
                         </div>
-                        <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg">▶</button>
+                        <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg flex-shrink-0 w-10 text-center">▶</button>
                     </div>
-                    <div class="flex justify-center mt-1">
-                         <button id="today-btn" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold border border-blue-100">이번주 보기</button>
+                    
+                    <!-- 뷰 모드 토글 및 이번주 버튼 -->
+                     <div class="flex justify-between items-center px-4 mt-1">
+                        <div class="bg-gray-100 p-1 rounded-lg flex text-xs font-semibold">
+                            <button id="view-mode-working" class="px-3 py-1 rounded-md ${isWorkingView ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">근무자</button>
+                            <button id="view-mode-off" class="px-3 py-1 rounded-md ${!isWorkingView ? 'bg-white text-red-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">휴무자</button>
+                        </div>
+                        <button id="today-btn" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold border border-blue-100">이번주</button>
                     </div>
                 </div>
 
@@ -382,8 +399,10 @@ async function renderEmployeeMobileScheduleList() {
             const dayOfWeek = dayObj.day();
 
             let dayColorClass = 'text-gray-900';
-            if (dayOfWeek === 0) dayColorClass = 'text-red-600';
-            if (dayOfWeek === 6) dayColorClass = 'text-blue-600';
+            let dayBgClass = '';
+
+            if (dayOfWeek === 0) dayColorClass = 'text-red-500'; // 일요일
+            if (dayOfWeek === 6) dayColorClass = 'text-blue-500'; // 토요일
             if (isHoliday) dayColorClass = 'text-red-600';
 
             const dayLabel = dayObj.format('D');
@@ -392,9 +411,10 @@ async function renderEmployeeMobileScheduleList() {
             // 내용 구성
             let content = '';
             if (isHoliday) {
-                content = `<div class="p-3 bg-red-50 text-red-600 rounded text-center text-sm font-bold">🟥 회사 휴무일</div>`;
+                content = `<div class="p-3 bg-red-50 text-red-600 rounded text-center text-sm font-bold w-full">🟥 회사 휴무일</div>`;
             } else if (items.length === 0) {
-                content = `<div class="py-4 text-gray-300 text-center text-xs">휴무 / 스케줄 없음</div>`;
+                const emptyMsg = isWorkingView ? '근무자 없음' : '휴무자 없음';
+                content = `<div class="py-4 text-gray-300 text-center text-xs italic">${emptyMsg}</div>`;
             } else {
                 const cards = items.map(item => {
                     const emp = item.employees;
@@ -404,8 +424,8 @@ async function renderEmployeeMobileScheduleList() {
                     return `
                         <div class="flex items-center p-2 mb-1 last:mb-0 bg-white border border-gray-100 rounded shadow-sm">
                             <span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0" style="background-color: ${color};"></span>
-                            <span class="font-medium text-sm text-gray-700 truncate">${emp.name}</span>
-                            <span class="text-xs text-gray-400 ml-auto whitespace-nowrap px-2">${emp.departments?.name || ''}</span>
+                            <span class="font-medium text-sm text-gray-700 truncate min-w-0 flex-1">${emp.name}</span>
+                            <span class="text-xs text-gray-400 ml-2 whitespace-nowrap px-1 bg-gray-50 rounded">${emp.departments?.name || ''}</span>
                         </div>
                     `;
                 }).join('');
@@ -413,15 +433,15 @@ async function renderEmployeeMobileScheduleList() {
             }
 
             html += `
-                <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1' : ''}">
+                <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1 border border-blue-100' : ''}">
                     <!-- 날짜 컬럼 -->
-                    <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
-                        <span class="text-xs ${dayColorClass} font-medium">${weekLabel}</span>
-                        <span class="text-xl font-bold ${dayColorClass} ${isToday ? 'bg-blue-600 text-white w-8 h-8 flex items-center justify-center rounded-full mt-1' : 'mt-1'}">${dayLabel}</span>
+                    <div class="flex flex-col items-center justify-start pt-1 w-10 flex-shrink-0">
+                        <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel}</span>
+                        <span class="text-lg font-bold ${dayColorClass} ${isToday ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center rounded-full mt-1' : 'mt-1 leading-none'}">${dayLabel}</span>
                     </div>
                     
                     <!-- 내용 컬럼 -->
-                    <div class="flex-grow pb-3 border-b border-gray-100 last:border-0">
+                    <div class="flex-grow pb-3 border-b border-gray-100 last:border-0 min-w-0">
                          ${content}
                     </div>
                 </div>
@@ -434,28 +454,7 @@ async function renderEmployeeMobileScheduleList() {
         `;
 
         container.innerHTML = html;
-
-        container.querySelector('#prev-week-btn').addEventListener('click', () => {
-            state.employee.scheduleViewDate = currentDate.subtract(1, 'week').format('YYYY-MM-DD');
-            renderEmployeeMobileScheduleList();
-        });
-
-        container.querySelector('#next-week-btn').addEventListener('click', () => {
-            state.employee.scheduleViewDate = currentDate.add(1, 'week').format('YYYY-MM-DD');
-            renderEmployeeMobileScheduleList();
-        });
-
-        container.querySelector('#today-btn').addEventListener('click', () => {
-            state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
-            renderEmployeeMobileScheduleList();
-        });
-
-        requestAnimationFrame(() => {
-            const todayEl = container.querySelector('.bg-blue-50');
-            if (todayEl) {
-                todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        });
+        attachNavListeners(container, currentDate);
 
     } catch (error) {
         console.error('스케줄 리스트 렌더링 오류:', error);
@@ -465,6 +464,40 @@ async function renderEmployeeMobileScheduleList() {
             <button onclick="renderEmployeeMobileScheduleList()" class="mt-4 px-4 py-2 bg-gray-200 rounded text-sm">다시 시도</button>
         </div>`;
     }
+}
+
+function attachNavListeners(container, currentDate = dayjs()) {
+    container.querySelector('#prev-week-btn')?.addEventListener('click', () => {
+        state.employee.scheduleViewDate = currentDate.subtract(1, 'week').format('YYYY-MM-DD');
+        renderEmployeeMobileScheduleList();
+    });
+
+    container.querySelector('#next-week-btn')?.addEventListener('click', () => {
+        state.employee.scheduleViewDate = currentDate.add(1, 'week').format('YYYY-MM-DD');
+        renderEmployeeMobileScheduleList();
+    });
+
+    container.querySelector('#today-btn')?.addEventListener('click', () => {
+        state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
+        renderEmployeeMobileScheduleList();
+    });
+
+    container.querySelector('#view-mode-working')?.addEventListener('click', () => {
+        state.employee.scheduleViewMode = 'working';
+        renderEmployeeMobileScheduleList();
+    });
+
+    container.querySelector('#view-mode-off')?.addEventListener('click', () => {
+        state.employee.scheduleViewMode = 'off';
+        renderEmployeeMobileScheduleList();
+    });
+
+    requestAnimationFrame(() => {
+        const todayEl = container.querySelector('.bg-blue-50'); // 오늘 날짜 element
+        if (todayEl) {
+            todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    });
 }
 
 function getDepartmentColor(departmentId) {
