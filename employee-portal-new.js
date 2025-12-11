@@ -96,8 +96,8 @@ export async function renderEmployeePortal() {
                     <p class="text-xl sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
                 </div>
                 <div class="bg-purple-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
-                    <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">갱신일</p>
-                    <p class="text-xl sm:text-2xl font-bold whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
+                    <p class="text-[10px] sm:text-sm text-gray-700 font-semibold whitespace-nowrap">갱신일</p>
+                    <p class="text-xl sm:text-2xl font-semibold whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
             </div>
 
