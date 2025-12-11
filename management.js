@@ -677,7 +677,7 @@ export function getLeaveListHTML() {
             </div>
         </div>
         
-        <!--테이블 보기-- >
+        <!-- 테이블 보기 -->
         <div class="mb-8">
             <table class="min-w-full text-sm border">
                 <thead class="bg-gray-100">
@@ -693,7 +693,7 @@ export function getLeaveListHTML() {
             </table>
         </div>
         
-        <!--달력 보기-- >
+        <!-- 달력 보기 -->
         <div>
             <h3 class="text-md font-semibold mb-2">📅 연차 현황 달력</h3>
             <div class="flex flex-wrap gap-2 mb-2 items-center">
