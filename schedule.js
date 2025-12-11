@@ -1530,8 +1530,8 @@ async function renderScheduleSidebar() {
     initializeSortableAndDraggable();
 }
 
-export async function renderScheduleManagement(container) {
-    console.log('renderScheduleManagement called');
+export async function renderScheduleManagement(container, isReadOnly = false) {
+    console.log('renderScheduleManagement called', { isReadOnly });
 
     if (!state.schedule) {
         state.schedule = {
@@ -1545,6 +1545,7 @@ export async function renderScheduleManagement(container) {
             sortableInstances: []
         };
     }
+    state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장
 
     if (!state.management) {
         console.error('state.management is not initialized');
@@ -1560,21 +1561,41 @@ export async function renderScheduleManagement(container) {
         </div>`
     ).join('');
 
+    // Conditional sidebar HTML
+    const sidebarHtml = isReadOnly ? '' : `
+        <div id="schedule-sidebar-area"></div>
+    `;
+
+    // Conditional top control buttons HTML
+    const topControlsHtml = isReadOnly ? `
+        <div class="flex justify-between items-center mb-2 pb-2 border-b">
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
+                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="print-schedule-btn">🖨️ 인쇄하기</button>
+            </div>
+        </div>
+    ` : `
+        <div class="flex justify-between items-center mb-2 pb-2 border-b">
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
+                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
+                <button id="print-schedule-btn">🖨️ 인쇄하기</button>
+                <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
+                <button id="save-schedule-btn" disabled>💾 스케줄 저장</button>
+            </div>
+        </div>
+    `;
+
     container.innerHTML = `
         <div class="schedule-grid">
             <div class="schedule-main-content">
-                <div class="flex justify-between items-center mb-2 pb-2 border-b">
-                    <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
-                        <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
-                        <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
-                        <button id="print-schedule-btn">🖨️ 인쇄하기</button>
-                        <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
-                        <button id="save-schedule-btn" disabled>💾 스케줄 저장</button>
-                    </div>
-                </div>
+                ${topControlsHtml}
                 <div id="department-filters" class="flex items-center flex-wrap gap-4 my-4 text-sm">
                     <span class="font-semibold">부서 필터:</span>${deptFilterHtml}
                 </div>
@@ -1586,7 +1607,7 @@ export async function renderScheduleManagement(container) {
                 </div>
                 <div id="pure-calendar"></div>
             </div>
-            <div id="schedule-sidebar-area"></div>
+            ${sidebarHtml}
         </div>
     `;
 
@@ -1594,13 +1615,19 @@ export async function renderScheduleManagement(container) {
 
     _('#schedule-view-toggle')?.addEventListener('click', handleViewModeChange);
     _('#department-filters')?.addEventListener('change', handleDepartmentFilterChange);
-    _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
-    _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
+    _('#print-schedule-btn')?.addEventListener('click', handlePrintSchedule); // Always available
+
+    // Only attach these if not read-only
+    if (!isReadOnly) {
+        _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
+        _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
+        _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
+    }
+
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
     _('#calendar-next')?.addEventListener('click', () => navigateMonth('next'));
     _('#calendar-today')?.addEventListener('click', () => navigateMonth('today'));
-    _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
-    _('#print-schedule-btn')?.addEventListener('click', handlePrintSchedule);
+
 
     console.log('Event listeners attached');
 

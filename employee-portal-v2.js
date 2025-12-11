@@ -108,6 +108,7 @@ export async function renderEmployeePortal() {
                     서류 제출
                     <span id="doc-tab-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">0</span>
                 </button>
+                <button id="tab-work-schedule-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">근무 스케줄</button>
                 ${user.isManager ? `
                     <button id="tab-leave-list-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">연차 신청 목록</button>
                     <button id="tab-schedule-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">스케줄 관리</button>
@@ -137,7 +138,11 @@ export async function renderEmployeePortal() {
                     <h2 class="text-xl font-bold mb-4">제출한 서류 <span class="text-sm text-gray-500">(내가 제출한 서류 현황)</span></h2>
                     <div id="submitted-docs-list"></div>
                 </div>
+                </div>
             </div>
+
+            <!-- 근무 스케줄 탭 (신규) -->
+            <div id="employee-work-schedule-tab" class="tab-content hidden h-[800px]"></div>
 
             ${user.isManager ? `
                 <!-- 연차 신청 목록 탭 (매니저 전용) -->
@@ -183,7 +188,9 @@ export async function renderEmployeePortal() {
     });
 
     _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
+    _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
+    _('#tab-work-schedule-btn').addEventListener('click', () => switchEmployeeTab('workSchedule'));
 
     if (user.isManager) {
         console.log('✅ 매니저 탭 이벤트 리스너 연결');
@@ -201,13 +208,16 @@ function switchEmployeeTab(tab) {
     const docsBtn = _('#tab-docs-btn');
     const leaveListBtn = _('#tab-leave-list-btn');
     const scheduleBtn = _('#tab-schedule-btn');
+    const workScheduleBtn = _('#tab-work-schedule-btn');
+
     const leaveTab = _('#employee-leave-tab');
     const docsTab = _('#employee-docs-tab');
     const leaveListTab = _('#employee-leave-list-tab');
     const scheduleTab = _('#employee-schedule-tab');
+    const workScheduleTab = _('#employee-work-schedule-tab');
 
     // 모든 버튼 비활성화
-    [leaveBtn, docsBtn, leaveListBtn, scheduleBtn].forEach(btn => {
+    [leaveBtn, docsBtn, leaveListBtn, scheduleBtn, workScheduleBtn].forEach(btn => {
         if (btn) {
             btn.classList.remove('border-blue-600', 'text-blue-600');
             btn.classList.add('border-transparent', 'text-gray-500');
@@ -215,7 +225,7 @@ function switchEmployeeTab(tab) {
     });
 
     // 모든 탭 숨김
-    [leaveTab, docsTab, leaveListTab, scheduleTab].forEach(t => {
+    [leaveTab, docsTab, leaveListTab, scheduleTab, workScheduleTab].forEach(t => {
         if (t) t.classList.add('hidden');
     });
 
@@ -237,7 +247,28 @@ function switchEmployeeTab(tab) {
         scheduleBtn.classList.add('border-blue-600', 'text-blue-600');
         scheduleBtn.classList.remove('border-transparent', 'text-gray-500');
         scheduleTab.classList.remove('hidden');
+        scheduleTab.classList.remove('hidden');
         renderManagerScheduleTab();
+    } else if (tab === 'workSchedule' && workScheduleBtn && workScheduleTab) {
+        workScheduleBtn.classList.add('border-blue-600', 'text-blue-600');
+        workScheduleBtn.classList.remove('border-transparent', 'text-gray-500');
+        workScheduleTab.classList.remove('hidden');
+        renderEmployeeWorkScheduleTab();
+    }
+}
+
+// ✨ 직원용 근무 스케줄 탭 렌더링
+async function renderEmployeeWorkScheduleTab() {
+    const container = _('#employee-work-schedule-tab');
+    if (!container) return;
+
+    // schedule.js의 renderScheduleManagement 재사용 (ReadOnly 모드)
+    // module import가 필요할 수 있음 (상단 import 확인 필요)
+    try {
+        await renderScheduleManagement(container, true);
+    } catch (error) {
+        console.error('스케줄 렌더링 오류:', error);
+        container.innerHTML = `<div class="p-4 text-red-600">스케줄을 불러오는데 실패했습니다: ${error.message}</div>`;
     }
 }
 
