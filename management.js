@@ -658,9 +658,8 @@ export function getLeaveListHTML() {
     }).join('');
 
     return `
-        <h2 class="text-lg font-semibold mb-4" > 연차 신청 목록</h2>
+        <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
         
-        <!--필터 -->
         <div class="flex flex-wrap gap-2 mb-4 items-center">
             <div class="flex gap-2">
                 <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 (${filteredRequests.length})</button>
@@ -677,7 +676,6 @@ export function getLeaveListHTML() {
             </div>
         </div>
         
-        <!-- 테이블 보기 -->
         <div class="mb-8">
             <table class="min-w-full text-sm border">
                 <thead class="bg-gray-100">
@@ -693,7 +691,6 @@ export function getLeaveListHTML() {
             </table>
         </div>
         
-        <!-- 달력 보기 -->
         <div>
             <h3 class="text-md font-semibold mb-2">📅 연차 현황 달력</h3>
             <div class="flex flex-wrap gap-2 mb-2 items-center">
