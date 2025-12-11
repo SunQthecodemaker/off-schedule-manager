@@ -1325,6 +1325,11 @@ async function loadAndRenderScheduleData(date) {
         // ✨ 그 다음 사이드바 렌더링 (이때 달력의 day-events가 존재함)
         await renderScheduleSidebar();
 
+        // 관리자 모드일 경우 확정 상태 체크
+        if (state.currentUser?.isManager) {
+            await checkScheduleConfirmationStatus();
+        }
+
         console.log('Rendering complete');
     } catch (error) {
         console.error("스케줄 데이터 로딩 실패:", error);
@@ -1581,6 +1586,7 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
+                <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
                 <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
@@ -1598,7 +1604,10 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 </div>
                 <div class="calendar-controls flex items-center justify-between mb-4">
                     <button id="calendar-prev" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">◀ 이전</button>
-                    <h2 id="calendar-title" class="text-2xl font-bold"></h2>
+                    <div class="flex items-center">
+                        <h2 id="calendar-title" class="text-2xl font-bold"></h2>
+                        <span id="schedule-status-badge" class="px-3 py-1 rounded-full text-sm font-bold ml-2 hidden"></span>
+                    </div>
                     <button id="calendar-next" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">다음 ▶</button>
                     <button id="calendar-today" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">오늘</button>
                 </div>
@@ -1619,6 +1628,7 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
+        _('#confirm-schedule-btn')?.addEventListener('click', () => handleConfirmSchedule(true));
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
