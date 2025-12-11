@@ -110,10 +110,10 @@ function renderManagementTabs() {
     const tabs = [
         { id: 'leaveList', text: '연차 신청 목록' },
         { id: 'schedule', text: '스케줄 관리' },
-        { id: 'leaveStatus', text: '연차 현황' },
         { id: 'submittedDocs', text: '서류 검토' },
-        { id: 'management', text: '직원 관리' },
         { id: 'leaveManagement', text: '연차 관리' },
+        { id: 'leaveStatus', text: '연차 현황' },
+        { id: 'management', text: '직원 관리' },
         { id: 'department', text: '부서 관리' },
         { id: 'templates', text: '서식 관리' },
     ];
