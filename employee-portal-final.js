@@ -234,7 +234,7 @@ function switchEmployeeTab(tab) {
 }
 
 // =========================================================================================
-// [신규] 모바일 친화적 근무 스케줄 리스트 뷰 (주간 뷰 & 확정 확인)
+// [신규] 모바일 친화적 근무 스케줄 리스트 뷰 (주간 뷰 & 확정 확인 + Client Join)
 // =========================================================================================
 
 async function renderEmployeeMobileScheduleList() {
@@ -258,10 +258,6 @@ async function renderEmployeeMobileScheduleList() {
 
         const startStr = startOfWeek.format('YYYY-MM-DD');
         const endStr = endOfWeek.format('YYYY-MM-DD');
-        const monthQueryDate = dayjs(endStr).date() < 7 ? startOfWeek : currentDate;
-        // 주의: 월이 걸쳐있는 주간의 경우, 확정 여부를 어느 달 기준으로 할지가 모호함.
-        // 여기서는 "이번 주의 시작일이 속한 달"을 기준으로 하거나 "현재 보고있는 날짜가 속한 달"을 기준으로 함.
-        // 가장 안전한건 startOfWeek 기준 월
         const monthStr = startOfWeek.format('YYYY-MM');
 
         // 1. 스케줄 확정 여부 확인
@@ -298,43 +294,65 @@ async function renderEmployeeMobileScheduleList() {
             return;
         }
 
-        // 2. 스케줄 데이터 가져오기
-        const { data: schedules, error: scheduleError } = await db.from('schedules')
-            .select(`
-                *,
-                employees (id, name, department_id, departments(id, name))
-            `)
-            .gte('date', startStr)
-            .lte('date', endStr)
-            .eq('status', '근무')
-            .order('sort_order', { ascending: true });
+        // 2. 데이터 병렬 로딩 (스케줄, 직원, 휴무일, 부서)
+        const [schedulesRes, employeesRes, departmentsRes, holidaysRes] = await Promise.all([
+            db.from('schedules')
+                .select('*')
+                .gte('date', startStr)
+                .lte('date', endStr)
+                .eq('status', '근무') // DB에 '근무'로 저장됨을 확인
+                .order('sort_order', { ascending: true }),
 
-        if (scheduleError) throw scheduleError;
+            db.from('employees').select('id, name, department_id'), // 필요한 필드만
+            db.from('departments').select('id, name'),
+            db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr)
+        ]);
 
-        // 3. 휴무일 데이터 가져오기
-        const { data: holidays, error: holidayError } = await db.from('company_holidays')
-            .select('*')
-            .gte('date', startStr)
-            .lte('date', endStr);
+        if (schedulesRes.error) throw schedulesRes.error;
+        if (employeesRes.error) throw employeesRes.error;
+        if (departmentsRes.error) throw departmentsRes.error;
+        if (holidaysRes.error) throw holidaysRes.error;
 
-        if (holidayError) throw holidayError;
+        const schedules = schedulesRes.data || [];
+        const allEmployees = employeesRes.data || [];
+        const allDepartments = departmentsRes.data || [];
+        const holidays = holidaysRes.data || [];
 
-        const holidaySet = new Set(holidays?.map(h => h.date) || []);
+        // 데이터 매핑용 Map 생성
+        const empMap = new Map(allEmployees.map(e => [e.id, e]));
+        const deptMap = new Map(allDepartments.map(d => [d.id, d.name]));
 
-        // 4. 날짜별 그룹화
+        const holidaySet = new Set(holidays.map(h => h.date));
+
+        // 4. 스케줄 객체에 직원 정보 매핑 (Join emulation)
+        const enrichedSchedules = schedules.map(s => {
+            const emp = empMap.get(s.employee_id);
+            return {
+                ...s,
+                employees: emp ? {
+                    name: emp.name,
+                    department_id: emp.department_id,
+                    departments: {
+                        name: deptMap.get(emp.department_id) || ''
+                    }
+                } : { name: `ID:${s.employee_id}`, department_id: null, departments: { name: '' } }
+            };
+        });
+
+        // 5. 날짜별 그룹화
         const scheduleByDate = {};
         for (let i = 0; i < 7; i++) {
             const date = startOfWeek.add(i, 'day').format('YYYY-MM-DD');
             scheduleByDate[date] = [];
         }
 
-        schedules.forEach(item => {
+        enrichedSchedules.forEach(item => {
             if (scheduleByDate[item.date]) {
                 scheduleByDate[item.date].push(item);
             }
         });
 
-        // 5. UI 렌더링
+        // 6. UI 렌더링
         let html = `
             <div class="flex flex-col h-full max-h-full">
                 <!-- 상단 네비게이션 -->
@@ -364,7 +382,6 @@ async function renderEmployeeMobileScheduleList() {
             const dayOfWeek = dayObj.day();
 
             let dayColorClass = 'text-gray-900';
-            // let dateBgClass = 'bg-gray-100'; // unused
             if (dayOfWeek === 0) dayColorClass = 'text-red-600';
             if (dayOfWeek === 6) dayColorClass = 'text-blue-600';
             if (isHoliday) dayColorClass = 'text-red-600';
@@ -530,7 +547,7 @@ function renderDocumentRequests() {
 
     const rows = pendingRequests.map(req => {
         let statusBadge = '<span class="bg-yellow-200 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">제출 대기</span>';
-        let actionButton = `<button onclick="window.openDocSubmissionModal(${req.id})" class="text-sm bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-600 font-bold">작성하기</button>`; // blue-600 color fix
+        let actionButton = `<button onclick="window.openDocSubmissionModal(${req.id})" class="text-sm bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-600 font-bold">작성하기</button>`;
 
         const docType = req.type || '일반 서류';
 
