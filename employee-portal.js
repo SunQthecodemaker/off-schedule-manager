@@ -83,19 +83,19 @@ export async function renderEmployeePortal() {
             </div>
 
             <div class="grid grid-cols-4 gap-2 sm:gap-4 mb-6">
-                <div class="bg-blue-100 p-2 sm:p-4 rounded shadow">
+                <div class="bg-blue-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">확정 연차</p>
                     <p class="text-xl sm:text-2xl font-bold">${leaveDetails.final}일</p>
                 </div>
-                <div class="bg-green-100 p-2 sm:p-4 rounded shadow">
+                <div class="bg-green-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">사용 연차</p>
                     <p class="text-xl sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
                 </div>
-                <div class="bg-yellow-100 p-2 sm:p-4 rounded shadow">
+                <div class="bg-yellow-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">잔여 연차</p>
                     <p class="text-xl sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
                 </div>
-                <div class="bg-purple-100 p-2 sm:p-4 rounded shadow">
+                <div class="bg-purple-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">갱신일</p>
                     <p class="text-xl sm:text-2xl font-bold whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
