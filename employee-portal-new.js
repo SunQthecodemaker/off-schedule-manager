@@ -799,49 +799,29 @@ window.viewSubmittedDocument = function (docId) {
         `<div class="mb-4"><strong>첨부파일:</strong> <a href="${doc.attachment_url}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>` : '';
 
     const modalHTML = `
-        <div id="view-doc-modal" class="modal-overlay">
-            <div class="modal-content-lg">
-                <div class="text-center mb-4">
-                    <h2 class="text-xl font-bold">${doc.template_name}</h2>
-                    <p class="text-gray-500 text-sm">제출일: ${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</p>
+        <div class="modal-overlay" id="view-submitted-doc-modal">
+            <div class="modal-content-lg" style="max-height: 90vh; overflow-y: auto;">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h2 class="text-2xl font-bold">${doc.template_name || '서류'} 내용</h2>
+                    <button id="close-view-submitted-doc-modal" class="text-3xl">&times;</button>
                 </div>
-                <div class="p-4 bg-gray-50 border rounded mb-4" style="min-height: 200px; white-space: pre-wrap;">${content}</div>
-                
-                ${attachmentHtml}
-                
-                ${doc.signature ? `<div class="text-right mt-4"><p class="text-xs text-gray-500 mb-1">제출자 서명:</p><img src="${doc.signature}" style="max-height: 50px; border: 1px solid #ddd;"></div>` : ''}
-                
-                ${doc.admin_comment ? `
-                <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded">
-                    <p class="text-sm font-bold text-red-700">관리자 피드백:</p>
-                    <p class="text-sm text-red-600">${doc.admin_comment}</p>
-                </div>
-                ` : ''}
-
-                <div class="text-center mt-6">
-                    <button onclick="document.getElementById('view-doc-modal').remove()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">닫기</button>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-};
+                <div class="bg-white border-2 border-gray-800 p-6">
                     <div class="text-center mb-6">
-                        <h1 class="text-2xl font-bold mb-2">${doc.template_name || '?�류'}</h1>
-                        <div class="text-xs text-gray-600">?�출?? ${doc.employee_name}</div>
-                        <div class="text-xs text-gray-600">?�출?�시: ${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</div>
-                        <div class="text-xs text-gray-600">?�태: 
-                            ${doc.status === 'submitted' ? '검???��? :
-            doc.status === 'approved' ? '?�인?? :
-                doc.status === 'rejected' ? '반려?? : doc.status}
+                        <h1 class="text-2xl font-bold mb-2">${doc.template_name || '서류'}</h1>
+                        <div class="text-xs text-gray-600">제출자: ${doc.employee_name}</div>
+                        <div class="text-xs text-gray-600">제출일시: ${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</div>
+                        <div class="text-xs text-gray-600">상태: 
+                            ${doc.status === 'submitted' ? '검토 대기' :
+            doc.status === 'approved' ? '승인됨' :
+                doc.status === 'rejected' ? '반려됨' : doc.status}
                         </div>
                     </div>
                     ${attachmentHtml}
                     <div class="mb-4 whitespace-pre-wrap border p-4 rounded" style="line-height: 1.8;">${content}</div>
-                    ${doc.signature ? `<div class="text-right"><img src="${doc.signature}" alt="?�명" class="inline-block border-2 border-gray-800" style="width: 180px; height: 90px;"></div>` : ''}
+                    ${doc.signature ? `<div class="text-right"><img src="${doc.signature}" alt="서명" class="inline-block border-2 border-gray-800" style="width: 180px; height: 90px;"></div>` : ''}
                 </div>
                 <div class="flex justify-end pt-4 mt-4 border-t">
-                    <button id="close-view-submitted-doc-btn" class="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400">?�기</button>
+                    <button id="close-view-submitted-doc-btn" class="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400">닫기</button>
                 </div>
             </div>
         </div>
@@ -858,24 +838,25 @@ window.viewSubmittedDocument = function (docId) {
 };
 
 // =========================================================================================
-// ?�차 ?�청 관??// =========================================================================================
+// 연차 신청 관련
+// =========================================================================================
 
 function renderMyLeaveRequests(requests) {
     const container = _('#my-leave-requests');
 
     if (requests.length === 0) {
-        container.innerHTML = '<p class="text-gray-500 text-center py-4">?�청 ?�역???�습?�다.</p>';
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">신청 내역이 없습니다.</p>';
         return;
     }
 
     const statusBadges = {
-        pending: '<span class="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">?�기중</span>',
-        approved: '<span class="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">?�인??/span>',
-        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">반려??/span>'
+        pending: '<span class="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">대기중</span>',
+        approved: '<span class="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">승인됨</span>',
+        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">반려됨</span>'
     };
 
     const rows = requests.map(req => {
-        // ?�짜 간소??로직
+        // 날짜 간소화 로직
         const dates = req.dates || [];
         let dateDisplay = '';
 
@@ -912,9 +893,9 @@ function renderMyLeaveRequests(requests) {
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50">
                 <tr>
-                    <th class="p-3 text-left">?�청 ?�짜</th>
-                    <th class="p-3 text-left">?�청 ?�시</th>
-                    <th class="p-3 text-left">?�태</th>
+                    <th class="p-3 text-left">신청 날짜</th>
+                    <th class="p-3 text-left">신청 일시</th>
+                    <th class="p-3 text-left">상태</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -925,41 +906,43 @@ function renderMyLeaveRequests(requests) {
 let selectedDatesForLeave = [];
 let employeeCalendarInstance = null;
 
-// ???�정: ?�력 초기???�수 개선 (?�러 ?�들�?강화 + ?�벤??리스???�결 개선)
+// ⚡ 수정: 달력 초기화 함수 개선 (에러 핸들링 강화 + 이벤트 리스너 연결 개선)
 function initializeEmployeeCalendar(approvedRequests) {
-    console.log('?�� ?�력 초기???�작');
+    console.log('📅 달력 초기화 시작');
     const container = _('#employee-calendar-container');
 
     if (!container) {
-        console.error('???�력 컨테?�너�?찾을 ???�습?�다');
+        console.error('❌ 달력 컨테이너를 찾을 수 없습니다');
         return;
     }
 
-    // 기존 ?�스?�스 ?�거
+    // 기존 인스턴스 제거
     if (employeeCalendarInstance) {
         try {
             employeeCalendarInstance.destroy();
         } catch (e) {
-            console.log('기존 ?�력 ?�거 �??�러:', e);
+            console.log('기존 달력 제거 중 에러:', e);
         }
         employeeCalendarInstance = null;
     }
 
     const approvedDates = approvedRequests.flatMap(r => r.dates || []);
-    console.log('???�인???�짜:', approvedDates);
+    console.log('✅ 승인된 날짜:', approvedDates);
 
-    // ?�택 ?�짜 초기??    selectedDatesForLeave.length = 0;
+    // 선택 날짜 초기화
+    selectedDatesForLeave.length = 0;
 
-    // ???�정: 컨테?�너 ?�전??초기??    container.innerHTML = '';
+    // ⚡ 수정: 컨테이너 완전히 초기화
+    container.innerHTML = '';
 
     const buttonContainer = document.createElement('div');
     buttonContainer.className = 'flex justify-between items-center mb-4';
     buttonContainer.innerHTML = `
-        <h2 class="text-xl font-bold">?�차 ?�청 ?�력 <span class="text-sm text-gray-500">(?�짜�??�릭?�여 ?�택/?�제)</span></h2>
+        <h2 class="text-xl font-bold">연차 신청 달력 <span class="text-sm text-gray-500">(날짜를 클릭하여 선택/해제)</span></h2>
         <div class="flex gap-2">
-            <span id="selected-dates-count" class="text-sm text-gray-600 self-center">?�택???�짜: 0??/span>
-            <button id="clear-selection-btn" class="px-3 py-1 text-sm bg-gray-300 rounded hover:bg-gray-400">?�택 취소</button>
-            <button id="submit-leave-request-btn" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">?�차 ?�청?�기</button>
+            <span id="selected-dates-count" class="text-sm text-gray-600 self-center">선택된 날짜: 0일</span>
+            <button id="clear-selection-btn" class="px-3 py-1 text-sm bg-gray-300 rounded hover:bg-gray-400">선택 취소</button>
+            <button id="submit-leave-request-btn" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">연차 신청하기</button>
         </div>
     `;
 
@@ -969,11 +952,11 @@ function initializeEmployeeCalendar(approvedRequests) {
     container.appendChild(buttonContainer);
     container.appendChild(calendarEl);
 
-    console.log('??버튼 컨테?�너 추�? ?�료');
+    console.log('✅ 버튼 컨테이너 추가 완료');
 
     if (typeof FullCalendar === 'undefined') {
-        console.error('??FullCalendar가 로드?��? ?�았?�니??');
-        alert('?�력 ?�이브러리�? 로드?��? ?�았?�니?? ?�이지�??�로고침?�주?�요.');
+        console.error('❌ FullCalendar가 로드되지 않았습니다!');
+        alert('달력 라이브러리가 로드되지 않았습니다. 페이지를 새로고침해주세요.');
         return;
     }
 
@@ -984,17 +967,17 @@ function initializeEmployeeCalendar(approvedRequests) {
             center: 'prev title next',
             right: ''
         },
-        // ?�체 ?�력???�로 ?�크�??�이 보이?�록 ?�동 ?�이 ?�정
+        // 전체 달력이 세로 스크롤 없이 보이도록 자동 높이 설정
         height: 'auto',
         locale: 'ko',
-        selectable: false,  // ??select 기능 비활?�화
+        selectable: false,  // ✅ select 기능 비활성화
         selectMirror: false,
         unselectAuto: false,
         editable: false,
         events: function (info, successCallback) {
             const events = [
                 ...approvedDates.map(date => ({
-                    title: '?�차 (?�인??',
+                    title: '연차 (승인됨)',
                     start: date,
                     allDay: true,
                     color: '#10b981',
@@ -1002,7 +985,7 @@ function initializeEmployeeCalendar(approvedRequests) {
                     classNames: ['approved-leave']
                 })),
                 ...selectedDatesForLeave.map(date => ({
-                    title: '?�택??,
+                    title: '선택됨',
                     start: date,
                     allDay: true,
                     color: '#3b82f6',
@@ -1013,78 +996,78 @@ function initializeEmployeeCalendar(approvedRequests) {
             successCallback(events);
         },
         dateClick: function (info) {
-            console.log('?�� ?�짜 ?�릭:', info.dateStr);
+            console.log('📅 날짜 클릭:', info.dateStr);
             const dateStr = info.dateStr;
 
             if (approvedDates.includes(dateStr)) {
-                alert('?��? ?�인???�차가 ?�는 ?�짜?�니??');
+                alert('이미 승인된 연차가 있는 날짜입니다.');
                 return;
             }
 
             const index = selectedDatesForLeave.indexOf(dateStr);
             if (index > -1) {
                 selectedDatesForLeave.splice(index, 1);
-                console.log('???�짜 ?�택 ?�제:', dateStr);
+                console.log('❌ 날짜 선택 해제:', dateStr);
             } else {
                 selectedDatesForLeave.push(dateStr);
-                console.log('???�짜 ?�택 추�?:', dateStr);
+                console.log('✅ 날짜 선택 추가:', dateStr);
             }
 
-            console.log('?�� ?�재 ?�택???�짜:', selectedDatesForLeave);
+            console.log('📋 현재 선택된 날짜:', selectedDatesForLeave);
             updateSelectionUI();
             employeeCalendarInstance.refetchEvents();
         }
     });
 
-    // UI ?�데?�트 ?�수�??�역 ?�코?�로 ?�동
+    // UI 업데이트 함수를 전역 스코프로 이동
     function updateSelectionUI() {
         const count = selectedDatesForLeave.length;
         const countEl = _('#selected-dates-count');
 
-        // ???�택???�짜 개수�??�데?�트 (버튼?� ??�� ?�시)
-        if (countEl) countEl.textContent = `?�택???�짜: ${count}??;
+        // ✅ 선택된 날짜 개수만 업데이트 (버튼은 항상 표시)
+        if (countEl) countEl.textContent = `선택된 날짜: ${count}일`;
 
-        console.log('?�� ?�택???�짜 개수:', count);
+        console.log('📊 선택된 날짜 개수:', count);
     }
 
-    console.log('?�� ?�력 ?�더�??�작');
+    console.log('📅 달력 렌더링 시작');
     employeeCalendarInstance.render();
-    console.log('???�력 ?�더�??�료');
+    console.log('✅ 달력 렌더링 완료');
 
     updateSelectionUI();
 
-    // ???�정: ?�벤??리스?��? 즉시 ?�결
+    // ⚡ 수정: 이벤트 리스너를 즉시 연결
     const clearBtn = _('#clear-selection-btn');
     const submitBtn = _('#submit-leave-request-btn');
 
     if (clearBtn) {
         clearBtn.onclick = () => {
-            console.log('?���??�택 취소 ?�릭');
+            console.log('🗑️ 선택 취소 클릭');
             selectedDatesForLeave.length = 0;
             updateSelectionUI();
             employeeCalendarInstance.refetchEvents();
             employeeCalendarInstance.unselect();
         };
-        console.log('???�택 취소 버튼 ?�벤???�결 ?�료');
+        console.log('✅ 선택 취소 버튼 이벤트 연결 완료');
     } else {
-        console.error('???�택 취소 버튼??찾을 ???�음');
+        console.error('❌ 선택 취소 버튼을 찾을 수 없음');
     }
 
     if (submitBtn) {
         submitBtn.onclick = () => {
-            console.log('?�� ?�차 ?�청 버튼 ?�릭, ?�택???�짜:', selectedDatesForLeave);
+            console.log('📝 연차 신청 버튼 클릭, 선택된 날짜:', selectedDatesForLeave);
             if (selectedDatesForLeave.length === 0) {
-                alert('?�짜�??�택?�주?�요.');
+                alert('날짜를 선택해주세요.');
                 return;
             }
             openLeaveFormModal([...selectedDatesForLeave]);
         };
-        console.log('???�차 ?�청 버튼 ?�벤???�결 ?�료');
+        console.log('✅ 연차 신청 버튼 이벤트 연결 완료');
     } else {
-        console.error('???�차 ?�청 버튼??찾을 ???�음');
+        console.error('❌ 연차 신청 버튼을 찾을 수 없음');
     }
 
-    console.log('???�력 초기???�료');
+    console.log('✅ 달력 초기화 완료');
 }
 
 function openLeaveFormModal(dates) {
@@ -1107,7 +1090,7 @@ function openLeaveFormModal(dates) {
     show('#leave-form-modal');
 }
 
-// ??window 객체???�록?�여 ?�역 ?�근 가?�하�??�정
+// ✅ window 객체에 등록하여 전역 접근 가능하게 설정
 window.openLeaveFormModal = openLeaveFormModal;
 
 export function closeLeaveFormModal() {
@@ -1121,27 +1104,27 @@ export async function handleSubmitLeaveRequest() {
     const signatureData = window.signaturePad?.toDataURL();
 
     if (!dates || dates.length === 0) {
-        alert('?�짜�??�택?�주?�요.');
+        alert('날짜를 선택해주세요.');
         return;
     }
 
     if (!signatureData || window.signaturePad.isEmpty()) {
-        alert('?�명???�주?�요.');
+        alert('서명을 해주세요.');
         return;
     }
 
-    // 미제�??�류 ?�인 (document_requests ?�이�??�용)
+    // 미제출 서류 확인 (document_requests 테이블 사용)
     const { data: pendingRequests, error: checkError } = await db.from('document_requests')
         .select('*')
         .eq('employeeId', state.currentUser.id)
         .eq('status', 'pending');
 
     if (checkError) {
-        console.error('?�류 ?�인 ?�류:', checkError);
+        console.error('서류 확인 오류:', checkError);
     }
 
     if (pendingRequests && pendingRequests.length > 0) {
-        alert('?�️ 미제�??�류가 ?�습?�다.\n\n?�류�?먼�? ?�출?�야 ?�차 ?�청??가?�합?�다.\n\n"?�류 ?�출" ??��???�청???�류�??�인?�주?�요.');
+        alert('⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.');
         return;
     }
 
@@ -1158,15 +1141,16 @@ export async function handleSubmitLeaveRequest() {
 
         if (error) throw error;
 
-        alert('?�차 ?�청???�료?�었?�니??');
+        alert('연차 신청이 완료되었습니다.');
         closeLeaveFormModal();
 
 
         renderEmployeePortal();
 
-        // ???�털 ?�렌?�링 ???�택 초기??        selectedDatesForLeave.length = 0;
+        // ✅ 포털 재렌더링 후 선택 초기화
+        selectedDatesForLeave.length = 0;
     } catch (error) {
-        console.error('?�차 ?�청 ?�류:', error);
-        alert('?�차 ?�청 �??�류가 발생?�습?�다: ' + error.message);
+        console.error('연차 신청 오류:', error);
+        alert('연차 신청 중 오류가 발생했습니다: ' + error.message);
     }
 }

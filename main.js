@@ -3,7 +3,7 @@ import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20251211_layout_refine';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js';
-import { renderEmployeePortal } from './employee-portal-new.js?v=style_tweak_v1';
+import { renderEmployeePortal } from './employee-portal-new.js?v=final_fix';
 import { getLeaveDetails } from './leave-utils.js';
 
 dayjs.extend(window.dayjs_plugin_isSameOrAfter);
