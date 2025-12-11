@@ -234,7 +234,7 @@ function switchEmployeeTab(tab) {
 }
 
 // =========================================================================================
-// [신규] 모바일 친화적 근무 스케줄 리스트 뷰
+// [신규] 모바일 친화적 근무 스케줄 리스트 뷰 (주간 뷰 & 확정 확인)
 // =========================================================================================
 
 async function renderEmployeeMobileScheduleList() {
@@ -249,35 +249,82 @@ async function renderEmployeeMobileScheduleList() {
         }
 
         const currentDate = dayjs(state.employee.scheduleViewDate);
-        const startOfMonth = currentDate.startOf('month').format('YYYY-MM-DD');
-        const endOfMonth = currentDate.endOf('month').format('YYYY-MM-DD');
 
+        // 주 시작일 계산 (월요일 기준)
+        const dayNum = currentDate.day(); // 0(일) ~ 6(토)
+        const diffToMon = dayNum === 0 ? -6 : 1 - dayNum;
+        const startOfWeek = currentDate.add(diffToMon, 'day');
+        const endOfWeek = startOfWeek.add(6, 'day');
+
+        const startStr = startOfWeek.format('YYYY-MM-DD');
+        const endStr = endOfWeek.format('YYYY-MM-DD');
+        const monthQueryDate = dayjs(endStr).date() < 7 ? startOfWeek : currentDate;
+        // 주의: 월이 걸쳐있는 주간의 경우, 확정 여부를 어느 달 기준으로 할지가 모호함.
+        // 여기서는 "이번 주의 시작일이 속한 달"을 기준으로 하거나 "현재 보고있는 날짜가 속한 달"을 기준으로 함.
+        // 가장 안전한건 startOfWeek 기준 월
+        const monthStr = startOfWeek.format('YYYY-MM');
+
+        // 1. 스케줄 확정 여부 확인
+        const { data: confirmData, error: confirmError } = await db.from('schedule_confirmations')
+            .select('*')
+            .eq('month', monthStr)
+            .single();
+
+        if (confirmError && confirmError.code !== 'PGRST116') throw confirmError;
+
+        const isConfirmed = confirmData && confirmData.is_confirmed;
+
+        if (!isConfirmed) {
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full p-6 text-center">
+                    <div class="text-4xl mb-4">⏳</div>
+                    <h3 class="text-xl font-bold text-gray-700 mb-2">${startOfWeek.format('YYYY년 M월')} 근무 스케줄</h3>
+                    <p class="text-gray-500 mb-6">아직 스케줄이 확정되지 않았습니다.<br>관리자가 스케줄을 조정 중입니다.</p>
+                    <div class="flex gap-4">
+                        <button id="prev-week-btn" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">◀ 지난주</button>
+                         <button id="next-week-btn" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">다음주 ▶</button>
+                    </div>
+                </div>
+            `;
+
+            container.querySelector('#prev-week-btn').addEventListener('click', () => {
+                state.employee.scheduleViewDate = currentDate.subtract(1, 'week').format('YYYY-MM-DD');
+                renderEmployeeMobileScheduleList();
+            });
+            container.querySelector('#next-week-btn').addEventListener('click', () => {
+                state.employee.scheduleViewDate = currentDate.add(1, 'week').format('YYYY-MM-DD');
+                renderEmployeeMobileScheduleList();
+            });
+            return;
+        }
+
+        // 2. 스케줄 데이터 가져오기
         const { data: schedules, error: scheduleError } = await db.from('schedules')
             .select(`
                 *,
                 employees (id, name, department_id, departments(id, name))
             `)
-            .gte('date', startOfMonth)
-            .lte('date', endOfMonth)
+            .gte('date', startStr)
+            .lte('date', endStr)
             .eq('status', '근무')
             .order('sort_order', { ascending: true });
 
         if (scheduleError) throw scheduleError;
 
+        // 3. 휴무일 데이터 가져오기
         const { data: holidays, error: holidayError } = await db.from('company_holidays')
             .select('*')
-            .gte('date', startOfMonth)
-            .lte('date', endOfMonth);
+            .gte('date', startStr)
+            .lte('date', endStr);
 
         if (holidayError) throw holidayError;
 
         const holidaySet = new Set(holidays?.map(h => h.date) || []);
 
+        // 4. 날짜별 그룹화
         const scheduleByDate = {};
-        const daysInMonth = currentDate.daysInMonth();
-
-        for (let i = 1; i <= daysInMonth; i++) {
-            const date = currentDate.date(i).format('YYYY-MM-DD');
+        for (let i = 0; i < 7; i++) {
+            const date = startOfWeek.add(i, 'day').format('YYYY-MM-DD');
             scheduleByDate[date] = [];
         }
 
@@ -287,16 +334,26 @@ async function renderEmployeeMobileScheduleList() {
             }
         });
 
+        // 5. UI 렌더링
         let html = `
             <div class="flex flex-col h-full max-h-full">
-                <div class="flex justify-center items-center gap-4 mb-4 pb-4 border-b">
-                    <button id="prev-month-btn" class="p-2 hover:bg-gray-100 rounded-full">◀</button>
-                    <h2 class="text-xl font-bold">${currentDate.format('YYYY년 M월')}</h2>
-                    <button id="next-month-btn" class="p-2 hover:bg-gray-100 rounded-full">▶</button>
-                    <button id="today-btn" class="text-sm bg-gray-100 px-3 py-1 rounded hover:bg-gray-200">오늘</button>
+                <!-- 상단 네비게이션 -->
+                <div class="flex flex-col border-b pb-2 mb-2">
+                     <div class="flex justify-between items-center px-2">
+                        <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg">◀</button>
+                        <div class="text-center">
+                            <h2 class="text-lg font-bold text-gray-800">${startOfWeek.format('M월 D일')} ~ ${endOfWeek.format('M월 D일')}</h2>
+                            <p class="text-xs text-gray-500">${currentDate.format('YYYY년')}</p>
+                        </div>
+                        <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg">▶</button>
+                    </div>
+                    <div class="flex justify-center mt-1">
+                         <button id="today-btn" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold border border-blue-100">이번주 보기</button>
+                    </div>
                 </div>
 
-                <div class="flex-grow overflow-y-auto space-y-4 px-1" id="mobile-schedule-list-container">
+                <!-- 주간 리스트 -->
+                <div class="flex-grow overflow-y-auto space-y-3 px-1" id="mobile-schedule-list-container">
         `;
 
         Object.keys(scheduleByDate).sort().forEach(dateStr => {
@@ -305,18 +362,22 @@ async function renderEmployeeMobileScheduleList() {
             const isToday = dateStr === dayjs().format('YYYY-MM-DD');
             const isHoliday = holidaySet.has(dateStr);
             const dayOfWeek = dayObj.day();
-            let dayColorClass = 'text-gray-800';
-            if (dayOfWeek === 0) dayColorClass = 'text-red-500';
-            if (dayOfWeek === 6) dayColorClass = 'text-blue-500';
+
+            let dayColorClass = 'text-gray-900';
+            // let dateBgClass = 'bg-gray-100'; // unused
+            if (dayOfWeek === 0) dayColorClass = 'text-red-600';
+            if (dayOfWeek === 6) dayColorClass = 'text-blue-600';
             if (isHoliday) dayColorClass = 'text-red-600';
 
-            const dayLabel = dayObj.format('D일 (ddd)');
+            const dayLabel = dayObj.format('D');
+            const weekLabel = dayObj.format('ddd');
 
+            // 내용 구성
             let content = '';
             if (isHoliday) {
                 content = `<div class="p-3 bg-red-50 text-red-600 rounded text-center text-sm font-bold">🟥 회사 휴무일</div>`;
             } else if (items.length === 0) {
-                content = `<div class="p-3 text-gray-400 text-center text-sm">등록된 근무 스케줄이 없습니다.</div>`;
+                content = `<div class="py-4 text-gray-300 text-center text-xs">휴무 / 스케줄 없음</div>`;
             } else {
                 const cards = items.map(item => {
                     const emp = item.employees;
@@ -324,23 +385,28 @@ async function renderEmployeeMobileScheduleList() {
                     const color = getDepartmentColor(deptId);
 
                     return `
-                        <div class="flex items-center p-2 bg-gray-50 rounded border mb-1 last:mb-0">
-                            <span class="w-3 h-3 rounded-full mr-2" style="background-color: ${color};"></span>
-                            <span class="font-medium text-sm text-gray-700">${emp.name}</span>
-                            <span class="text-xs text-gray-500 ml-auto">${emp.departments?.name || ''}</span>
+                        <div class="flex items-center p-2 mb-1 last:mb-0 bg-white border border-gray-100 rounded shadow-sm">
+                            <span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0" style="background-color: ${color};"></span>
+                            <span class="font-medium text-sm text-gray-700 truncate">${emp.name}</span>
+                            <span class="text-xs text-gray-400 ml-auto whitespace-nowrap px-2">${emp.departments?.name || ''}</span>
                         </div>
                     `;
                 }).join('');
-                content = `<div class="space-y-1">${cards}</div>`;
+                content = `<div class="w-full">${cards}</div>`;
             }
 
             html += `
-                <div class="border rounded-lg p-3 ${isToday ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-100' : 'bg-white'}">
-                    <div class="flex items-baseline justify-between mb-2">
-                        <h3 class="font-bold text-lg ${dayColorClass}">${dayLabel}</h3>
-                        ${isToday ? '<span class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">TODAY</span>' : ''}
+                <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1' : ''}">
+                    <!-- 날짜 컬럼 -->
+                    <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
+                        <span class="text-xs ${dayColorClass} font-medium">${weekLabel}</span>
+                        <span class="text-xl font-bold ${dayColorClass} ${isToday ? 'bg-blue-600 text-white w-8 h-8 flex items-center justify-center rounded-full mt-1' : 'mt-1'}">${dayLabel}</span>
                     </div>
-                    ${content}
+                    
+                    <!-- 내용 컬럼 -->
+                    <div class="flex-grow pb-3 border-b border-gray-100 last:border-0">
+                         ${content}
+                    </div>
                 </div>
             `;
         });
@@ -352,13 +418,13 @@ async function renderEmployeeMobileScheduleList() {
 
         container.innerHTML = html;
 
-        container.querySelector('#prev-month-btn').addEventListener('click', () => {
-            state.employee.scheduleViewDate = currentDate.subtract(1, 'month').format('YYYY-MM-DD');
+        container.querySelector('#prev-week-btn').addEventListener('click', () => {
+            state.employee.scheduleViewDate = currentDate.subtract(1, 'week').format('YYYY-MM-DD');
             renderEmployeeMobileScheduleList();
         });
 
-        container.querySelector('#next-month-btn').addEventListener('click', () => {
-            state.employee.scheduleViewDate = currentDate.add(1, 'month').format('YYYY-MM-DD');
+        container.querySelector('#next-week-btn').addEventListener('click', () => {
+            state.employee.scheduleViewDate = currentDate.add(1, 'week').format('YYYY-MM-DD');
             renderEmployeeMobileScheduleList();
         });
 
@@ -464,7 +530,7 @@ function renderDocumentRequests() {
 
     const rows = pendingRequests.map(req => {
         let statusBadge = '<span class="bg-yellow-200 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">제출 대기</span>';
-        let actionButton = `<button onclick="window.openDocSubmissionModal(${req.id})" class="text-sm bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 font-bold">작성하기</button>`;
+        let actionButton = `<button onclick="window.openDocSubmissionModal(${req.id})" class="text-sm bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-600 font-bold">작성하기</button>`; // blue-600 color fix
 
         const docType = req.type || '일반 서류';
 
@@ -878,12 +944,6 @@ async function renderManagerScheduleTab() {
     await renderScheduleManagement(container);
 }
 
-// 서류 작성 모달 로직 등은 기존 v2에 있던 것 중 window.openDocSubmissionModal 등은 
-// 이미 global script나 다른 곳에 정의되어 있지 않고 v2에서도 window에 할당했었음.
-// 따라서 여기서도 할당해야 함.
-// v2의 나머지 부분 (openDocSubmissionModal) 확인 필요
-// v2의 547라인부터 openDocSubmissionModal이 정의되어 있음. 이것도 포함해야 함.
-
 window.openDocSubmissionModal = async function (requestId) {
     const request = state.employee.documentRequests.find(req => req.id === requestId);
     if (!request) {
@@ -1089,6 +1149,13 @@ async function handleDocumentSubmit() {
             .from('document_requests')
             .update({ status: 'submitted' })
             .eq('id', requestId);
+
+        const badge = document.getElementById('doc-tab-badge');
+        if (badge) {
+            const current = parseInt(badge.innerText) || 0;
+            if (current > 0) badge.innerText = current - 1;
+            if (current - 1 <= 0) badge.classList.add('hidden');
+        }
 
         alert('서류가 제출되었습니다.');
         closeDocSubmissionModal();

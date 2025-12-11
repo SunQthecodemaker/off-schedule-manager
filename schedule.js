@@ -1744,3 +1744,80 @@ async function handlePrintSchedule() {
         printBtn.textContent = '🖨️ 인쇄하기';
     }
 }
+
+// =========================================================================================
+// [신규] 스케줄 확정 관련 기능
+// =========================================================================================
+
+async function checkScheduleConfirmationStatus() {
+    const viewDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
+    const month = dayjs(viewDate).format('YYYY-MM');
+
+    try {
+        const { data, error } = await db.from('schedule_confirmations')
+            .select('*')
+            .eq('month', month)
+            .single();
+
+        const badge = document.querySelector('#schedule-status-badge');
+        const confirmBtn = document.querySelector('#confirm-schedule-btn');
+
+        if (data && data.is_confirmed) {
+            // 확정됨
+            if (badge) {
+                badge.textContent = '확정됨';
+                badge.className = 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-green-100 text-green-800';
+                badge.classList.remove('hidden');
+            }
+            if (confirmBtn) {
+                confirmBtn.textContent = '확정 해제';
+                confirmBtn.className = 'px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 font-bold';
+                confirmBtn.onclick = () => handleConfirmSchedule(false); // 해제 모드
+            }
+        } else {
+            // 미확정
+            if (badge) {
+                badge.textContent = '미확정';
+                badge.className = 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-yellow-100 text-yellow-800';
+                badge.classList.remove('hidden');
+            }
+            if (confirmBtn) {
+                confirmBtn.textContent = '스케줄 확정';
+                confirmBtn.className = 'px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold';
+                confirmBtn.onclick = () => handleConfirmSchedule(true); // 확정 모드
+            }
+        }
+    } catch (err) {
+        console.error('확정 상태 확인 실패:', err);
+    }
+}
+
+async function handleConfirmSchedule(isConfirm = true) {
+    const viewDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
+    const month = dayjs(viewDate).format('YYYY-MM');
+
+    const message = isConfirm
+        ? `${month}월 스케줄을 확정하시겠습니까?\n확정 후에는 직원들이 스케줄을 볼 수 있습니다.`
+        : `${month}월 스케줄 확정을 해제하시겠습니까?\n해제 시 직원들은 스케줄을 볼 수 없게 됩니다.`;
+
+    if (!confirm(message)) return;
+
+    try {
+        // Upsert logic
+        const { error } = await db.from('schedule_confirmations')
+            .upsert({
+                month: month,
+                is_confirmed: isConfirm,
+                confirmed_at: new Date().toISOString()
+            }, { onConflict: 'month' });
+
+        if (error) throw error;
+
+        alert(isConfirm ? '스케줄이 확정되었습니다.' : '스케줄 확정이 해제되었습니다.');
+        checkScheduleConfirmationStatus(); // UI 갱신
+
+    } catch (error) {
+        console.error('스케줄 확정 오류:', error);
+        alert('오류가 발생했습니다: ' + error.message);
+    }
+}
