@@ -1573,9 +1573,6 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
                 <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
             </div>
-            <div class="flex items-center gap-2">
-                <button id="print-schedule-btn">🖨️ 인쇄하기</button>
-            </div>
         </div>
     ` : `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
