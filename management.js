@@ -1212,26 +1212,28 @@ export function getLeaveStatusHTML() {
         <style>
             .leave-grid-container {
                 display: flex;
-                flex-wrap: wrap;
+                flex-wrap: nowrap; /* 줄바꿈 방지 */
                 gap: 4px;
-                max-width: 800px; /* 너무 넓어지지 않도록 제한 */
+                overflow-x: auto; /* 내용이 넘치면 스크롤 */
+                padding-bottom: 4px; /* 스크롤바 공간 확보 */
             }
             .leave-box {
+                flex: 0 0 42px; /* 크기 고정 */
                 width: 42px;
                 height: 32px;
-                border: 1px solid #d1d5db;
+                border: 1px solid #e5e7eb;
                 border-radius: 4px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 font-size: 11px;
-                background-color: #f9fafb;
-                color: #374151;
+                background-color: #ffffff;
+                color: #9ca3af; /* 기본 연한 회색 (번호) */
             }
             .leave-box.used {
                 background-color: #dbeafe; /* 사용한 연차 배경색 */
                 border-color: #93c5fd;
-                color: #1e40af;
+                color: #1e40af; /* 날짜 글씨 색 */
                 font-weight: bold;
             }
         </style>
@@ -1283,7 +1285,7 @@ function getLeaveStatusRow(emp) {
 
     for (let i = 0; i < totalBoxes; i++) {
         const isUsed = i < emp.usedDates.length;
-        const dateText = isUsed ? emp.usedDates[i] : '';
+        const dateText = isUsed ? emp.usedDates[i] : (i + 1); // 사용했으면 날짜, 안했으면 순번
         const boxClass = isUsed ? 'leave-box used' : 'leave-box';
 
         gridHTML += `<div class="${boxClass}">${dateText}</div>`;
@@ -1298,7 +1300,7 @@ function getLeaveStatusRow(emp) {
             <td class="p-2 text-center font-bold">${emp.leaveDetails.final}</td>
             <td class="p-2 text-center text-blue-600">${emp.usedDays}</td>
             <td class="p-2 text-center font-bold ${emp.remainingDays <= 3 ? 'text-red-600' : 'text-green-600'}">${emp.remainingDays}</td>
-            <td class="p-2 text-left pl-4">
+            <td class="p-2 text-left pl-4" style="max-width: 800px; overflow-x: auto;">
                 ${gridHTML}
             </td>
         </tr>
