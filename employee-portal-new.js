@@ -826,3 +826,347 @@ window.viewSubmittedDocument = function (docId) {
     `;
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 };
+                    <div class="text-center mb-6">
+                        <h1 class="text-2xl font-bold mb-2">${doc.template_name || '?œë¥˜'}</h1>
+                        <div class="text-xs text-gray-600">?œì¶œ?? ${doc.employee_name}</div>
+                        <div class="text-xs text-gray-600">?œì¶œ?¼ì‹œ: ${dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</div>
+                        <div class="text-xs text-gray-600">?íƒœ: 
+                            ${doc.status === 'submitted' ? 'ê²€???€ê¸? :
+            doc.status === 'approved' ? '?¹ì¸?? :
+                doc.status === 'rejected' ? 'ë°˜ë ¤?? : doc.status}
+                        </div>
+                    </div>
+                    ${attachmentHtml}
+                    <div class="mb-4 whitespace-pre-wrap border p-4 rounded" style="line-height: 1.8;">${content}</div>
+                    ${doc.signature ? `<div class="text-right"><img src="${doc.signature}" alt="?œëª…" class="inline-block border-2 border-gray-800" style="width: 180px; height: 90px;"></div>` : ''}
+                </div>
+                <div class="flex justify-end pt-4 mt-4 border-t">
+                    <button id="close-view-submitted-doc-btn" class="px-6 py-2 bg-gray-300 rounded hover:bg-gray-400">?«ê¸°</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    _('#close-view-submitted-doc-modal')?.addEventListener('click', () => {
+        _('#view-submitted-doc-modal')?.remove();
+    });
+    _('#close-view-submitted-doc-btn')?.addEventListener('click', () => {
+        _('#view-submitted-doc-modal')?.remove();
+    });
+};
+
+// =========================================================================================
+// ?°ì°¨ ? ì²­ ê´€??// =========================================================================================
+
+function renderMyLeaveRequests(requests) {
+    const container = _('#my-leave-requests');
+
+    if (requests.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">? ì²­ ?´ì—­???†ìŠµ?ˆë‹¤.</p>';
+        return;
+    }
+
+    const statusBadges = {
+        pending: '<span class="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">?€ê¸°ì¤‘</span>',
+        approved: '<span class="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">?¹ì¸??/span>',
+        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">ë°˜ë ¤??/span>'
+    };
+
+    const rows = requests.map(req => {
+        // ? ì§œ ê°„ì†Œ??ë¡œì§
+        const dates = req.dates || [];
+        let dateDisplay = '';
+
+        if (dates.length > 0) {
+            const firstDate = dayjs(dates[0]);
+            const parts = [firstDate.format('YYYY-MM-DD')];
+
+            for (let i = 1; i < dates.length; i++) {
+                const currentDate = dayjs(dates[i]);
+                const prevDate = dayjs(dates[i - 1]);
+
+                if (currentDate.year() === prevDate.year() && currentDate.month() === prevDate.month()) {
+                    parts.push(currentDate.format('DD'));
+                } else if (currentDate.year() === prevDate.year()) {
+                    parts.push(currentDate.format('MM-DD'));
+                } else {
+                    parts.push(currentDate.format('YYYY-MM-DD'));
+                }
+            }
+
+            dateDisplay = parts.join(', ');
+        }
+
+        return `
+            <tr class="border-b">
+                <td class="p-3">${dateDisplay}</td>
+                <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')}</td>
+                <td class="p-3">${statusBadges[req.status] || req.status}</td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="min-w-full text-sm">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="p-3 text-left">? ì²­ ? ì§œ</th>
+                    <th class="p-3 text-left">? ì²­ ?¼ì‹œ</th>
+                    <th class="p-3 text-left">?íƒœ</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+let selectedDatesForLeave = [];
+let employeeCalendarInstance = null;
+
+// ???˜ì •: ?¬ë ¥ ì´ˆê¸°???¨ìˆ˜ ê°œì„  (?ëŸ¬ ?¸ë“¤ë§?ê°•í™” + ?´ë²¤??ë¦¬ìŠ¤???°ê²° ê°œì„ )
+function initializeEmployeeCalendar(approvedRequests) {
+    console.log('?“… ?¬ë ¥ ì´ˆê¸°???œì‘');
+    const container = _('#employee-calendar-container');
+
+    if (!container) {
+        console.error('???¬ë ¥ ì»¨í…Œ?´ë„ˆë¥?ì°¾ì„ ???†ìŠµ?ˆë‹¤');
+        return;
+    }
+
+    // ê¸°ì¡´ ?¸ìŠ¤?´ìŠ¤ ?œê±°
+    if (employeeCalendarInstance) {
+        try {
+            employeeCalendarInstance.destroy();
+        } catch (e) {
+            console.log('ê¸°ì¡´ ?¬ë ¥ ?œê±° ì¤??ëŸ¬:', e);
+        }
+        employeeCalendarInstance = null;
+    }
+
+    const approvedDates = approvedRequests.flatMap(r => r.dates || []);
+    console.log('???¹ì¸??? ì§œ:', approvedDates);
+
+    // ? íƒ ? ì§œ ì´ˆê¸°??    selectedDatesForLeave.length = 0;
+
+    // ???˜ì •: ì»¨í…Œ?´ë„ˆ ?„ì „??ì´ˆê¸°??    container.innerHTML = '';
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'flex justify-between items-center mb-4';
+    buttonContainer.innerHTML = `
+        <h2 class="text-xl font-bold">?°ì°¨ ? ì²­ ?¬ë ¥ <span class="text-sm text-gray-500">(? ì§œë¥??´ë¦­?˜ì—¬ ? íƒ/?´ì œ)</span></h2>
+        <div class="flex gap-2">
+            <span id="selected-dates-count" class="text-sm text-gray-600 self-center">? íƒ??? ì§œ: 0??/span>
+            <button id="clear-selection-btn" class="px-3 py-1 text-sm bg-gray-300 rounded hover:bg-gray-400">? íƒ ì·¨ì†Œ</button>
+            <button id="submit-leave-request-btn" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">?°ì°¨ ? ì²­?˜ê¸°</button>
+        </div>
+    `;
+
+    const calendarEl = document.createElement('div');
+    calendarEl.id = 'employee-calendar';
+
+    container.appendChild(buttonContainer);
+    container.appendChild(calendarEl);
+
+    console.log('??ë²„íŠ¼ ì»¨í…Œ?´ë„ˆ ì¶”ê? ?„ë£Œ');
+
+    if (typeof FullCalendar === 'undefined') {
+        console.error('??FullCalendarê°€ ë¡œë“œ?˜ì? ?Šì•˜?µë‹ˆ??');
+        alert('?¬ë ¥ ?¼ì´ë¸ŒëŸ¬ë¦¬ê? ë¡œë“œ?˜ì? ?Šì•˜?µë‹ˆ?? ?˜ì´ì§€ë¥??ˆë¡œê³ ì¹¨?´ì£¼?¸ìš”.');
+        return;
+    }
+
+    employeeCalendarInstance = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'today',
+            center: 'prev title next',
+            right: ''
+        },
+        // ?„ì²´ ?¬ë ¥???¸ë¡œ ?¤í¬ë¡??†ì´ ë³´ì´?„ë¡ ?ë™ ?’ì´ ?¤ì •
+        height: 'auto',
+        locale: 'ko',
+        selectable: false,  // ??select ê¸°ëŠ¥ ë¹„í™œ?±í™”
+        selectMirror: false,
+        unselectAuto: false,
+        editable: false,
+        events: function (info, successCallback) {
+            const events = [
+                ...approvedDates.map(date => ({
+                    title: '?°ì°¨ (?¹ì¸??',
+                    start: date,
+                    allDay: true,
+                    color: '#10b981',
+                    textColor: '#ffffff',
+                    classNames: ['approved-leave']
+                })),
+                ...selectedDatesForLeave.map(date => ({
+                    title: '? íƒ??,
+                    start: date,
+                    allDay: true,
+                    color: '#3b82f6',
+                    textColor: '#ffffff',
+                    classNames: ['selected-date']
+                }))
+            ];
+            successCallback(events);
+        },
+        dateClick: function (info) {
+            console.log('?“… ? ì§œ ?´ë¦­:', info.dateStr);
+            const dateStr = info.dateStr;
+
+            if (approvedDates.includes(dateStr)) {
+                alert('?´ë? ?¹ì¸???°ì°¨ê°€ ?ˆëŠ” ? ì§œ?…ë‹ˆ??');
+                return;
+            }
+
+            const index = selectedDatesForLeave.indexOf(dateStr);
+            if (index > -1) {
+                selectedDatesForLeave.splice(index, 1);
+                console.log('??? ì§œ ? íƒ ?´ì œ:', dateStr);
+            } else {
+                selectedDatesForLeave.push(dateStr);
+                console.log('??? ì§œ ? íƒ ì¶”ê?:', dateStr);
+            }
+
+            console.log('?“‹ ?„ì¬ ? íƒ??? ì§œ:', selectedDatesForLeave);
+            updateSelectionUI();
+            employeeCalendarInstance.refetchEvents();
+        }
+    });
+
+    // UI ?…ë°?´íŠ¸ ?¨ìˆ˜ë¥??„ì—­ ?¤ì½”?„ë¡œ ?´ë™
+    function updateSelectionUI() {
+        const count = selectedDatesForLeave.length;
+        const countEl = _('#selected-dates-count');
+
+        // ??? íƒ??? ì§œ ê°œìˆ˜ë§??…ë°?´íŠ¸ (ë²„íŠ¼?€ ??ƒ ?œì‹œ)
+        if (countEl) countEl.textContent = `? íƒ??? ì§œ: ${count}??;
+
+        console.log('?“Š ? íƒ??? ì§œ ê°œìˆ˜:', count);
+    }
+
+    console.log('?“… ?¬ë ¥ ?Œë”ë§??œì‘');
+    employeeCalendarInstance.render();
+    console.log('???¬ë ¥ ?Œë”ë§??„ë£Œ');
+
+    updateSelectionUI();
+
+    // ???˜ì •: ?´ë²¤??ë¦¬ìŠ¤?ˆë? ì¦‰ì‹œ ?°ê²°
+    const clearBtn = _('#clear-selection-btn');
+    const submitBtn = _('#submit-leave-request-btn');
+
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            console.log('?—‘ï¸?? íƒ ì·¨ì†Œ ?´ë¦­');
+            selectedDatesForLeave.length = 0;
+            updateSelectionUI();
+            employeeCalendarInstance.refetchEvents();
+            employeeCalendarInstance.unselect();
+        };
+        console.log('??? íƒ ì·¨ì†Œ ë²„íŠ¼ ?´ë²¤???°ê²° ?„ë£Œ');
+    } else {
+        console.error('??? íƒ ì·¨ì†Œ ë²„íŠ¼??ì°¾ì„ ???†ìŒ');
+    }
+
+    if (submitBtn) {
+        submitBtn.onclick = () => {
+            console.log('?“ ?°ì°¨ ? ì²­ ë²„íŠ¼ ?´ë¦­, ? íƒ??? ì§œ:', selectedDatesForLeave);
+            if (selectedDatesForLeave.length === 0) {
+                alert('? ì§œë¥?? íƒ?´ì£¼?¸ìš”.');
+                return;
+            }
+            openLeaveFormModal([...selectedDatesForLeave]);
+        };
+        console.log('???°ì°¨ ? ì²­ ë²„íŠ¼ ?´ë²¤???°ê²° ?„ë£Œ');
+    } else {
+        console.error('???°ì°¨ ? ì²­ ë²„íŠ¼??ì°¾ì„ ???†ìŒ');
+    }
+
+    console.log('???¬ë ¥ ì´ˆê¸°???„ë£Œ');
+}
+
+function openLeaveFormModal(dates) {
+    _('#form-applicant-name').textContent = state.currentUser.name;
+    _('#form-selected-dates').innerHTML = dates.sort().map(d =>
+        `<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded mr-2 mb-2">${d}</span>`
+    ).join('');
+    _('#form-reason').value = '';
+
+    const canvas = _('#signature-canvas');
+    if (canvas) {
+        resizeGivenCanvas(canvas, window.signaturePad);
+        if (!window.signaturePad) {
+            window.signaturePad = new SignaturePad(canvas);
+        }
+        window.signaturePad.clear();
+    }
+
+    state.employee.selectedDates = dates;
+    show('#leave-form-modal');
+}
+
+// ??window ê°ì²´???±ë¡?˜ì—¬ ?„ì—­ ?‘ê·¼ ê°€?¥í•˜ê²??¤ì •
+window.openLeaveFormModal = openLeaveFormModal;
+
+export function closeLeaveFormModal() {
+    hide('#leave-form-modal');
+    state.employee.selectedDates = [];
+}
+
+export async function handleSubmitLeaveRequest() {
+    const dates = state.employee.selectedDates;
+    const reason = _('#form-reason').value.trim();
+    const signatureData = window.signaturePad?.toDataURL();
+
+    if (!dates || dates.length === 0) {
+        alert('? ì§œë¥?? íƒ?´ì£¼?¸ìš”.');
+        return;
+    }
+
+    if (!signatureData || window.signaturePad.isEmpty()) {
+        alert('?œëª…???´ì£¼?¸ìš”.');
+        return;
+    }
+
+    // ë¯¸ì œì¶??œë¥˜ ?•ì¸ (document_requests ?Œì´ë¸??¬ìš©)
+    const { data: pendingRequests, error: checkError } = await db.from('document_requests')
+        .select('*')
+        .eq('employeeId', state.currentUser.id)
+        .eq('status', 'pending');
+
+    if (checkError) {
+        console.error('?œë¥˜ ?•ì¸ ?¤ë¥˜:', checkError);
+    }
+
+    if (pendingRequests && pendingRequests.length > 0) {
+        alert('? ï¸ ë¯¸ì œì¶??œë¥˜ê°€ ?ˆìŠµ?ˆë‹¤.\n\n?œë¥˜ë¥?ë¨¼ì? ?œì¶œ?´ì•¼ ?°ì°¨ ? ì²­??ê°€?¥í•©?ˆë‹¤.\n\n"?œë¥˜ ?œì¶œ" ??—???”ì²­???œë¥˜ë¥??•ì¸?´ì£¼?¸ìš”.');
+        return;
+    }
+
+    try {
+        const { error } = await db.from('leave_requests').insert({
+            employee_id: state.currentUser.id,
+            employee_name: state.currentUser.name,
+            dates: dates,
+            reason: reason || null,
+            signature: signatureData,
+            status: 'pending',
+            created_at: new Date().toISOString()
+        });
+
+        if (error) throw error;
+
+        alert('?°ì°¨ ? ì²­???„ë£Œ?˜ì—ˆ?µë‹ˆ??');
+        closeLeaveFormModal();
+
+
+        renderEmployeePortal();
+
+        // ???¬í„¸ ?¬ë Œ?”ë§ ??? íƒ ì´ˆê¸°??        selectedDatesForLeave.length = 0;
+    } catch (error) {
+        console.error('?°ì°¨ ? ì²­ ?¤ë¥˜:', error);
+        alert('?°ì°¨ ? ì²­ ì¤??¤ë¥˜ê°€ ë°œìƒ?ˆìŠµ?ˆë‹¤: ' + error.message);
+    }
+}
