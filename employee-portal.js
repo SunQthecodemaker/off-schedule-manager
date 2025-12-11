@@ -97,7 +97,7 @@ export async function renderEmployeePortal() {
                 </div>
                 <div class="bg-purple-100 p-2 sm:p-4 rounded shadow">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">갱신일</p>
-                    <p class="text-base sm:text-xl font-semibold whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
+                    <p class="text-xl sm:text-2xl font-bold whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
             </div>
 
