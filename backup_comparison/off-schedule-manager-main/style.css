@@ -1,0 +1,1108 @@
+* {
+    box-sizing: border-box;
+}
+
+.hidden { display: none !important; }
+
+/* FullCalendar 툴바 버튼 간격 조정 */
+.fc-toolbar-chunk {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.main-tab-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: #4b5563;
+    border-bottom: 2px solid transparent;
+}
+.main-tab-btn.active {
+    border-bottom: 2px solid #3b82f6;
+    color: #3b82f6;
+    font-weight: 600;
+}
+
+.table-input { padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem; width: 100%; }
+.table-input-center { text-align: center; }
+.stepper-btn { padding: 0 0.5rem; height: 1.75rem; border: 1px solid #d1d5db; background-color: #f9fafb; cursor: pointer; }
+.fixed-table { table-layout: fixed; width: 100%; }
+
+/* ✨ 순수 달력 스타일 - 일요일 폭 축소 */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: 0.4fr repeat(6, 1fr); /* ✅ 일요일 40% 폭으로 축소 */
+    gap: 1px;
+    background-color: #e5e7eb;
+    border: 1px solid #e5e7eb;
+}
+
+.calendar-header {
+    background-color: #f9fafb;
+    padding: 0.75rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.875rem;
+    border-bottom: 2px solid #d1d5db;
+}
+
+.calendar-day {
+    background-color: white;
+    min-height: 120px;
+    padding: 0.25rem;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ✅ 일요일 칸 스타일 - 드래그 비활성화 */
+.calendar-day.sunday-col {
+    min-height: 120px;
+    pointer-events: none; /* 드래그 불가 */
+    opacity: 0.3; /* 흐리게 표시 */
+}
+
+.calendar-day.sunday-col .day-events {
+    display: none !important; /* 일요일 이벤트 표시 안 함 */
+}
+
+.calendar-day.other-month {
+    background-color: #f9fafb;
+    opacity: 0.6;
+}
+
+.calendar-day.today {
+    background-color: rgba(253, 224, 71, 0.15);
+}
+
+.calendar-day.company-holiday {
+    background-color: rgba(255, 224, 224, 0.7);
+}
+
+.calendar-day.today.company-holiday {
+    background-color: rgba(252, 211, 77, 0.5);
+}
+
+.day-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.day-number {
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+}
+
+.day-number:hover {
+    background-color: rgba(59, 130, 246, 0.1);
+}
+
+.day-events {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    flex-grow: 1;
+    align-content: flex-start;
+    min-height: 80px;
+    max-height: 200px; /* ✅ 최대 높이 설정 */
+    padding: 4px;
+    overflow-y: auto; /* ✅ 세로 스크롤 추가 */
+    overflow-x: hidden;
+}
+
+/* ✅ 스크롤바 스타일링 (WebKit 브라우저) */
+.day-events::-webkit-scrollbar {
+    width: 6px;
+}
+
+.day-events::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.day-events::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.day-events::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* ✅ Firefox 스크롤바 스타일 */
+.day-events {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f1f1;
+}
+
+/* ✅ 이벤트 카드 - 폰트 크기 증가 + 텍스트 줄임 해제 */
+.event-card {
+    flex-basis: calc(25% - 2px);
+    min-width: 0;
+    background-color: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 3px;
+    padding: 3px 5px; /* ✅ 패딩 증가 */
+    font-size: 12px; /* ✅ 11px → 12px */
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    position: relative;
+    cursor: move;
+    transition: all 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.event-card:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    transform: translateY(-1px);
+    z-index: 5;
+}
+
+.event-card:active {
+    cursor: grabbing;
+}
+
+/* ✅ 빈칸 스타일 */
+.event-spacer {
+    background-color: #f9fafb !important;
+    border: 1px dashed #d1d5db !important;
+    cursor: move;
+}
+
+.event-spacer .event-name {
+    color: #9ca3af;
+    font-style: italic;
+}
+
+.event-working {
+    background-color: white;
+}
+
+.event-off {
+    background-color: white;
+    border-style: dashed;
+}
+
+.event-leave {
+    background-color: #f0fdf4;
+    border-color: #16a34a;
+    cursor: default !important;
+}
+
+.event-dot {
+    width: 5px; /* ✅ 4px → 5px */
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    pointer-events: none;
+}
+
+.event-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: visible; /* ✅ hidden → visible */
+    text-overflow: clip; /* ✅ ellipsis → clip */
+    flex-grow: 1;
+    line-height: 1.3;
+    pointer-events: none;
+}
+
+/* ✨ SortableJS 드래그 상태 */
+.sortable-ghost {
+    opacity: 0.4 !important;
+    background: #dbeafe !important;
+    border: 2px dashed #3b82f6 !important;
+}
+
+.sortable-drag {
+    opacity: 0.9 !important;
+    cursor: grabbing !important;
+    transform: rotate(2deg) scale(1.08) !important;
+    box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4) !important;
+    z-index: 9999 !important;
+}
+
+.sortable-chosen {
+    border-color: #2563eb !important;
+    box-shadow: 0 3px 8px rgba(37, 99, 235, 0.4) !important;
+    background-color: #eff6ff !important;
+}
+
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal-content { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 600px; }
+.modal-content-sm { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 400px; }
+.modal-content-lg { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 900px; }
+
+.schedule-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 240px; 
+    gap: 1rem; 
+    align-items: start;
+}
+.schedule-main-content { display: flex; flex-direction: column; min-height: 0; }
+#schedule-sidebar-area { display: flex; flex-direction: column; background-color: #f9fafb; border-radius: 0.5rem; padding: 1rem; border: 1px solid #e5e7eb; }
+
+.schedule-view-btn { border: 1px solid #d1d5db; background-color: white; font-size: 0.875rem; font-weight: 500; padding: 0.5rem 1rem; color: #1f2937; }
+.schedule-view-btn:hover { background-color: #f9fafb; }
+.schedule-view-btn.active { background-color: #3b82f6; color: white; z-index: 10; }
+.schedule-view-btn.rounded-l-lg { border-top-left-radius: 0.5rem; border-bottom-left-radius: 0.5rem; }
+.schedule-view-btn.rounded-r-md { border-top-right-radius: 0.5rem; border-bottom-right-radius: 0.5rem; margin-left: -1px;}
+
+#revert-schedule-btn, #save-schedule-btn, #print-schedule-btn, #reset-schedule-btn { font-size: 0.875rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-weight: 700; }
+#revert-schedule-btn { background-color: #e5e7eb; color: #374151; }
+#revert-schedule-btn:hover { background-color: #d1d5db; }
+#revert-schedule-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#reset-schedule-btn { background-color: #10b981; color: white; }
+#reset-schedule-btn:hover { background-color: #059669; }
+#save-schedule-btn { color: white; }
+#save-schedule-btn:not(:disabled) { background-color: #3b82f6; }
+#save-schedule-btn:not(:disabled):hover { background-color: #2563eb; }
+#save-schedule-btn:disabled { background-color: #9ca3af; opacity: 0.5; cursor: not-allowed; }
+#print-schedule-btn { background-color: #10b981; color: white; }
+#print-schedule-btn:hover { background-color: #059669; }
+
+.handle { margin-right: 0.5rem; cursor: move; color: #9ca3af; }
+.handle:hover { color: #1f2937; }
+.draggable-employee { display: flex; align-items: center; padding: 0.2rem 0.5rem; border-radius: 0.375rem; margin-bottom: 0.25rem; background-color: white; border: 1px solid #e5e7eb; font-size: 0.875rem; }
+.draggable-employee:active { cursor: grabbing; }
+.fc-draggable-item { display: flex; align-items: center; width: 100%; cursor: grab; }
+.department-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 0.5rem; flex-shrink: 0; }
+.list-separator { height: 20px; padding: 0 0.5rem; border: none; background: transparent; cursor: default; display: flex; align-items: center;}
+.list-separator .line { flex-grow: 1; height: 2px; background-color: #60a5fa; border-radius: 1px; }
+.list-separator .delete-separator-btn { background: none; border: none; color: #9ca3af; cursor: pointer; margin-left: 0.5rem; visibility: hidden; font-weight: bold; font-size: 1rem; }
+.list-separator:hover .delete-separator-btn { visibility: visible; }
+.list-separator:hover .delete-separator-btn:hover { color: #ef4444; }
+
+.list-spacer {
+    display: flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    margin-bottom: 0.25rem;
+    height: 31px;
+    background-color: #f3f4f6;
+    border: 1px dashed #d1d5db;
+    border-radius: 0.375rem;
+}
+.list-spacer .delete-spacer-btn {
+    background: none; border: none; color: #9ca3af; cursor: pointer; margin-left: auto; visibility: hidden; font-weight: bold; font-size: 1rem;
+}
+.list-spacer:hover .delete-spacer-btn {
+    visibility: visible;
+}
+.list-spacer:hover .delete-spacer-btn:hover {
+    color: #ef4444;
+}
+
+.company-holiday {
+    background-color: rgba(255, 224, 224, 0.7) !important;
+}
+
+.fc .fc-daygrid-day-number,
+.main-tab-btn,
+.schedule-view-btn,
+#revert-schedule-btn,
+#save-schedule-btn,
+#print-schedule-btn,
+#reset-schedule-btn,
+.stepper-btn,
+.delete-separator-btn,
+.delete-team-btn,
+.day-number,
+.reorder-day-btn {
+    cursor: pointer;
+}
+
+.handle {
+    cursor: move;
+}
+.fc-draggable-item {
+    cursor: grab;
+}
+.fc-draggable-item:active {
+    cursor: grabbing;
+}
+
+.sortable-ghost {
+    opacity: 0.3;
+}
+.sortable-drag {
+    opacity: 0;
+}
+.sortable-chosen {
+    border-color: #3b82f6;
+}
+
+.team-container {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: white;
+}
+
+.team-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.team-header-input {
+    flex-grow: 1;
+    border: none;
+    background: transparent;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.team-header-input:focus {
+    outline: none;
+}
+
+.team-member-list {
+    min-height: 50px;
+}
+
+.delete-team-btn {
+    margin-left: auto;
+}
+
+/* ========================================
+   🆕 A4 서식 스타일
+   ======================================== */
+
+.a4-document {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 20mm;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+.a4-content {
+    font-family: 'Malgun Gothic', sans-serif;
+    font-size: 12pt;
+    line-height: 1.8;
+    color: #000;
+}
+
+.template-variable {
+    background-color: #dbeafe;
+    color: #1e40af;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.template-card {
+    transition: all 0.2s ease;
+}
+
+.template-card:hover {
+    transform: translateY(-2px);
+}
+
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-clamp: 2;
+}
+
+.employee-tab-btn {
+    transition: all 0.2s ease;
+}
+
+.employee-tab-btn:hover {
+    background-color: #f3f4f6;
+}
+
+/* ========================================
+   인쇄 스타일
+   ======================================== */
+
+.print-only {
+    display: none !important;
+}
+
+@media print {
+    .no-print,
+    #schedule-sidebar-area,
+    .schedule-view-btn,
+    #department-filters,
+    .calendar-controls,
+    button,
+    .schedule-grid:not(.print-only) {
+        display: none !important;
+    }
+    
+    .print-only {
+        display: block !important;
+    }
+    
+    @page {
+        size: A4;
+        margin: 20mm;
+    }
+    
+    * {
+        margin: 0;
+        padding: 0;
+    }
+    
+    html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: white;
+    }
+    
+    .a4-document {
+        width: 100%;
+        min-height: auto;
+        box-shadow: none;
+        page-break-after: always;
+    }
+    
+    .a4-content {
+        font-size: 12pt;
+        line-height: 1.8;
+    }
+    
+    .template-variable {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    
+    .signature-image {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    
+    #print-area {
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .print-header {
+        flex-shrink: 0;
+        margin-bottom: 8pt;
+        text-align: center;
+    }
+    
+    #print-title {
+        font-size: 20pt;
+        font-weight: bold;
+        margin-bottom: 4pt;
+    }
+    
+    #print-mode {
+        font-size: 12pt;
+        color: #666;
+        margin-bottom: 6pt;
+    }
+    
+    #print-calendar {
+        flex-grow: 1;
+        display: block;
+    }
+    
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: 0.3fr repeat(6, 1fr);
+        gap: 0;
+        border: 2px solid #000;
+        width: 100%;
+        height: 100%;
+    }
+    
+    .calendar-header {
+        background-color: #f3f4f6;
+        padding: 6pt;
+        text-align: center;
+        font-weight: 700;
+        font-size: 10pt;
+        border-bottom: 2px solid #000;
+        border-right: 1px solid #666;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .calendar-day {
+        background-color: white;
+        padding: 3pt;
+        border-right: 1px solid #666;
+        border-bottom: 1px solid #666;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    
+    .calendar-day.other-month {
+        background-color: #f9fafb;
+        opacity: 0.5;
+    }
+    
+    .calendar-day.today {
+        background-color: #fef3c7;
+    }
+    
+    .calendar-day.company-holiday {
+        background-color: #fee2e2;
+    }
+    
+    .calendar-day.sunday-col {
+        background-color: #fef2f2;
+        opacity: 0.3;
+    }
+    
+    .day-header {
+        margin-bottom: 3pt;
+        flex-shrink: 0;
+    }
+    
+    .day-number {
+        font-weight: 700;
+        font-size: 9pt;
+    }
+    
+    .day-events {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5pt;
+        flex-grow: 1;
+        align-content: flex-start;
+    }
+    
+    .event-card {
+        flex-basis: calc(33.33% - 1.5pt);
+        min-width: 0;
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 2pt;
+        padding: 2pt 3pt;
+        font-size: 7.5pt;
+        display: flex;
+        align-items: center;
+        gap: 2pt;
+        page-break-inside: avoid;
+    }
+    
+    .event-working {
+        background-color: #e0f2fe;
+        border-color: #0284c7;
+    }
+    
+    .event-off {
+        background-color: #fef3c7;
+        border-color: #f59e0b;
+        border-style: dashed;
+    }
+    
+    .event-leave {
+        background-color: #f0fdf4;
+        border-color: #16a34a;
+    }
+    
+    .event-dot {
+        width: 3pt;
+        height: 3pt;
+        border-radius: 50%;
+        flex-shrink: 0;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    
+    .event-name {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-grow: 1;
+        line-height: 1.2;
+    }
+    
+    * {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+}
+
+
+/* ✅ 빈 슬롯 스타일 */
+.event-slot.empty-slot {
+    flex-basis: calc(25% - 2px);
+    min-width: 0;
+    background-color: #fafafa;
+    border: 1px dashed #e5e7eb;
+    border-radius: 3px;
+    padding: 3px 5px;
+    font-size: 10px;
+    color: #d1d5db;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.event-slot.empty-slot:hover {
+    background-color: #f3f4f6;
+    border-color: #3b82f6;
+    border-style: solid;
+}
+
+.event-slot.empty-slot .slot-number {
+    font-size: 9px;
+    opacity: 0.3;
+}
+
+/* ✅ 사이드바 직원 리스트 */
+.employee-list {
+    min-height: 50px;
+}
+
+/* ✅ 버튼 텍스트 줄바꿈 방지 */
+#save-employee-order-btn {
+    white-space: nowrap;
+    font-size: 11px;
+}
+
+/* ========================================
+   📱 반응형 디자인 (직원 포털)
+   ======================================== */
+
+/* 태블릿 ~ 모바일 (768px 이하) */
+@media (max-width: 768px) {
+    /* 전체 레이아웃 */
+    body {
+        padding: 0.5rem;
+    }
+
+    /* 직원 포털 헤더 */
+    #employee-portal .max-w-full {
+        padding: 0;
+    }
+
+    #employee-portal h1 {
+        font-size: 1.5rem;
+    }
+
+    #employee-portal .flex.justify-between {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    #employee-portal .text-right {
+        width: 100%;
+        text-align: left;
+    }
+
+    /* 연차 정보 카드 - 한줄 배치 */
+    #employee-portal .grid.grid-cols-1.md\:grid-cols-3 {
+        display: flex !important;
+        gap: 0.25rem;
+        overflow-x: visible;
+        justify-content: flex-start;
+    }
+
+    #employee-portal .bg-blue-100,
+    #employee-portal .bg-green-100,
+    #employee-portal .bg-yellow-100 {
+        flex: 0 0 auto;
+        min-width: auto;
+        padding: 0.5rem;
+        text-align: center;
+    }
+
+    #employee-portal .bg-blue-100 h3,
+    #employee-portal .bg-green-100 h3,
+    #employee-portal .bg-yellow-100 h3 {
+        font-size: 0.7rem;
+        margin-bottom: 0.125rem;
+    }
+
+    #employee-portal .bg-blue-100 p,
+    #employee-portal .bg-green-100 p,
+    #employee-portal .bg-yellow-100 p {
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    /* 탭 버튼 */
+    .employee-tab-btn {
+        font-size: 0.875rem;
+        padding: 0.5rem 0.75rem;
+        flex: 1;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    #employee-portal .flex.border-b {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* FullCalendar 반응형 - 스크롤 제거 */
+    .fc {
+        font-size: 0.8rem;
+        height: auto !important;
+    }
+
+    .fc-view-harness {
+        height: auto !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    .fc-daygrid-body {
+        height: auto !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    .fc-scrollgrid {
+        overflow: visible !important;
+        height: auto !important;
+    }
+
+    .fc-scrollgrid-sync-table {
+        height: auto !important;
+    }
+
+    .fc-daygrid-body-unbalanced .fc-daygrid-day-events {
+        min-height: auto !important;
+    }
+
+    .fc-toolbar-title {
+        font-size: 1rem !important;
+    }
+
+    .fc-button {
+        font-size: 0.75rem !important;
+        padding: 0.25rem 0.5rem !important;
+    }
+
+    .fc-daygrid-day-number {
+        font-size: 0.75rem;
+    }
+
+    /* FullCalendar 툴바 버튼 간격 조정 */
+    .fc-toolbar-chunk {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* 모달 */
+    .modal-content,
+    .modal-content-sm,
+    .modal-content-lg {
+        width: 95%;
+        padding: 1rem;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    /* 내 연차 신청 내역 - 버튼 한줄 표시 */
+    #my-leave-requests .space-y-4 > div {
+        padding: 0.5rem;
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    #my-leave-requests .space-y-4 > div > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+    }
+
+    #my-leave-requests .space-y-4 > div .bg-green-100,
+    #my-leave-requests .space-y-4 > div .bg-red-100,
+    #my-leave-requests .space-y-4 > div .bg-yellow-100 {
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    #my-leave-requests .space-y-4 > div button {
+        white-space: nowrap;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    #my-leave-requests .text-sm {
+        font-size: 0.7rem !important;
+    }
+
+    /* 서류 제출 카드 - 버튼 한줄 표시 */
+    #document-requests-list .bg-white,
+    #submitted-docs-list .bg-white {
+        padding: 0.5rem;
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    #document-requests-list .bg-white > div,
+    #submitted-docs-list .bg-white > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+    }
+
+    #document-requests-list .bg-green-100,
+    #document-requests-list .bg-yellow-100,
+    #submitted-docs-list .bg-green-100,
+    #submitted-docs-list .bg-yellow-100 {
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    #document-requests-list button,
+    #submitted-docs-list button {
+        white-space: nowrap;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    #document-requests-list .text-sm,
+    #submitted-docs-list .text-sm {
+        font-size: 0.7rem !important;
+    }
+
+    /* 버튼 크기 조정 */
+    button {
+        font-size: 0.875rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    /* 달력 선택 버튼 컨테이너 - 한줄 배치 */
+    #employee-calendar-container .flex.gap-2 {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.25rem;
+        flex-wrap: nowrap;
+        margin-bottom: 0.5rem;
+    }
+
+    #employee-calendar-container #selected-dates-count {
+        font-size: 0.7rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+        margin: 0;
+    }
+
+    #employee-calendar-container #clear-selection-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    #employee-calendar-container #submit-leave-request-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+}
+
+/* 소형 모바일 (480px 이하) */
+@media (max-width: 480px) {
+    #employee-portal h1 {
+        font-size: 1.25rem;
+    }
+
+    .employee-tab-btn {
+        font-size: 0.75rem;
+        padding: 0.5rem 0.5rem;
+    }
+
+    #doc-tab-badge {
+        width: 4px;
+        height: 4px;
+        font-size: 0.6rem;
+    }
+
+    .fc-toolbar-title {
+        font-size: 0.875rem !important;
+    }
+
+    .fc-button {
+        font-size: 0.65rem !important;
+        padding: 0.2rem 0.4rem !important;
+    }
+}
+
+/* 매니저 전용 탭 PC 전용 안내 */
+@media (max-width: 1024px) {
+    #employee-leave-list-tab.tab-content:not(.hidden)::before,
+    #employee-schedule-tab.tab-content:not(.hidden)::before {
+        content: '💻 이 기능은 PC에서만 사용 가능합니다.';
+        display: block;
+        padding: 2rem;
+        text-align: center;
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: #ef4444;
+        background-color: #fef2f2;
+        border: 2px solid #fca5a5;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* 매니저 탭 컨텐츠 숨김 (모바일에서) */
+    #employee-leave-list-tab.tab-content:not(.hidden) > *:not(style),
+    #employee-schedule-tab.tab-content:not(.hidden) > *:not(style) {
+        display: none !important;
+    }
+}
+/* =========================================================================================
+   연차 현황 스타일
+   ========================================================================================= */
+
+.leave-status-container {
+    padding: 1rem;
+}
+
+.leave-status-table-wrapper {
+    overflow-x: auto;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.leave-status-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    min-width: 800px;
+}
+
+.leave-status-table thead {
+    background: #f3f4f6;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.leave-status-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+    white-space: nowrap;
+}
+
+.leave-status-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.leave-status-row:hover {
+    background-color: #f9fafb;
+}
+
+.leave-progress-cell {
+    min-width: 200px;
+}
+
+.progress-bar-container {
+    position: relative;
+    width: 100%;
+    height: 24px;
+    background: #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    transition: width 0.3s ease;
+    border-radius: 12px;
+}
+
+.progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 11px;
+    font-weight: 600;
+    color: #1f2937;
+    text-shadow: 0 0 2px white;
+}
+
+.toggle-dates-btn {
+    display: inline-block;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.toggle-dates-btn:hover {
+    background: #eff6ff;
+}
+
+.used-dates-detail {
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 100px;
+    }
+}
+
+/* 모바일 반응형 */
+@media (max-width: 768px) {
+    .leave-status-table th,
+    .leave-status-table td {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+    
+    .leave-progress-cell {
+        min-width: 150px;
+    }
+    
+    .progress-bar-container {
+        height: 20px;
+    }
+    
+    .progress-text {
+        font-size: 10px;
+    }
+}
