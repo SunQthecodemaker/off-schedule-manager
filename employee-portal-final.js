@@ -266,6 +266,9 @@ async function renderEmployeeMobileScheduleList() {
         const endStr = endOfWeek.format('YYYY-MM-DD');
         const monthStr = startOfWeek.format('YYYY-MM');
 
+        console.log(`📅 스케줄 조회 요청: ${startStr} ~ ${endStr} (Month: ${monthStr})`);
+        console.log(`👤 현재 사용자: ${state.currentUser?.name} (${state.currentUser?.id})`);
+
         // 1. 스케줄 확정 여부 확인
         const { data: confirmData, error: confirmError } = await db.from('schedule_confirmations')
             .select('*')
@@ -275,6 +278,7 @@ async function renderEmployeeMobileScheduleList() {
         if (confirmError && confirmError.code !== 'PGRST116') throw confirmError;
 
         const isConfirmed = confirmData && confirmData.is_confirmed;
+        console.log(`✅ 스케줄 확정 여부: ${isConfirmed ? '확정됨' : '미확정'}`, confirmData);
 
         if (!isConfirmed) {
             container.innerHTML = `
@@ -305,6 +309,17 @@ async function renderEmployeeMobileScheduleList() {
             db.from('departments').select('id, name'),
             db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr)
         ]);
+
+        // 디버깅: 데이터 확인 (확장)
+        if (!schedulesRes.data || schedulesRes.data.length === 0) {
+            console.warn(`⚠️ [${startStr} ~ ${endStr}] 기간에 스케줄 데이터가 없습니다.`);
+
+            // 혹시 해당 월 전체에는 데이터가 있는지 확인 (RLS 체크용)
+            // const monthCheck = await db.from('schedules').select('count', { count: 'exact', head: true }).like('date', `${monthStr}%`);
+            // console.log(`🔍 [${monthStr}] 월 전체 데이터 수 (RLS 체크):`, monthCheck.count);
+        } else {
+            console.log(`📊 스케줄 로드 성공: ${schedulesRes.data.length}건`);
+        }
 
         if (schedulesRes.error) throw schedulesRes.error;
         if (employeesRes.error) throw employeesRes.error;
