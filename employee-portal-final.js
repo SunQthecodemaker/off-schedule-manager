@@ -315,8 +315,15 @@ async function renderEmployeeMobileScheduleList() {
             console.warn(`⚠️ [${startStr} ~ ${endStr}] 기간에 스케줄 데이터가 없습니다.`);
 
             // 혹시 해당 월 전체에는 데이터가 있는지 확인 (RLS 체크용)
+            // 🚨 사용자에게 직접 알림을 띄워 확인 (콘솔을 못 볼 수 있으므로)
             const monthCheck = await db.from('schedules').select('count', { count: 'exact', head: true }).like('date', `${monthStr}%`);
             console.log(`🔍 [${monthStr}] 월 전체 데이터 수 (RLS 체크):`, monthCheck.count);
+
+            if (monthCheck.count && monthCheck.count > 0) {
+                alert(`[진단 결과]\n\n데이터베이스에는 ${monthCheck.count}건의 스케줄이 존재합니다!\n하지만 현재 화면에는 0건만 조회됩니다.\n\n이는 100% "권한(RLS) 문제"입니다.\n관리자에게 SQL 스크립트 실행을 요청하세요.`);
+            } else {
+                console.log('데이터베이스에도 데이터가 없음 (또는 권한 때문에 카운트조차 안됨)');
+            }
         } else {
             console.log(`📊 스케줄 로드 성공: ${schedulesRes.data.length}건`);
         }
