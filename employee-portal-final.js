@@ -240,6 +240,13 @@ function switchEmployeeTab(tab) {
 //  - 네비게이션 줄바꿈 수정
 // =========================================================================================
 
+// 부서 색상 매핑 (Admin과 동일)
+function getDepartmentColor(departmentId) {
+    if (!departmentId) return '#cccccc';
+    const colors = ['#4f46e5', '#db2777', '#16a34a', '#f97316', '#0891b2', '#6d28d9', '#ca8a04'];
+    return colors[departmentId % colors.length];
+}
+
 async function renderEmployeeMobileScheduleList() {
     const container = _('#employee-work-schedule-tab');
     if (!container) return;
@@ -253,6 +260,7 @@ async function renderEmployeeMobileScheduleList() {
         // 초기화
         if (!state.employee.scheduleViewDate) state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
         if (!state.employee.scheduleViewMode) state.employee.scheduleViewMode = 'working'; // working | off
+        if (!state.employee.scheduleDeptFilter) state.employee.scheduleDeptFilter = 'all'; // all | dept_id
 
         const currentDate = dayjs(state.employee.scheduleViewDate);
 
@@ -266,9 +274,6 @@ async function renderEmployeeMobileScheduleList() {
         const endStr = endOfWeek.format('YYYY-MM-DD');
         const monthStr = startOfWeek.format('YYYY-MM');
 
-        console.log(`📅 스케줄 조회 요청: ${startStr} ~ ${endStr} (Month: ${monthStr})`);
-        console.log(`👤 현재 사용자: ${state.currentUser?.name} (${state.currentUser?.id})`);
-
         // 1. 스케줄 확정 여부 확인
         const { data: confirmData, error: confirmError } = await db.from('schedule_confirmations')
             .select('*')
@@ -278,7 +283,6 @@ async function renderEmployeeMobileScheduleList() {
         if (confirmError && confirmError.code !== 'PGRST116') throw confirmError;
 
         const isConfirmed = confirmData && confirmData.is_confirmed;
-        console.log(`✅ 스케줄 확정 여부: ${isConfirmed ? '확정됨' : '미확정'}`, confirmData);
 
         if (!isConfirmed) {
             container.innerHTML = `
@@ -296,8 +300,7 @@ async function renderEmployeeMobileScheduleList() {
             return;
         }
 
-        // 2. 데이터 병렬 로딩 (전체 데이터 가져오기)
-        // ✅ status 필터링 제거: 근무/휴무 모두 가져와서 클라이언트에서 필터링
+        // 2. 데이터 병렬 로딩
         const [schedulesRes, employeesRes, departmentsRes, holidaysRes] = await Promise.all([
             db.from('schedules')
                 .select('*')
@@ -306,32 +309,9 @@ async function renderEmployeeMobileScheduleList() {
                 .order('sort_order', { ascending: true }),
 
             db.from('employees').select('id, name, department_id'),
-            db.from('departments').select('id, name'),
+            db.from('departments').select('id, name').order('id'),
             db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr)
         ]);
-
-        // 디버깅: 데이터 확인 (확장)
-        if (!schedulesRes.data || schedulesRes.data.length === 0) {
-            console.warn(`⚠️ [${startStr} ~ ${endStr}] 기간에 스케줄 데이터가 없습니다.`);
-
-            // 혹시 해당 월 전체에는 데이터가 있는지 확인 (RLS 체크용 - 문법 수정)
-            const { count: totalCount, error: rlsError } = await db.from('schedules')
-                .select('*', { count: 'exact', head: true })
-                .like('date', `${monthStr}%`);
-
-            console.log(`🔍 [${monthStr}] 월 전체 데이터 수 (RLS 체크):`, totalCount);
-
-            if (rlsError) {
-                console.error('RLS 체크 중 에러:', rlsError);
-            }
-
-            // 🚨 데이터가 0건이면 무조건 알림 (관리자 뷰에는 데이터가 있다고 했으므로)
-            if (totalCount > 0 || schedulesRes.data.length === 0) {
-                alert(`[⚠️ 심각한 문제 발견]\n\n현재 화면에 스케줄이 하나도 보이지 않습니다.\n(데이터베이스 확인 결과: ${totalCount !== null ? totalCount + '건 존재' : '확인 불가'})\n\n이는 100% "DB 권한(RLS) 문제"입니다.\n\n제가 드린 [fix_permissions_v2.sql]을 실행하면 바로 해결됩니다.`);
-            }
-        } else {
-            console.log(`📊 스케줄 로드 성공: ${schedulesRes.data.length}건`);
-        }
 
         if (schedulesRes.error) throw schedulesRes.error;
         if (employeesRes.error) throw employeesRes.error;
@@ -343,128 +323,79 @@ async function renderEmployeeMobileScheduleList() {
         const allDepartments = departmentsRes.data || [];
         const holidays = holidaysRes.data || [];
 
-        // 데이터 매핑용 Map 생성
+        // 데이터 매핑용 Map
         const empMap = new Map(allEmployees.map(e => [e.id, e]));
         const deptMap = new Map(allDepartments.map(d => [d.id, d.name]));
         const holidaySet = new Set(holidays.map(h => h.date));
 
-        // 4. 스케줄 객체에 직원 정보 매핑 (Join emulation)
-        const enrichedSchedules = schedules.map(s => {
-            const emp = empMap.get(s.employee_id);
-            return {
-                ...s,
-                employees: emp ? {
-                    name: emp.name,
-                    department_id: emp.department_id,
-                    departments: {
-                        name: deptMap.get(emp.department_id) || ''
-                    }
-                } : { name: `ID:${s.employee_id}`, department_id: null, departments: { name: '' } }
-            };
-        });
-
-        // 디버깅: 데이터 확인
-        console.log('📊 스케줄 데이터 로드됨:', enrichedSchedules.length, '건');
-        if (enrichedSchedules.length > 0) {
-            console.log('첫번째 스케줄 샘플:', enrichedSchedules[0]);
-            console.log('Status 종류:', [...new Set(enrichedSchedules.map(s => s.status))]);
-        }
-
-        // 5. 날짜별 그룹화 (뷰 모드에 따라 필터링)
-        const isWorkingView = state.employee.scheduleViewMode === 'working';
-        const scheduleByDate = {};
-        for (let i = 0; i < 7; i++) {
-            const date = startOfWeek.add(i, 'day').format('YYYY-MM-DD');
-            scheduleByDate[date] = [];
-        }
-
-        enrichedSchedules.forEach(item => {
-            const status = item.status ? item.status.trim() : '근무'; // status가 없으면 근무로 간주
-
-            // 필터링 로직: 
-            // - 근무자 보기: status != '휴무' (근무, 또는 기타)
-            // - 휴무자 보기: status == '휴무'
-            if (isWorkingView) {
-                if (status !== '휴무') {
-                    if (scheduleByDate[item.date]) scheduleByDate[item.date].push(item);
-                }
-            } else {
-                if (status === '휴무') {
-                    if (scheduleByDate[item.date]) scheduleByDate[item.date].push(item);
-                }
-            }
-        });
-
-        // 6. UI 렌더링
+        // 3. UI 렌더링
+        // 상단 네비게이션 (한 줄로 변경)
         let html = `
-            <div class="flex flex-col h-full max-h-full">
-                <!-- 상단 네비게이션: 줄바꿈 방지 적용 -->
-                <div class="flex flex-col border-b pb-2 mb-2">
-                     <div class="flex items-center justify-between px-2 mb-2">
-                        <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg flex-shrink-0 w-10 text-center">◀</button>
-                        <div class="text-center flex-grow px-2 min-w-0">
-                            <h2 class="text-lg font-bold text-gray-800 whitespace-nowrap overflow-hidden text-ellipsis">
-                                ${startOfWeek.format('M월 D일')} ~ ${endOfWeek.format('M월 D일')}
-                            </h2>
-                            <p class="text-xs text-gray-500">${currentDate.format('YYYY년')}</p>
+            <div class="flex flex-col gap-4 mb-4">
+                <!-- 날짜 및 이동 버튼 (Flex Row) -->
+                <div class="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border">
+                    <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    </button>
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-gray-800">
+                            ${startOfWeek.format('MM월 DD일')} ~ ${endOfWeek.format('MM월 DD일')}
                         </div>
-                        <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-lg flex-shrink-0 w-10 text-center">▶</button>
+                        <div class="text-xs text-gray-500">${startOfWeek.format('YYYY년')}</div>
                     </div>
-                    
-                    <!-- 뷰 모드 토글 및 이번주 버튼 -->
-                     <div class="flex justify-between items-center px-4 mt-1">
-                        <div class="bg-gray-100 p-1 rounded-lg flex text-xs font-semibold">
-                            <button id="view-mode-working" class="px-3 py-1 rounded-md ${isWorkingView ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">근무자</button>
-                            <button id="view-mode-off" class="px-3 py-1 rounded-md ${!isWorkingView ? 'bg-white text-red-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">휴무자</button>
-                        </div>
-                        <button id="today-btn" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold border border-blue-100">이번주</button>
-                    </div>
+                    <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
                 </div>
 
-                <!-- 주간 리스트 -->
-                <div class="flex-grow overflow-y-auto space-y-3 px-1" id="mobile-schedule-list-container">
+                <!-- 보기 모드 & 부서 필터 -->
+                <div class="bg-white p-3 rounded-lg shadow-sm border space-y-3">
+                    <!-- 근무자/휴무자 탭 -->
+                    <div class="flex bg-gray-100 p-1 rounded-lg">
+                        <button class="flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${state.employee.scheduleViewMode === 'working' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}" id="view-mode-working">
+                            근무자
+                        </button>
+                        <button class="flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${state.employee.scheduleViewMode === 'off' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}" id="view-mode-off">
+                            휴무자
+                        </button>
+                    </div>
+
+                    <!-- 부서 필터 (가로 스크롤) -->
+                    <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                        <button data-dept="all" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}">
+                            전체
+                        </button>
+                        ${allDepartments.map(dept => `
+                            <button data-dept="${dept.id}" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter == dept.id ? 'bg-blue-100 text-blue-700 border-blue-200 font-bold' : 'bg-white text-gray-600 border-gray-200'}">
+                                ${dept.name}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 스케줄 리스트 -->
+            <div class="space-y-3">
         `;
 
-        Object.keys(scheduleByDate).sort().forEach(dateStr => {
-            const dayObj = dayjs(dateStr);
-            const items = scheduleByDate[dateStr];
+        // 요일별 카드 생성
+        for (let i = 0; i < 7; i++) {
+            const date = startOfWeek.add(i, 'day');
+            const dateStr = date.format('YYYY-MM-DD');
             const isToday = dateStr === dayjs().format('YYYY-MM-DD');
+            const isSunday = date.day() === 0;
+            const isSaturday = date.day() === 6;
+
+            // 날짜 색상
+            let dateColorClass = 'text-gray-800';
+            if (isSunday) dateColorClass = 'text-red-500';
+            if (isSaturday) dateColorClass = 'text-blue-500';
+
+            // 휴일 확인
             const isHoliday = holidaySet.has(dateStr);
-            const dayOfWeek = dayObj.day();
-
-            let dayColorClass = 'text-gray-900';
-            let dayBgClass = '';
-
-            if (dayOfWeek === 0) dayColorClass = 'text-red-500'; // 일요일
-            if (dayOfWeek === 6) dayColorClass = 'text-blue-500'; // 토요일
-            if (isHoliday) dayColorClass = 'text-red-600';
-
-            const dayLabel = dayObj.format('D');
-            const weekLabel = dayObj.format('ddd');
-
-            // 내용 구성
-            let content = '';
-            if (isHoliday) {
-                content = `<div class="p-3 bg-red-50 text-red-600 rounded text-center text-sm font-bold w-full">🟥 회사 휴무일</div>`;
-            } else if (items.length === 0) {
-                const emptyMsg = isWorkingView ? '근무자 없음' : '휴무자 없음';
-                content = `<div class="py-4 text-gray-300 text-center text-xs italic">${emptyMsg}</div>`;
-            } else {
-                const cards = items.map(item => {
-                    const emp = item.employees;
-                    const deptId = emp.department_id;
-                    const color = getDepartmentColor(deptId);
-
-                    return `
-                        <div class="flex items-center p-2 mb-1 last:mb-0 bg-white border border-gray-100 rounded shadow-sm">
-                            <span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0" style="background-color: ${color};"></span>
-                            <span class="font-medium text-sm text-gray-700 truncate min-w-0 flex-1">${emp.name}</span>
-                            <span class="text-xs text-gray-400 ml-2 whitespace-nowrap px-1 bg-gray-50 rounded">${emp.departments?.name || ''}</span>
-                        </div>
-                    `;
-                }).join('');
-                content = `<div class="w-full">${cards}</div>`;
-            }
+        }).join('');
+        content = `<div class="w-full">${cards}</div>`;
+    }
 
             html += `
                 <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1 border border-blue-100' : ''}">
@@ -480,24 +411,24 @@ async function renderEmployeeMobileScheduleList() {
                     </div>
                 </div>
             `;
-        });
+});
 
-        html += `
+html += `
                 </div>
             </div>
         `;
 
-        container.innerHTML = html;
-        attachNavListeners(container, currentDate);
+container.innerHTML = html;
+attachNavListeners(container, currentDate);
 
     } catch (error) {
-        console.error('스케줄 리스트 렌더링 오류:', error);
-        container.innerHTML = `<div class="p-4 text-red-600 text-center">
+    console.error('스케줄 리스트 렌더링 오류:', error);
+    container.innerHTML = `<div class="p-4 text-red-600 text-center">
             <p class="font-bold">스케줄을 불러오지 못했습니다.</p>
             <p class="text-sm mt-2">${error.message}</p>
             <button onclick="renderEmployeeMobileScheduleList()" class="mt-4 px-4 py-2 bg-gray-200 rounded text-sm">다시 시도</button>
         </div>`;
-    }
+}
 }
 
 function attachNavListeners(container, currentDate = dayjs()) {
