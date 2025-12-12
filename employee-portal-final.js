@@ -315,8 +315,8 @@ async function renderEmployeeMobileScheduleList() {
             console.warn(`⚠️ [${startStr} ~ ${endStr}] 기간에 스케줄 데이터가 없습니다.`);
 
             // 혹시 해당 월 전체에는 데이터가 있는지 확인 (RLS 체크용)
-            // const monthCheck = await db.from('schedules').select('count', { count: 'exact', head: true }).like('date', `${monthStr}%`);
-            // console.log(`🔍 [${monthStr}] 월 전체 데이터 수 (RLS 체크):`, monthCheck.count);
+            const monthCheck = await db.from('schedules').select('count', { count: 'exact', head: true }).like('date', `${monthStr}%`);
+            console.log(`🔍 [${monthStr}] 월 전체 데이터 수 (RLS 체크):`, monthCheck.count);
         } else {
             console.log(`📊 스케줄 로드 성공: ${schedulesRes.data.length}건`);
         }
