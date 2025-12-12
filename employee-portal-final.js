@@ -336,6 +336,13 @@ async function renderEmployeeMobileScheduleList() {
             };
         });
 
+        // 디버깅: 데이터 확인
+        console.log('📊 스케줄 데이터 로드됨:', enrichedSchedules.length, '건');
+        if (enrichedSchedules.length > 0) {
+            console.log('첫번째 스케줄 샘플:', enrichedSchedules[0]);
+            console.log('Status 종류:', [...new Set(enrichedSchedules.map(s => s.status))]);
+        }
+
         // 5. 날짜별 그룹화 (뷰 모드에 따라 필터링)
         const isWorkingView = state.employee.scheduleViewMode === 'working';
         const scheduleByDate = {};
@@ -345,17 +352,17 @@ async function renderEmployeeMobileScheduleList() {
         }
 
         enrichedSchedules.forEach(item => {
-            const status = item.status; // '근무' 또는 '휴무'
+            const status = item.status ? item.status.trim() : '근무'; // status가 없으면 근무로 간주
 
             // 필터링 로직: 
-            // - 근무자 보기: status == '근무'
-            // - 휴무자 보기: status != '근무' (휴무, 연차 등)
+            // - 근무자 보기: status != '휴무' (근무, 또는 기타)
+            // - 휴무자 보기: status == '휴무'
             if (isWorkingView) {
-                if (status === '근무') {
+                if (status !== '휴무') {
                     if (scheduleByDate[item.date]) scheduleByDate[item.date].push(item);
                 }
             } else {
-                if (status !== '근무') {
+                if (status === '휴무') {
                     if (scheduleByDate[item.date]) scheduleByDate[item.date].push(item);
                 }
             }
