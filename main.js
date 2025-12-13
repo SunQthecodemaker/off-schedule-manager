@@ -1,9 +1,9 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=v_FINAL_FIX_VALIDATION';
+import { renderScheduleManagement } from './schedule.js?v=20251213_1515_FIX';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20251211_layout_refine';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js';
-import { renderEmployeePortal } from './employee-portal-final.js?v=v_FINAL_LAYOUT_FIX_V2';
+import { renderEmployeePortal } from './employee-portal-final.js?v=20251213_1515_GRID_FIX';
 import { getLeaveDetails } from './leave-utils.js';
 
 dayjs.extend(window.dayjs_plugin_isSameOrAfter);

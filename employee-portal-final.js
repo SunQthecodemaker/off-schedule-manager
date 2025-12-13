@@ -335,17 +335,16 @@ async function renderEmployeeMobileScheduleList() {
         let html = `
             <div class="flex flex-col gap-4 mb-4">
                 <!-- 날짜 및 이동 버튼 (Flex Row) -->
-                <div class="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border">
-                    <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">
+                <!-- 날짜 및 이동 버튼 (Grid Layout for Robustness) -->
+                <div class="grid grid-cols-[auto_1fr_auto] items-center bg-white p-3 rounded-lg shadow-sm border gap-4">
+                    <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 justify-self-start">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
                     </button>
-                    <div class="flex-1 flex justify-center items-center min-w-0">
-                        <div class="flex items-baseline gap-2 whitespace-nowrap overflow-hidden text-ellipsis">
-                            <span class="text-lg font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
-                            <span class="text-sm text-gray-400 font-normal">${startOfWeek.format('YYYY년')}</span>
-                        </div>
+                    <div class="flex items-center justify-center gap-2 whitespace-nowrap overflow-hidden">
+                        <span class="text-lg font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
+                        <span class="text-sm text-gray-400 font-normal mt-0.5">${startOfWeek.format('YYYY년')}</span>
                     </div>
-                    <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">
+                    <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 justify-self-end">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                     </button>
                 </div>
