@@ -253,18 +253,24 @@ async function handleSaveSchedules() {
         console.log('📅 대상 기간:', startOfMonth, '~', endOfMonth);
 
         // ✅ 2. State에서 저장할 데이터 수집
+        // 유효한 직원 ID 목록 (삭제된 직원 데이터가 남아있을 경우 RLS 에러 방지)
+        const validEmployeeIds = new Set(state.management.employees.map(e => e.id));
+
         const schedulesToSave = state.schedule.schedules
             .filter(s => {
-                return s.date >= startOfMonth && s.date <= endOfMonth && s.employee_id > 0;
+                // 기간 내, 양수 ID(실제 직원), 그리고 유효한 직원 목록에 있는 경우만 저장
+                return s.date >= startOfMonth &&
+                    s.date <= endOfMonth &&
+                    s.employee_id > 0 &&
+                    validEmployeeIds.has(s.employee_id);
             })
             .map(s => ({
                 date: s.date,
                 employee_id: s.employee_id,
                 status: s.status,
                 sort_order: s.sort_order || 0,
-                grid_position: s.grid_position || 0,
-                // ✅ RLS 정책 통과를 위해 관리자 ID 추가 (없으면 에러 발생 가능성 높음)
-                manager_id: state.currentUser?.auth_uuid || null
+                grid_position: s.grid_position || 0
+                // manager_id 제거 (테이블에 없음)
             }));
 
         console.log('📊 수집된 스케줄 (State):', schedulesToSave.length, '건');
