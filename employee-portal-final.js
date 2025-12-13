@@ -330,6 +330,8 @@ async function renderEmployeeMobileScheduleList() {
 
         // 3. UI 렌더링
         // 상단 네비게이션 (한 줄로 변경)
+        // 3. UI 렌더링
+        // 상단 네비게이션 (한 줄로 변경)
         let html = `
             <div class="flex flex-col gap-4 mb-4">
                 <!-- 날짜 및 이동 버튼 (Flex Row) -->
@@ -339,7 +341,7 @@ async function renderEmployeeMobileScheduleList() {
                     </button>
                     <div class="text-center">
                         <div class="text-lg font-bold text-gray-800">
-                            ${startOfWeek.format('MM월 DD일')} ~ ${endOfWeek.format('MM월 DD일')}
+                            ${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}
                         </div>
                         <div class="text-xs text-gray-500">${startOfWeek.format('YYYY년')}</div>
                     </div>
@@ -386,16 +388,78 @@ async function renderEmployeeMobileScheduleList() {
             const isSunday = date.day() === 0;
             const isSaturday = date.day() === 6;
 
+            const weekLabel = date.format('ddd'); // 월, 화, 수...
+            const dayLabel = date.format('D'); // 1, 2, 3...
+
             // 날짜 색상
-            let dateColorClass = 'text-gray-800';
-            if (isSunday) dateColorClass = 'text-red-500';
-            if (isSaturday) dateColorClass = 'text-blue-500';
+            let dayColorClass = 'text-gray-800';
+            if (isSunday) dayColorClass = 'text-red-500';
+            if (isSaturday) dayColorClass = 'text-blue-500';
 
             // 휴일 확인
             const isHoliday = holidaySet.has(dateStr);
-        }).join('');
-        content = `<div class="w-full">${cards}</div>`;
-    }
+
+            // 해당 날짜의 스케줄 필터링
+            // 1) 날짜 매칭
+            let daySchedules = schedules.filter(s => s.date === dateStr);
+
+            // 2) 정렬 순서 (sort_order)
+            daySchedules.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+            // 데이터 가공 (직원 정보 매핑)
+            let employeesList = daySchedules.map(sch => {
+                const emp = empMap.get(sch.employee_id);
+                // Spacer나 Separator인 경우 emp가 없을 수 있음 (또는 가상 ID)
+                if (!emp) return { ...sch, isSystem: true };
+                return { ...sch, empName: emp.name, deptId: emp.department_id, isSystem: false };
+            });
+
+            // 3) 근무/휴무 필터링
+            if (state.employee.scheduleViewMode === 'working') {
+                employeesList = employeesList.filter(item => item.status === '근무' || item.isSystem); // 근무자 + 구분선 등
+            } else {
+                employeesList = employeesList.filter(item => item.status === '휴무'); // 휴무자만
+            }
+
+            // 4) 부서 필터링 (구분선/스페이서는 부서 필터 시 숨길지 여부 결정 필요, 여기서는 단순화하여 직원만 필터링)
+            if (state.employee.scheduleDeptFilter !== 'all') {
+                const targetDeptId = parseInt(state.employee.scheduleDeptFilter);
+                employeesList = employeesList.filter(item => {
+                    if (item.isSystem) return false; // 부서 필터링 시 시스템 요소(구분선 등)는 숨김 (원하는대로 조정 가능)
+                    return item.deptId === targetDeptId;
+                });
+            }
+
+            // 내용 생성
+            let content = '';
+
+            if (employeesList.length === 0) {
+                content = `<div class="text-xs text-gray-400 py-2 pl-2">일정 없음</div>`;
+            } else {
+                // 그리드 컨테이너 시작
+                content = `<div class="grid grid-cols-4 gap-2">`;
+
+                employeesList.forEach(item => {
+                    if (item.isSystem) {
+                        // 모바일 뷰에서는 Spacer/Separator는 무시하거나 다르게 표현할 수 있음
+                        // 여기서는 단순함을 위해 스킵하거나 희미한 선으로 표시 가능
+                        // 사용자 요청사항: "4열 배열"이 중요하므로 직원 카드에 집중
+                        return;
+                    }
+
+                    const deptColor = getDepartmentColor(item.deptId);
+
+                    // 직관적인 카드 디자인: [색상점] [이름]
+                    content += `
+                        <div class="flex items-center bg-gray-50 border rounded px-2 py-1.5 min-w-0">
+                            <span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0" style="background-color: ${deptColor};"></span>
+                            <span class="text-xs font-medium truncate text-gray-700">${item.empName}</span>
+                        </div>
+                    `;
+                });
+
+                content += `</div>`; // 그리드 닫기
+            }
 
             html += `
                 <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1 border border-blue-100' : ''}">
@@ -403,32 +467,32 @@ async function renderEmployeeMobileScheduleList() {
                     <div class="flex flex-col items-center justify-start pt-1 w-10 flex-shrink-0">
                         <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel}</span>
                         <span class="text-lg font-bold ${dayColorClass} ${isToday ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center rounded-full mt-1' : 'mt-1 leading-none'}">${dayLabel}</span>
+                         ${isHoliday ? '<span class="text-[9px] text-red-500 mt-0.5">휴</span>' : ''}
                     </div>
                     
                     <!-- 내용 컬럼 -->
-                    <div class="flex-grow pb-3 border-b border-gray-100 last:border-0 min-w-0">
+                    <div class="flex-grow pb-3 border-b border-gray-100 last:border-0 min-w-0 pt-1">
                          ${content}
                     </div>
                 </div>
             `;
-});
+        }
 
-html += `
-                </div>
-            </div>
+        html += `
+                </div> <!-- space-y-3 -->
         `;
 
-container.innerHTML = html;
-attachNavListeners(container, currentDate);
+        container.innerHTML = html;
+        attachNavListeners(container, currentDate);
 
     } catch (error) {
-    console.error('스케줄 리스트 렌더링 오류:', error);
-    container.innerHTML = `<div class="p-4 text-red-600 text-center">
+        console.error('스케줄 리스트 렌더링 오류:', error);
+        container.innerHTML = `<div class="p-4 text-red-600 text-center">
             <p class="font-bold">스케줄을 불러오지 못했습니다.</p>
             <p class="text-sm mt-2">${error.message}</p>
             <button onclick="renderEmployeeMobileScheduleList()" class="mt-4 px-4 py-2 bg-gray-200 rounded text-sm">다시 시도</button>
         </div>`;
-}
+    }
 }
 
 function attachNavListeners(container, currentDate = dayjs()) {
