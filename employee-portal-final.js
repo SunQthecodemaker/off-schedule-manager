@@ -529,11 +529,7 @@ function attachNavListeners(container, currentDate = dayjs()) {
     });
 }
 
-function getDepartmentColor(departmentId) {
-    if (!departmentId) return '#cccccc';
-    const colors = ['#4f46e5', '#db2777', '#16a34a', '#f97316', '#0891b2', '#6d28d9', '#ca8a04'];
-    return colors[departmentId % colors.length];
-}
+
 
 async function loadEmployeeData() {
     try {
