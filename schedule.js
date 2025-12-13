@@ -239,117 +239,81 @@ async function handleSaveSchedules() {
     saveBtn.disabled = true;
     saveBtn.textContent = '저장 중...';
 
-    console.log('💾 ========== 저장 시작 (완전 재구축) ==========');
+    console.log('💾 ========== 저장 시작 (State 기반 + 휴무일) ==========');
 
     try {
+        // ✅ 1. 현재 화면의 배치(Grid Position)를 State에 반영
+        if (state.schedule.viewMode === 'working') {
+            updateAllGridPositions();
+        }
+
         const startOfMonth = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const endOfMonth = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
         console.log('📅 대상 기간:', startOfMonth, '~', endOfMonth);
 
-        // ✅ STEP 1: 해당 월의 기존 스케줄 완전 삭제
+        // ✅ 2. State에서 저장할 데이터 수집
+        const schedulesToSave = state.schedule.schedules
+            .filter(s => {
+                return s.date >= startOfMonth && s.date <= endOfMonth && s.employee_id > 0;
+            })
+            .map(s => ({
+                date: s.date,
+                employee_id: s.employee_id,
+                status: s.status,
+                sort_order: s.sort_order || 0,
+                grid_position: s.grid_position || 0
+            }));
+
+        console.log('📊 수집된 스케줄 (State):', schedulesToSave.length, '건');
+
+        // ✅ 3. 해당 월의 기존 스케줄 완전 삭제
         console.log('🗑️ 기존 스케줄 삭제 중...');
         const { error: deleteError } = await db.from('schedules')
             .delete()
             .gte('date', startOfMonth)
             .lte('date', endOfMonth);
 
-        if (deleteError) {
-            console.error('❌ 삭제 오류:', deleteError);
-            throw deleteError;
-        }
-        console.log('✅ 기존 스케줄 삭제 완료');
+        if (deleteError) throw deleteError;
 
-        // ✅ STEP 2: 현재 화면의 모든 카드 수집
-        const schedulesToSave = [];
-
-        document.querySelectorAll('.calendar-day').forEach(dayEl => {
-            const dateStr = dayEl.dataset.date;
-            if (!dateStr) return;
-
-            // 해당 월의 날짜만 처리
-            if (dateStr < startOfMonth || dateStr > endOfMonth) return;
-
-            const eventContainer = dayEl.querySelector('.day-events');
-            if (!eventContainer) return;
-
-            const eventCards = eventContainer.querySelectorAll('.event-card, .event-slot');
-            eventCards.forEach((card) => {
-                const empId = parseInt(card.dataset.employeeId, 10);
-                const type = card.dataset.type;
-                const position = parseInt(card.dataset.position, 10);
-
-                // ✅ 실제 직원만 저장 (양수 ID), 빈칸/빈슬롯/연차 제외
-                if (isNaN(empId) || empId <= 0 || type === 'leave' || type === 'empty') return;
-
-                const status = card.classList.contains('event-off') ? '휴무' : '근무';
-
-                schedulesToSave.push({
-                    date: dateStr,
-                    employee_id: empId,
-                    status: status,
-                    sort_order: position,
-                    grid_position: position
-                });
-            });
-        });
-
-        console.log('📊 수집된 스케줄:', schedulesToSave.length, '건');
-
-        if (schedulesToSave.length === 0) {
-            console.log('⚠️ 저장할 스케줄이 없습니다');
-        } else {
-            // ✅ STEP 3: 전체 삽입
-            console.log('➕ 새 스케줄 삽입 중...');
-            console.log('삽입 데이터 샘플:', schedulesToSave.slice(0, 3));
-
-            const { error: insertError } = await db.from('schedules')
-                .insert(schedulesToSave);
-
-            if (insertError) {
-                console.error('❌ 삽입 오류:', insertError);
-                throw insertError;
+        // ✅ 4. 데이터 일괄 삽입
+        if (schedulesToSave.length > 0) {
+            const BATCH_SIZE = 50;
+            for (let i = 0; i < schedulesToSave.length; i += BATCH_SIZE) {
+                const batch = schedulesToSave.slice(i, i + BATCH_SIZE);
+                const { error: insertError } = await db.from('schedules').insert(batch);
+                if (insertError) throw insertError;
             }
-            console.log('✅ 스케줄 삽입 완료:', schedulesToSave.length, '건');
         }
 
-        // ✅ STEP 6: 회사 휴무일 저장
+        // ✅ 5. 회사 휴무일 저장
         const holidaysToAdd = Array.from(unsavedHolidayChanges.toAdd);
         const holidaysToRemove = Array.from(unsavedHolidayChanges.toRemove);
 
         if (holidaysToAdd.length > 0) {
-            console.log('🏢 휴무일 추가:', holidaysToAdd);
             const { error: holidayAddError } = await db.from('company_holidays')
                 .insert(holidaysToAdd.map(date => ({ date })));
-            if (holidayAddError) {
-                console.error('❌ 휴무일 추가 오류:', holidayAddError);
-                throw holidayAddError;
-            }
+            if (holidayAddError) throw holidayAddError;
         }
 
         if (holidaysToRemove.length > 0) {
-            console.log('🏢 휴무일 제거:', holidaysToRemove);
             const { error: holidayRemoveError } = await db.from('company_holidays')
                 .delete()
                 .in('date', holidaysToRemove);
-            if (holidayRemoveError) {
-                console.error('❌ 휴무일 제거 오류:', holidayRemoveError);
-                throw holidayRemoveError;
-            }
+            if (holidayRemoveError) throw holidayRemoveError;
         }
 
-        console.log('✅ ========== 저장 완료 ==========');
+        console.log('✅ 저장 완료');
+
+        // 6. 화면 다시 로드 (확실한 동기화)
+        await loadAndRenderScheduleData(state.schedule.currentDate);
+
         alert('스케줄이 성공적으로 저장되었습니다.');
 
-        // ✅ STEP 7: 다시 불러오기
-        console.log('🔄 데이터 다시 불러오는 중...');
-        await loadAndRenderScheduleData(state.schedule.currentDate);
-        console.log('✅ 화면 갱신 완료');
-
     } catch (error) {
-        console.error('❌ ========== 저장 실패 ==========');
-        console.error('오류 상세:', error);
-        alert(`스케줄 저장에 실패했습니다.\n\n오류: ${error.message}\n\n콘솔을 확인해주세요.`);
+        console.error('❌ 저장 실패:', error);
+        alert(`스케줄 저장에 실패했습니다.\n\n오류: ${error.message}`);
+    } finally {
         saveBtn.disabled = false;
         saveBtn.textContent = '💾 스케줄 저장';
     }
