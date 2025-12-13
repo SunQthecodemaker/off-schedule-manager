@@ -262,7 +262,9 @@ async function handleSaveSchedules() {
                 employee_id: s.employee_id,
                 status: s.status,
                 sort_order: s.sort_order || 0,
-                grid_position: s.grid_position || 0
+                grid_position: s.grid_position || 0,
+                // ✅ RLS 정책 통과를 위해 관리자 ID 추가 (없으면 에러 발생 가능성 높음)
+                manager_id: state.currentUser?.auth_uuid || null
             }));
 
         console.log('📊 수집된 스케줄 (State):', schedulesToSave.length, '건');
