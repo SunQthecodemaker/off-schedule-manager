@@ -891,12 +891,15 @@ function getWorkingEmployeesOnDate(dateStr) {
 function getOffEmployeesOnDate(dateStr) {
     const offEmps = [];
 
-    // ✅ 1. DB에 명시적으로 '휴무' 상태로 저장된 직원
+    // ✅ 1. DB/State에 '휴무' 상태로 저장된 직원
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '휴무') {
             const emp = state.management.employees.find(e => e.id === schedule.employee_id);
             if (emp) {
-                offEmps.push({ employee: emp, schedule: schedule, type: '휴무' });
+                // 중복 방지
+                if (!offEmps.some(item => item.employee.id === emp.id)) {
+                    offEmps.push({ employee: emp, schedule: schedule, type: '휴무' });
+                }
             }
         }
     });
@@ -905,7 +908,7 @@ function getOffEmployeesOnDate(dateStr) {
     state.management.leaveRequests.forEach(req => {
         if (req.status === 'approved' && req.dates?.includes(dateStr)) {
             const emp = state.management.employees.find(e => e.id === req.employee_id);
-            // DB에 이미 휴무로 저장된 경우는 제외 (중복 방지)
+            // 이미 추가된 경우 제외 (스케줄 상 휴무로 되어있을 수 있음)
             const alreadyAdded = offEmps.some(item => item.employee.id === req.employee_id);
             if (emp && !alreadyAdded) {
                 offEmps.push({ employee: emp, schedule: null, type: 'leave' });
@@ -913,17 +916,8 @@ function getOffEmployeesOnDate(dateStr) {
         }
     });
 
-    // ✅ grid_position 기준 정렬
-    offEmps.sort((a, b) => {
-        const posA = a.schedule?.grid_position;
-        const posB = b.schedule?.grid_position;
-
-        if (posA != null && posB != null) return posA - posB;
-        if (posA != null) return -1;
-        if (posB != null) return 1;
-
-        return a.employee.id - b.employee.id;
-    });
+    // ✅ 이름순 정렬 (휴무자는 그리드 위치가 중요하지 않음)
+    offEmps.sort((a, b) => a.employee.name.localeCompare(b.employee.name));
 
     return offEmps;
 }
@@ -1628,7 +1622,6 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
-        _('#confirm-schedule-btn')?.addEventListener('click', () => handleConfirmSchedule(true));
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
