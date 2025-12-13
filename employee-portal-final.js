@@ -339,10 +339,10 @@ async function renderEmployeeMobileScheduleList() {
                     <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
                     </button>
-                    <div class="text-center flex flex-col items-center">
-                        <div class="text-lg font-bold text-gray-800 whitespace-nowrap flex items-baseline gap-1">
-                            <span>${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
-                            <span class="text-xs text-gray-400 font-normal self-end mb-1">${startOfWeek.format('YYYY년')}</span>
+                    <div class="flex-1 flex justify-center items-center min-w-0">
+                        <div class="flex items-baseline gap-2 whitespace-nowrap overflow-hidden text-ellipsis">
+                            <span class="text-lg font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
+                            <span class="text-sm text-gray-400 font-normal">${startOfWeek.format('YYYY년')}</span>
                         </div>
                     </div>
                     <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">
