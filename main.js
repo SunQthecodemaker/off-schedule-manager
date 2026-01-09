@@ -188,15 +188,26 @@ async function handleAdminLogin(e) {
     e.preventDefault();
     const email = _('#adminLoginId').value;
     const password = _('#adminLoginPass').value;
-    const { data, error } = await db.auth.signInWithPassword({ email, password });
 
-    if (error) {
-        alert('로그인 실패: ' + error.message);
-        return;
-    }
+    try {
+        const { data, error } = await db.auth.signInWithPassword({ email, password });
 
-    if (data.user) {
-        await checkAuth();
+        if (error) {
+            console.error('Login Error:', error);
+            if (error.message === 'Failed to fetch') {
+                alert('로그인 실패: 서버와 통신할 수 없습니다. (CORS 또는 네트워크 오류)\nSupabase 대시보드에서 URL 설정을 확인해주세요.');
+            } else {
+                alert('로그인 실패: ' + error.message);
+            }
+            return;
+        }
+
+        if (data.user) {
+            await checkAuth();
+        }
+    } catch (err) {
+        console.error('Unexpected Login Error:', err);
+        alert('로그인 중 예기치 않은 오류가 발생했습니다: ' + (err.message || err));
     }
 }
 
