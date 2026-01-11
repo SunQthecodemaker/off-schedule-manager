@@ -818,10 +818,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     updateSaveButtonState();
 }
 
-// 5. 즉시 재렌더링
-renderCalendar();
-updateSaveButtonState();
-}
+
 
 // ✨ 더블클릭 이벤트 연결을 위한 초기화
 function initializeCalendarEvents() {
