@@ -1144,9 +1144,9 @@ function renderCalendar() {
 
 // ✨ 달력 클릭 핸들러 분리
 function handleCalendarClick(e) {
-    // 날짜 숫자 클릭
+    // 날짜 숫자 클릭 - 더블클릭 핸들러(handleDateHeaderDblClick)와 충돌 방지를 위해 단일 클릭 동작 제거
     if (e.target.classList.contains('day-number')) {
-        handleDateNumberClick(e);
+        // handleDateNumberClick(e); // ❌ 기존 단일 클릭 핸들러 비활성화
         return;
     }
 
