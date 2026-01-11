@@ -23,82 +23,46 @@ function updateScheduleSortOrders(dateStr) {
     const eventContainer = dayEl.querySelector('.day-events');
     if (!eventContainer) return;
 
-    // ✅ 현재 화면의 모든 슬롯 순서대로 수집 (빈 슬롯 포함)
-    const currentGrid = [];
-    const allSlots = eventContainer.querySelectorAll('.event-card, .event-slot');
+    // ✅ 1. DOM 순서대로 스캔하여 정확한 grid_position 파악
+    const allSlots = Array.from(eventContainer.querySelectorAll('.event-card, .event-slot'));
 
-    allSlots.forEach((slot, domIndex) => {
-        // DOM 순서 = 곧 grid_position
-        // .event-slot(빈칸)인 경우 dataset.employeeId 가 'empty'이거나 없음
-        // .event-card(직원/휴무)인 경우 dataset.employeeId 가 숫자
+    // 위치 맵 생성: employee_id -> new_grid_position
+    const newPositions = new Map();
 
-        let empId = null;
+    allSlots.forEach((slot, index) => {
         if (slot.classList.contains('event-card')) {
-            empId = parseInt(slot.dataset.employeeId, 10);
-        }
-
-        // 유효한 직원 ID(양수) 또는 빈칸(null)
-        // 음수 ID(빈칸 카드)도 일단 수집하지만, 저장 시에는 필터링됨
-        // 중요한 건 '순서'임. domIndex가 곧 grid_position이 됨.
-
-        if (!isNaN(empId) && empId > 0) {
-            currentGrid.push({
-                employee_id: empId,
-                grid_position: domIndex,
-                type: 'employee'
-            });
+            const empId = parseInt(slot.dataset.employeeId, 10);
+            if (!isNaN(empId)) {
+                newPositions.set(empId, index); // index가 곧 grid_position (0 ~ 23)
+            }
         }
     });
 
-    console.log(`📍 [${dateStr}] 그리드 위치 업데이트 (빈칸 포함 순서):`, currentGrid);
+    console.log(`📍 [${dateStr}] 위치 재계산:`, newPositions);
 
+    // ✅ 2. State 업데이트
     let changeCount = 0;
 
-    // 1. 화면에 있는 직원들 위치 업데이트
-    currentGrid.forEach(item => {
-        let schedule = state.schedule.schedules.find(
-            s => s.date === dateStr && s.employee_id === item.employee_id && s.status === '근무'
-        );
-
-        if (schedule) {
-            if (schedule.grid_position !== item.grid_position) {
-                // 위치 변경
-                schedule.grid_position = item.grid_position;
-                schedule.sort_order = item.grid_position;
-                unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                changeCount++;
-            }
-        } else {
-            // 새 스케줄 (혹은 다른 날짜에서 이동해옴)
-            const tempId = `temp-${Date.now()}-${item.employee_id}-${item.grid_position}`;
-            const newSchedule = {
-                id: tempId,
-                date: dateStr,
-                employee_id: item.employee_id,
-                status: '근무',
-                sort_order: item.grid_position,
-                grid_position: item.grid_position
-            };
-            state.schedule.schedules.push(newSchedule);
-            unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-            changeCount++;
-        }
-    });
-
-    // 2. 화면에서 사라진 직원 처리 (이동했거나 삭제됨)
-    // 현재 날짜의 '근무' 스케줄 중, 화면(currentGrid)에 없는 직원 찾기
+    // 이 날짜의 근무 스케줄
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '근무') {
-            const exists = currentGrid.some(item => item.employee_id === schedule.employee_id);
-            if (!exists && !schedule.id.toString().startsWith('temp-')) {
-                console.log(`  ➖ Delete schedule (missing from grid): ${schedule.employee_id}`);
-                unsavedChanges.set(schedule.id, { type: 'delete', data: schedule });
-                changeCount++;
+            const newPos = newPositions.get(schedule.employee_id);
+            if (newPos !== undefined) {
+                // 화면에 존재 -> 위치 업데이트
+                if (schedule.grid_position !== newPos) {
+                    schedule.grid_position = newPos;
+                    schedule.sort_order = newPos;
+                    unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                    changeCount++;
+                }
             }
         }
     });
 
-    console.log(`  💾 이번 호출에서 변경: ${changeCount}건`);
+    if (changeCount > 0) {
+        console.log(`  💾 위치 변경됨: ${changeCount}건`);
+        updateSaveButtonState();
+    }
 }
 
 function getDepartmentColor(departmentId) {
@@ -194,172 +158,16 @@ function handleViewModeChange(e) {
     }
 }
 
-// ✨ 모든 날짜의 grid_position 업데이트 (저장 전 호출)
+// ✨ 모든 날짜의 grid_position 업데이트 (빈칸 포함)
 function updateAllGridPositions() {
-    console.log('🔄 모든 날짜의 grid_position 업데이트 시작 (빈칸 포함)');
+    console.log('🔄 모든 날짜의 grid_position 업데이트 시작');
 
     document.querySelectorAll('.calendar-day').forEach(dayEl => {
         const dateStr = dayEl.dataset.date;
-        const eventContainer = dayEl.querySelector('.day-events');
-        if (!eventContainer) return;
-
-        // DOM 순서대로 스캔
-        const allSlots = eventContainer.querySelectorAll('.event-card, .event-slot');
-
-        allSlots.forEach((slot, gridIndex) => {
-            if (!slot.classList.contains('event-card')) return; // 빈 슬롯(.event-slot)은 건너뜀 (직원 위치만 업데이트하면 됨)
-
-            const empId = parseInt(slot.dataset.employeeId, 10);
-
-            // 양수 ID(실제 직원)만 처리
-            if (isNaN(empId) || empId <= 0) return;
-
-            let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
-
-            if (schedule) {
-                // 위치가 다르면 업데이트
-                if (schedule.grid_position !== gridIndex) {
-                    schedule.grid_position = gridIndex;
-                    schedule.sort_order = gridIndex;
-                    unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                }
-            } else {
-                // 이 경우는 거의 없어야 함 (이미 렌더링된 건 state에 있어야 함)
-                // 하지만 안전장치로
-                const tempId = `temp-${Date.now()}-${empId}-${gridIndex}`;
-                const newSchedule = {
-                    id: tempId,
-                    date: dateStr,
-                    employee_id: empId,
-                    status: slot.classList.contains('off') ? '휴무' : '근무',
-                    sort_order: gridIndex,
-                    grid_position: gridIndex
-                };
-                state.schedule.schedules.push(newSchedule);
-                unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-            }
-        });
+        updateScheduleSortOrders(dateStr); // 재사용
     });
 
     console.log('✅ grid_position 업데이트 완료');
-}
-
-// ✨ 날짜 헤더 더블클릭 핸들러 (휴일 토글)
-function handleDateHeaderDblClick(e) {
-    // .calendar-day 혹은 내부 요소에서 발생할 수 있음
-    const dayEl = e.target.closest('.calendar-day');
-    if (!dayEl) return;
-
-    // Day Number 클릭인지 확인 (헤더 영역)
-    const headerEl = e.target.closest('.day-number');
-    if (!headerEl && !e.target.classList.contains('calendar-day')) return;
-
-    if (isDragging) return;
-
-    const dateStr = dayEl.dataset.date;
-    console.log(`📅 날짜 더블클릭: ${dateStr}`);
-
-    // 현재 해당 날짜의 "근무" 상태 직원 확인
-    const workingSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
-    const isHoliday = state.schedule.companyHolidays.has(dateStr);
-
-    // 토글 로직:
-    // 휴일 아님 -> 휴일로 지정 (모든 근무자 휴무 처리)
-    // 휴일임 -> 휴일 해제 (모든 직원 근무로 복귀?) -> 사용자는 "다시 더블클릭하면 전체 근무자가 다시 근무로 바뀌고"라고 함.
-
-    if (!isHoliday) {
-        // 휴일 설정
-        if (confirm(`${dateStr}을 휴일로 지정하고 모든 근무자를 휴무로 변경하시겠습니까?`)) {
-            // 1. 근무자 휴무 처리
-            workingSchedules.forEach(s => {
-                s.status = '휴무';
-                unsavedChanges.set(s.id, { type: 'update', data: s });
-            });
-
-            // 2. 회사 휴무일 추가
-            state.schedule.companyHolidays.add(dateStr);
-            unsavedHolidayChanges.toAdd.add(dateStr);
-            unsavedHolidayChanges.toRemove.delete(dateStr);
-
-            renderCalendar();
-            updateSaveButtonState();
-        }
-    } else {
-        // 휴일 해제
-        if (confirm(`${dateStr}의 휴일 설정을 해제하고 모든 직원을 근무로 변경하시겠습니까?`)) {
-            // 1. 회사 휴무일 제거
-            state.schedule.companyHolidays.delete(dateStr);
-            unsavedHolidayChanges.toRemove.add(dateStr);
-            unsavedHolidayChanges.toAdd.delete(dateStr);
-
-            // 2. 모든 직원 근무 복귀 (빈칸 로직 고려)
-            const allActiveEmployees = state.management.employees.filter(e => !e.resignation_date);
-
-            // 기존 스케줄이 있던 사람들은 그 자리를 유지하려고 노력해야 하나?
-            // "네임카드의 배치도 저장하려고 하는거야"
-            // 휴무였다가 근무로 돌아올 때, 기존 grid_position이 있다면 유지하는게 좋음.
-            // 하지만 "전체 근무자가 다시 근무로 바뀌고" -> 일괄 근무 전환.
-
-            // 현재 state 상의 스케줄 확인
-            // 근무가 아니었던(휴무/없음) 사람들을 '근무'로
-
-            // 1) 기존 스케줄이 있는 경우 (휴무 상태 등) -> 근무로 변경, position 유지
-            // 2) 없는 경우 -> 새로 생성, position은?
-            //    -> 빈 자리 찾아서 넣기? 아니면 차례대로?
-
-            // 간단한 전략:
-            // - 기존 스케줄 있는 사람은 status='근무'
-            // - 없는 사람은 새로 생성하여 빈 슬롯(grid_position)에 할당.
-            // - 이미 꽉 찼으면(24명 초과) 무시?
-
-            // 사용 가능한 grid 슬롯 확인
-            const occupiedPositions = new Set();
-            state.schedule.schedules.forEach(s => {
-                if (s.date === dateStr && s.status === '근무') {
-                    occupiedPositions.add(s.grid_position);
-                }
-            });
-
-            allActiveEmployees.forEach(emp => {
-                let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
-
-                if (schedule) {
-                    // 이미 존재 (휴무 등) -> 근무로 변경
-                    if (schedule.status !== '근무') {
-                        schedule.status = '근무';
-                        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                        // grid_position은 기존값 유지 (만약 겹치면? 충돌 처리 안함, UI상 겹쳐 보일 수 있나? 
-                        // renderCalendar는 같은 포지션이면 덮어쓰나? gridSlots[pos] = schedule 이므로 덮어씀.
-                        // 따라서 중복되지 않도록 해야 함.
-                        occupiedPositions.add(schedule.grid_position);
-                    }
-                } else {
-                    // 스케줄 없음 -> 생성
-                    // 빈 자리 찾기
-                    let pos = 0;
-                    while (occupiedPositions.has(pos) && pos < 24) pos++;
-
-                    if (pos < 24) {
-                        const tempId = `temp-${Date.now()}-${emp.id}-${pos}`;
-                        const newSchedule = {
-                            id: tempId,
-                            date: dateStr,
-                            employee_id: emp.id,
-                            status: '근무',
-                            sort_order: pos,
-                            grid_position: pos
-                        };
-                        state.schedule.schedules.push(newSchedule);
-                        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-                        occupiedPositions.add(pos);
-                    }
-                }
-            });
-
-            renderCalendar();
-            updateSaveButtonState();
-        }
-    }
 }
 
 async function handleRevertChanges() {
@@ -429,20 +237,26 @@ async function handleSaveSchedules() {
         }
 
         // ✅ 5. 회사 휴무일 저장
-        const holidaysToAdd = Array.from(unsavedHolidayChanges.toAdd);
-        const holidaysToRemove = Array.from(unsavedHolidayChanges.toRemove);
+        try {
+            const holidaysToAdd = Array.from(unsavedHolidayChanges.toAdd);
+            const holidaysToRemove = Array.from(unsavedHolidayChanges.toRemove);
 
-        if (holidaysToAdd.length > 0) {
-            const { error: holidayAddError } = await db.from('company_holidays')
-                .insert(holidaysToAdd.map(date => ({ date })));
-            if (holidayAddError) throw holidayAddError;
-        }
+            if (holidaysToAdd.length > 0) {
+                const { error: holidayAddError } = await db.from('company_holidays')
+                    .insert(holidaysToAdd.map(date => ({ date })));
+                if (holidayAddError) throw holidayAddError;
+            }
 
-        if (holidaysToRemove.length > 0) {
-            const { error: holidayRemoveError } = await db.from('company_holidays')
-                .delete()
-                .in('date', holidaysToRemove);
-            if (holidayRemoveError) throw holidayRemoveError;
+            if (holidaysToRemove.length > 0) {
+                const { error: holidayRemoveError } = await db.from('company_holidays')
+                    .delete()
+                    .in('date', holidaysToRemove);
+                if (holidayRemoveError) throw holidayRemoveError;
+            }
+        } catch (holidayError) {
+            console.error('❌ 휴무일 저장 실패 (권한 문제 예상):', holidayError);
+            alert('⚠️ 주의: 직원 스케줄은 저장되었으나, 휴일 설정 저장 권한이 없습니다.\n(관리자에게 company_holidays 테이블 권한 설정을 요청하세요)');
+            // 에러를 throw하지 않고 진행하여 화면 리로드(Step 6)가 실행되도록 함
         }
 
         console.log('✅ 저장 완료');
@@ -707,65 +521,39 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
 
     console.log('  기존 그리드:', currentGrid.map((id, i) => id === null ? `${i}:_` : id === -1 ? `${i}:[]` : `${i}:${id}`).join(' '));
 
-    // 2. 이동 처리 (Insert shift)
-    // movedEmployeeId 를 newIndex에 넣고, newIndex에 있던 것부터 뒤로 한칸씩 민다.
-    // 단, 빈 슬롯이 있으면 거기서 밀림이 멈춤.
+    // 2. 이동 처리
+    const newGrid = [...currentGrid];
 
-    // 기존 위치 비우기
-    // oldIndex 자리는 무조건 null이 됨. (나중에 채워지는 로직에 의해 덮어씌워지지 않는다면)
-    // 여기서는 "이동"이므로, 일단 뽑아낸다.
-    let tempGrid = [...currentGrid];
-    tempGrid[oldIndex] = null; // 뽑음
+    // 원래 위치 비우기 (빈 슬롯으로)
+    newGrid[oldIndex] = null;
 
-    // 삽입 위치에 넣기 위해 shift
-    // tempGrid 상태에서 newIndex 위치에 삽입
+    // 새 위치에 배치
+    if (newGrid[newIndex] === null) {
+        // 빈 슬롯이면 단순 이동
+        newGrid[newIndex] = movedEmployeeId;
+    } else {
+        // 다른 직원/빈칸이 있으면 삽입 (뒤로 밀기)
+        const itemsToShift = [];
+        for (let i = newIndex; i < GRID_SIZE; i++) {
+            if (newGrid[i] !== null) {
+                itemsToShift.push(newGrid[i]);
+                newGrid[i] = null;
+            }
+        }
 
-    // 단순 배열 조작으로 처리: null 제거 후 삽입 -> 다시 24개 맞춤?
-    // 아니면 정확한 grid 로직?
-    // "네임카드를 이미 빈칸이 아닌 자리로 옮기면 그자리로 옮겨지면서 기존 네임카드를 포함한 뒤쪽 네임카드가 한칸씩 밀리도록 해야돼"
-
-    const items = [];
-    for (let i = 0; i < GRID_SIZE; i++) {
-        if (i === oldIndex) continue; // 빠진 놈 스킵
-        if (tempGrid[i] !== null) items.push(tempGrid[i]); // 있는 놈들만 수집
+        // 삽입
+        newGrid[newIndex] = movedEmployeeId;
+        let insertPos = newIndex + 1;
+        itemsToShift.forEach(empId => {
+            while (insertPos < GRID_SIZE && newGrid[insertPos] !== null) {
+                insertPos++;
+            }
+            if (insertPos < GRID_SIZE) {
+                newGrid[insertPos] = empId;
+                insertPos++;
+            }
+        });
     }
-
-    // newIndex 위치에 삽입
-    // newIndex가 oldIndex보다 클 때, 작을 때 보정 필요?
-    // Sortable은 시각적으로 이미 처리됨. DOM 순서가 맞음.
-    // handleSameDateMove는 "드래그가 끝난 후" DOM을 보고 호출되는 게 아니라,
-    // Sortable을 안 쓰고 직접 구현할 때 쓰거나... 
-    // 잠깐, 이 코드는 handleSameDateMove가 어디서 호출되는지 봐야 함.
-    // 아까 Sortable onUpdate에서는 updateScheduleSortOrders 만 호출했음.
-    // 이 함수 handleSameDateMove는 현재 "sidebar에서 드래그" 구현 시 쓰였던 잔재거나
-    // 혹은 다른 곳에서 쓰이는지 확인 필요.
-    // 검색 결과: handleSameDateMove는 현재 코드에서 호출되는 곳이 안 보임 (이전 코드 분석엔 없었으나 파일 전체엔 있을 수 있음)
-    // 하지만 Sortable onUpdate에서 updateScheduleSortOrders를 호출하므로, 이 로직이 메인임.
-
-    // Sortable 자체가 swap이 아니라 insert 방식으로 동작함 (기본값).
-    // 즉 DOM 상으로는 이미 밀려있음.
-    // 따라서 updateScheduleSortOrders 만 잘 고치면 됨.
-
-    // 하지만 Task 요청사항에 "네임카드를 드래그해서 위치를 수정하면 그 위치그대로 저장해야하는데 저장하면 다시 빈칸이 채워지고 있어"
-    // 이는 updateScheduleSortOrders가 빈칸을 무시하고 0,1,2... 로 재할당했기 때문임. (위에서 수정함)
-
-    // "기존 네임카드를 포함한 뒤쪽 네임카드가 한칸씩 밀리도록 해야돼" -> Sortable 기본 동작.
-
-    // 결론: 이 함수(handleSameDateMove)는 현재 사용되지 않거나 불필요할 수 있음. 
-    // 하지만 혹시 모르니 로직을 "Insert" 방식으로 수정해둠.
-
-    const newGrid = new Array(GRID_SIZE).fill(null);
-
-    // 로직:
-    // 1. currentGrid에서 movedEmployeeId 제거 (oldPos)
-    // 2. newIndex에 movedEmployeeId 삽입
-    // 3. 밀어내기 (뒤에 빈칸이 있으면 거기로 밀림)
-
-    // 더 간단히: 
-    // Sortable onUpdate 만으로 충분하다면 이 함수는 필요 없음.
-    // 일단 비워둠/유지. 
-    return; // 이 함수는 사용되지 않는 것으로 추정되며, DOM 업데이트 방식(updateScheduleSortOrders)이 메인이 됨.
-
 
     console.log('  새 그리드:', newGrid.map((id, i) => id === null ? `${i}:_` : id === -1 ? `${i}:[]` : `${i}:${id}`).join(' '));
 
@@ -817,19 +605,6 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     renderCalendar();
     updateSaveButtonState();
 }
-
-
-
-// ✨ 더블클릭 이벤트 연결을 위한 초기화
-function initializeCalendarEvents() {
-    const calendarGrid = document.querySelector('#pure-calendar');
-    if (calendarGrid) {
-        // 이벤트 중복 방지
-        calendarGrid.removeEventListener('dblclick', handleDateHeaderDblClick);
-        calendarGrid.addEventListener('dblclick', handleDateHeaderDblClick);
-    }
-}
-
 
 function initializeDayDragDrop(dayEl, dateStr) {
     const eventContainer = dayEl.querySelector('.day-events');
@@ -1675,6 +1450,110 @@ async function renderScheduleSidebar() {
     sidebar.addEventListener('click', handleDeleteSpacer);
 
     initializeSortableAndDraggable();
+}
+
+// ✨ 날짜 헤더 더블클릭 핸들러 (휴일 토글)
+function handleDateHeaderDblClick(e) {
+    const dayEl = e.target.closest('.calendar-day');
+    if (!dayEl) return;
+
+    const headerEl = e.target.closest('.day-number');
+    if (!headerEl && !e.target.classList.contains('calendar-day')) return;
+
+    if (isDragging) return;
+
+    const dateStr = dayEl.dataset.date;
+
+    const workingSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
+    const isHoliday = state.schedule.companyHolidays.has(dateStr);
+
+    if (!isHoliday) {
+        if (confirm(`${dateStr}을 휴일로 지정하고 모든 근무자를 휴무로 변경하시겠습니까?`)) {
+            workingSchedules.forEach(s => {
+                s.status = '휴무';
+                unsavedChanges.set(s.id, { type: 'update', data: s });
+            });
+            state.schedule.companyHolidays.add(dateStr);
+            unsavedHolidayChanges.toAdd.add(dateStr);
+            unsavedHolidayChanges.toRemove.delete(dateStr);
+            renderCalendar();
+            updateSaveButtonState();
+        }
+    } else {
+        if (confirm(`${dateStr}의 휴일 설정을 해제하고 모든 직원을 근무로 변경하시겠습니까?`)) {
+            state.schedule.companyHolidays.delete(dateStr);
+            unsavedHolidayChanges.toRemove.add(dateStr);
+            unsavedHolidayChanges.toAdd.delete(dateStr);
+
+            // 1. 이미 근무 중인 사람들의 포지션 점유 확인
+            const occupiedPositions = new Set();
+            state.schedule.schedules.forEach(s => {
+                if (s.date === dateStr && s.status === '근무') {
+                    occupiedPositions.add(s.grid_position);
+                }
+            });
+
+            // 2. 복귀 대상 직원 처리
+            const allActiveEmployees = state.management.employees.filter(e => !e.resignation_date);
+
+            allActiveEmployees.forEach(emp => {
+                let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
+
+                if (schedule) {
+                    if (schedule.status !== '근무') {
+                        // 휴무 -> 근무 복귀
+                        let targetPos = schedule.grid_position;
+
+                        // 포지션 충돌 또는 유효하지 않은 경우(null, undefined) 재설정
+                        if (targetPos === null || targetPos === undefined || occupiedPositions.has(targetPos) || targetPos >= 24) {
+                            // 빈 자리 찾기
+                            let newPos = 0;
+                            while (occupiedPositions.has(newPos) && newPos < 24) newPos++;
+                            targetPos = newPos;
+                        }
+
+                        if (targetPos < 24) {
+                            schedule.status = '근무';
+                            schedule.grid_position = targetPos;
+                            schedule.sort_order = targetPos; // 정렬 순서도 동기화
+                            unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                            occupiedPositions.add(targetPos);
+                        }
+                    }
+                } else {
+                    // 스케줄 없음 -> 신규 생성
+                    let newPos = 0;
+                    while (occupiedPositions.has(newPos) && newPos < 24) newPos++;
+
+                    if (newPos < 24) {
+                        const tempId = `temp-${Date.now()}-${emp.id}-${newPos}`;
+                        const newSchedule = {
+                            id: tempId,
+                            date: dateStr,
+                            employee_id: emp.id,
+                            status: '근무',
+                            sort_order: newPos,
+                            grid_position: newPos
+                        };
+                        state.schedule.schedules.push(newSchedule);
+                        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+                        occupiedPositions.add(newPos);
+                    }
+                }
+            });
+            renderCalendar();
+            updateSaveButtonState();
+        }
+    }
+}
+
+// ✨ 더블클릭 이벤트 연결을 위한 초기화
+function initializeCalendarEvents() {
+    const calendarGrid = document.querySelector('#pure-calendar');
+    if (calendarGrid) {
+        calendarGrid.removeEventListener('dblclick', handleDateHeaderDblClick);
+        calendarGrid.addEventListener('dblclick', handleDateHeaderDblClick);
+    }
 }
 
 export async function renderScheduleManagement(container, isReadOnly = false) {
