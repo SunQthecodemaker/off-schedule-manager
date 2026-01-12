@@ -1294,7 +1294,7 @@ function getLeaveStatusRow(emp) {
     gridHTML += '</div>';
 
     return `
-        <tr class="leave-status-row border-b hover:bg-gray-50" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
+        <tr class="leave-status-row border-b hover:bg-gray-50" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
             <td class="p-2 text-center font-semibold">${emp.name}</td>
             <td class="p-2 text-center text-gray-600">${deptName}</td>
             <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
@@ -1319,7 +1319,94 @@ export function addLeaveStatusEventListeners() {
     if (sortFilter) {
         sortFilter.addEventListener('change', filterAndSortLeaveStatus);
     }
+
+    // 수동 연차 등록 (더블클릭 이벤트)
+    // 이벤트 위임 사용: 컨테이너에 리스너를 붙이고, 클릭된 요소가 .leave-box인지 확인
+    const leaveStatusContainer = document.querySelector('.leave-status-table-wrapper');
+    if (leaveStatusContainer) {
+        leaveStatusContainer.addEventListener('dblclick', handleLeaveBoxDblClick);
+    }
 }
+
+async function handleLeaveBoxDblClick(e) {
+    const box = e.target.closest('.leave-box');
+    if (!box) return;
+
+    // 이미 사용된 연차는 무시
+    if (box.classList.contains('used')) {
+        return;
+    }
+
+    // 직원 정보 찾기 (tr 요소의 data 속성에는 직원 ID가 없으므로 이름으로 찾거나, tr 생성 시 ID 추가 필요)
+    // 현재 구조에서는 tr에 data-dept, data-remaining만 있음. -> getLeaveStatusRow 수정 필요
+    // 하지만 tr 내부의 첫 번째 td가 이름이므로, state.management.employees에서 이름으로 찾을 수 있음.
+    // 더 정확하게 하기 위해 getLeaveStatusRow를 수정하여 data-employee-id를 추가하는 것이 좋음.
+
+    // tr 요소 찾기
+    const tr = box.closest('tr');
+    if (!tr) return;
+
+    // 직원 ID 가져오기 (HTML 수정 없이 현재 구조에서 해결 시도: 이름으로 찾기)
+    // 하지만 동명이인 이슈가 있을 수 있으므로 data-id를 추가하는 것이 안전함.
+    // 따라서 getLeaveStatusRow 함수도 수정해야 함.
+    let employeeId = tr.dataset.employeeId;
+
+    if (!employeeId) {
+        // 만약 tr에 employee-id가 없다면 이름으로 찾기 (데이터 무결성을 위해 비추천하지만, 현재 상황에 맞춰 대처)
+        const nameCell = tr.querySelector('td:first-child');
+        if (nameCell) {
+            const name = nameCell.textContent.trim();
+            const employee = state.management.employees.find(e => e.name === name);
+            if (employee) employeeId = employee.id;
+        }
+    }
+
+    if (!employeeId) {
+        alert('직원 정보를 찾을 수 없습니다.');
+        return;
+    }
+
+    const employee = state.management.employees.find(e => e.id == employeeId);
+    if (!employee) return;
+
+    const defaultDate = dayjs().format('YYYY-MM-DD');
+    const inputDate = prompt(`[${employee.name}] 직원의 연차를 수동으로 등록하시겠습니까?\n등록할 날짜를 입력해주세요 (YYYY-MM-DD):`, defaultDate);
+
+    if (inputDate === null) return; // 취소
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
+        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD).');
+        return;
+    }
+
+    if (confirm(`${employee.name} 직원의 ${inputDate} 연차를 '관리자 등록'으로 확정하시겠습니까?`)) {
+        try {
+            const currentUser = state.currentUser;
+
+            // 연차 요청 생성 및 즉시 승인 처리
+            const { error } = await db.from('leave_requests').insert({
+                employee_id: employee.id,
+                employee_name: employee.name,
+                dates: [inputDate],
+                reason: '관리자 수동 등록',
+                status: 'approved',
+                final_manager_id: currentUser.id,
+                final_manager_status: 'approved',
+                final_approved_at: new Date().toISOString()
+            });
+
+            if (error) throw error;
+
+            alert('성공적으로 등록되었습니다.');
+            await window.loadAndRenderManagement();
+
+        } catch (error) {
+            console.error('수동 연차 등록 실패:', error);
+            alert('등록 중 오류가 발생했습니다: ' + error.message);
+        }
+    }
+}
+
 
 function filterAndSortLeaveStatus() {
     const deptFilter = document.getElementById('dept-filter').value;
