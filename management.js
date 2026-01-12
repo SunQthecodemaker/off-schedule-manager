@@ -468,7 +468,7 @@ async function handleAddNewDepartment() {
 }
 
 async function handleUpdateDepartment(id) {
-    const name = _(`#dept - name - ${id} `).value.trim();
+    const name = _(`#dept-name-${id}`).value.trim();
     if (!name) {
         alert('부서명을 입력하세요.');
         return;
@@ -728,7 +728,7 @@ window.filterLeaveList = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#filter - ${status} `);
+    const activeBtn = _(`#filter-${status}`);
     if (activeBtn) {
         activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
         activeBtn.classList.remove('bg-gray-200');
@@ -766,7 +766,7 @@ window.filterLeaveCalendar = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#cal - filter - ${status} `);
+    const activeBtn = _(`#cal-filter-${status}`);
     if (activeBtn) {
         if (status === 'pending') {
             activeBtn.classList.add('active', 'bg-yellow-500', 'text-white');
@@ -1150,9 +1150,9 @@ export function getLeaveManagementHTML() {
 
 // 연차 정보 업데이트
 window.handleUpdateLeave = async function (id) {
-    const leave_renewal_date = _(`#leave - renewal - ${id} `).value || null;
-    const leave_adjustment = parseInt(_(`#leave - adj - ${id} `).value) || 0;
-    const work_days_per_week = parseInt(_(`#leave - workdays - ${id} `).value) || 5;
+    const leave_renewal_date = _(`#leave-renewal-${id}`).value || null;
+    const leave_adjustment = parseInt(_(`#leave-adj-${id}`).value) || 0;
+    const work_days_per_week = parseInt(_(`#leave-workdays-${id}`).value) || 5;
 
     console.log('💾 연차 업데이트:', { id, leave_renewal_date, leave_adjustment, work_days_per_week });
 
