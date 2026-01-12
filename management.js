@@ -17,6 +17,7 @@ export function assignManagementEventHandlers() {
     window.handleRestoreEmployee = handleRestoreEmployee;
     window.toggleEmployeeFilter = toggleEmployeeFilter;
     window.handleResetPassword = handleResetPassword;
+    window.handleUpdateLeave = handleUpdateLeave;
 }
 
 // =========================================================================================
