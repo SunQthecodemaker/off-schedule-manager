@@ -1185,12 +1185,16 @@ export function getLeaveStatusHTML() {
             .filter(req => req.employee_id === emp.id && req.status === 'approved');
 
         // 사용한 날짜들을 모두 수집하여 평탄화 및 정렬
+        // 사용한 날짜들을 모두 수집하여 평탄화 및 정렬
         let usedDates = usedRequests
-            .flatMap(req => req.dates || [])
-            .sort();
-
-        // 날짜 형식 변환 (YYYY-MM-DD -> MM.DD)
-        usedDates = usedDates.map(d => dayjs(d).format('M.D'));
+            .flatMap(req => {
+                return (req.dates || []).map(date => ({
+                    date: date,
+                    type: req.reason === '관리자 수동 등록' ? 'manual' : 'formal',
+                    requestId: req.id
+                }));
+            })
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
 
         const usedDays = usedDates.length;
         const remainingDays = leaveDetails.final - usedDays;
@@ -1277,6 +1281,8 @@ export function getLeaveStatusHTML() {
         `;
 }
 
+
+
 function getLeaveStatusRow(emp) {
     const deptName = emp.dept || emp.departments?.name || '-';
 
@@ -1286,10 +1292,27 @@ function getLeaveStatusRow(emp) {
 
     for (let i = 0; i < totalBoxes; i++) {
         const isUsed = i < emp.usedDates.length;
-        const dateText = isUsed ? emp.usedDates[i] : (i + 1); // 사용했으면 날짜, 안했으면 순번
-        const boxClass = isUsed ? 'leave-box used' : 'leave-box';
 
-        gridHTML += `<div class="${boxClass}">${dateText}</div>`;
+        let dateText = i + 1;
+        let boxClass = 'leave-box';
+        let dataAttrs = '';
+
+        if (isUsed) {
+            const usedDateObj = emp.usedDates[i];
+            // 객체인지 확인 (하위 호환성)
+            const dateVal = usedDateObj.date || usedDateObj;
+            const type = usedDateObj.type || 'formal';
+            const requestId = usedDateObj.requestId || '';
+
+            dateText = dayjs(dateVal).format('M.D');
+
+            const isManual = type === 'manual';
+
+            boxClass += ' used ' + (isManual ? 'manual' : 'formal');
+            dataAttrs = `data-request-id="${requestId}" data-type="${type}"`;
+        }
+
+        gridHTML += `<div class="${boxClass}" ${dataAttrs}>${dateText}</div>`;
     }
     gridHTML += '</div>';
 
@@ -1320,39 +1343,167 @@ export function addLeaveStatusEventListeners() {
         sortFilter.addEventListener('change', filterAndSortLeaveStatus);
     }
 
-    // 수동 연차 등록 (더블클릭 이벤트)
-    // 이벤트 위임 사용: 컨테이너에 리스너를 붙이고, 클릭된 요소가 .leave-box인지 확인
+    // 수동 연차 등록 (더블클릭) 및 신청서 조회 (단일 클릭)
     const leaveStatusContainer = document.querySelector('.leave-status-table-wrapper');
     if (leaveStatusContainer) {
         leaveStatusContainer.addEventListener('dblclick', handleLeaveBoxDblClick);
+        leaveStatusContainer.addEventListener('click', handleLeaveBoxClick);
     }
 }
+
+async function handleLeaveBoxClick(e) {
+    const box = e.target.closest('.leave-box');
+    if (!box) return;
+
+    // 사용된 연차인지 확인
+    if (!box.classList.contains('used')) return;
+
+    const requestId = box.dataset.requestId;
+    const type = box.dataset.type;
+
+    if (!requestId) return;
+
+    if (type === 'manual') {
+        const request = state.management.leaveRequests.find(r => r.id == requestId);
+        if (request) {
+            alert(`[관리자 수동 등록 건]\n\n등록일: ${dayjs(request.created_at).format('YYYY-MM-DD')}\n대상일: ${request.dates.join(', ')}\n사유: ${request.reason}`);
+        }
+    } else {
+        window.viewLeaveApplication(requestId);
+    }
+}
+
+window.viewLeaveApplication = function (requestId) {
+    const request = state.management.leaveRequests.find(r => r.id == requestId);
+    if (!request) {
+        alert('신청 정보를 찾을 수 없습니다.');
+        return;
+    }
+
+    const employee = state.management.employees.find(e => e.id === request.employee_id);
+    const deptName = employee?.departments?.name || employee?.dept || '-';
+    // const submissionDate = dayjs(request.created_at).format('YYYY년 MM월 DD일');
+    const submissionDate = request.created_at ? dayjs(request.created_at).format('YYYY년 MM월 DD일') : dayjs(request.dates[0]).format('YYYY년 MM월 DD일');
+
+    const leaveDates = (request.dates || []).join(', ');
+    const daysCount = request.dates?.length || 0;
+
+    // 서명 이미지 처리
+    const signatureHtml = request.signature
+        ? `<img src="${request.signature}" alt="서명" style="max-width: 150px; max-height: 80px;">`
+        : `<span class="text-gray-400 italic text-sm">(서명 없음)</span>`;
+
+    const modalHTML = `
+        <div id="view-leave-app-modal" class="modal-overlay">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="flex justify-end no-print">
+                    <button id="close-leave-app-modal" class="text-3xl text-gray-500 hover:text-gray-800">&times;</button>
+                </div>
+                
+                <div class="p-8 bg-white print-area">
+                    <div class="text-center mb-10">
+                        <h1 class="text-3xl font-extrabold border-2 border-black inline-block px-8 py-2">연 차 신 청 서</h1>
+                    </div>
+
+                    <div class="flex justify-end mb-6">
+                        <table class="border border-black text-center text-sm" style="width: 200px;">
+                            <tr>
+                                <th class="border border-black bg-gray-100 p-1 w-1/2">매니저</th>
+                                <th class="border border-black bg-gray-100 p-1 w-1/2">관리자</th>
+                            </tr>
+                            <tr style="height: 60px;">
+                                <td class="border border-black align-middle">
+                                    ${request.middle_manager_status === 'approved' ? '<span class="text-red-600 font-bold border-2 border-red-600 rounded-full p-1 text-xs">승인</span>' : (request.middle_manager_status === 'skipped' ? '-' : '')}
+                                </td>
+                                <td class="border border-black align-middle">
+                                    ${request.final_manager_status === 'approved' ? '<span class="text-red-600 font-bold border-2 border-red-600 rounded-full p-1 text-xs">승인</span>' : ''}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <table class="w-full border-collapse border-2 border-black mb-6">
+                        <tr>
+                            <th class="border border-black bg-gray-100 p-3 w-32">성 명</th>
+                            <td class="border border-black p-3">${request.employee_name}</td>
+                            <th class="border border-black bg-gray-100 p-3 w-32">소 속</th>
+                            <td class="border border-black p-3">${deptName}</td>
+                        </tr>
+                        <tr>
+                            <th class="border border-black bg-gray-100 p-3">신청 기간</th>
+                            <td class="border border-black p-3" colspan="3">
+                                ${leaveDates} <span class="text-sm text-gray-600 ml-2">(총 ${daysCount}일)</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="border border-black bg-gray-100 p-3">사 유</th>
+                            <td class="border border-black p-3 h-32 align-top" colspan="3">${request.reason || '-'}</td>
+                        </tr>
+                    </table>
+
+                    <div class="text-center mt-12 mb-8">
+                        <p class="text-lg mb-4">위와 같이 연차를 신청하오니 허가하여 주시기 바랍니다.</p>
+                        <p class="text-lg font-bold">${submissionDate}</p>
+                    </div>
+
+                    <div class="flex justify-end items-center mt-8">
+                        <span class="text-lg mr-4">신청인: </span>
+                        <span class="text-lg font-bold mr-4">${request.employee_name}</span>
+                        <div class="border-b border-black pb-1 min-w-[100px] text-center">
+                            ${signatureHtml}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-center mt-6 gap-2 no-print">
+                    <button id="print-leave-app-btn" class="bg-gray-800 text-white px-6 py-2 rounded hover:bg-black">인쇄하기</button>
+                    <button id="ok-leave-app-btn" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">확인</button>
+                </div>
+            </div>
+        </div>
+        
+        <style>
+            @media print {
+                body * {
+                    visibility: hidden;
+                }
+                .print-area, .print-area * {
+                    visibility: visible;
+                }
+                .print-area {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    width: 100%;
+                }
+                .no-print {
+                    display: none !important;
+                }
+            }
+        </style>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    _('#close-leave-app-modal').addEventListener('click', () => _('#view-leave-app-modal').remove());
+    _('#ok-leave-app-btn').addEventListener('click', () => _('#view-leave-app-modal').remove());
+    _('#print-leave-app-btn').addEventListener('click', () => window.print());
+};
 
 async function handleLeaveBoxDblClick(e) {
     const box = e.target.closest('.leave-box');
     if (!box) return;
 
-    // 이미 사용된 연차는 무시
-    if (box.classList.contains('used')) {
-        return;
-    }
+    if (box.classList.contains('used')) return;
 
-    // 직원 정보 찾기 (tr 요소의 data 속성에는 직원 ID가 없으므로 이름으로 찾거나, tr 생성 시 ID 추가 필요)
-    // 현재 구조에서는 tr에 data-dept, data-remaining만 있음. -> getLeaveStatusRow 수정 필요
-    // 하지만 tr 내부의 첫 번째 td가 이름이므로, state.management.employees에서 이름으로 찾을 수 있음.
-    // 더 정확하게 하기 위해 getLeaveStatusRow를 수정하여 data-employee-id를 추가하는 것이 좋음.
-
-    // tr 요소 찾기
     const tr = box.closest('tr');
     if (!tr) return;
 
-    // 직원 ID 가져오기 (HTML 수정 없이 현재 구조에서 해결 시도: 이름으로 찾기)
-    // 하지만 동명이인 이슈가 있을 수 있으므로 data-id를 추가하는 것이 안전함.
-    // 따라서 getLeaveStatusRow 함수도 수정해야 함.
+    // dataset.employeeId 사용 (getLeaveStatusRow에서 추가한 속성)
     let employeeId = tr.dataset.employeeId;
 
+    // 만약 data-employee-id가 없다면 (기존 렌더링 된 요소일 경우) 이름으로 찾기 fallback
     if (!employeeId) {
-        // 만약 tr에 employee-id가 없다면 이름으로 찾기 (데이터 무결성을 위해 비추천하지만, 현재 상황에 맞춰 대처)
         const nameCell = tr.querySelector('td:first-child');
         if (nameCell) {
             const name = nameCell.textContent.trim();
@@ -1369,40 +1520,38 @@ async function handleLeaveBoxDblClick(e) {
     const employee = state.management.employees.find(e => e.id == employeeId);
     if (!employee) return;
 
+    // 날짜 입력 받기
     const defaultDate = dayjs().format('YYYY-MM-DD');
     const inputDate = prompt(`[${employee.name}] 직원의 연차를 수동으로 등록하시겠습니까?\n등록할 날짜를 입력해주세요 (YYYY-MM-DD):`, defaultDate);
 
-    if (inputDate === null) return; // 취소
+    if (inputDate === null) return;
 
+    // 날짜 유효성 검사
     if (!/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
-        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD).');
+        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD)');
         return;
     }
 
-    if (confirm(`${employee.name} 직원의 ${inputDate} 연차를 '관리자 등록'으로 확정하시겠습니까?`)) {
+    if (confirm(`${employee.name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
         try {
-            const currentUser = state.currentUser;
-
-            // 연차 요청 생성 및 즉시 승인 처리
             const { error } = await db.from('leave_requests').insert({
                 employee_id: employee.id,
                 employee_name: employee.name,
                 dates: [inputDate],
                 reason: '관리자 수동 등록',
                 status: 'approved',
-                final_manager_id: currentUser.id,
+                final_manager_id: state.currentUser.id,
                 final_manager_status: 'approved',
                 final_approved_at: new Date().toISOString()
             });
 
             if (error) throw error;
 
-            alert('성공적으로 등록되었습니다.');
+            alert('수동 등록이 완료되었습니다.');
             await window.loadAndRenderManagement();
-
-        } catch (error) {
-            console.error('수동 연차 등록 실패:', error);
-            alert('등록 중 오류가 발생했습니다: ' + error.message);
+        } catch (err) {
+            console.error(err);
+            alert('등록 중 오류가 발생했습니다: ' + err.message);
         }
     }
 }
