@@ -1190,7 +1190,8 @@ export function getLeaveStatusHTML() {
             .flatMap(req => {
                 return (req.dates || []).map(date => ({
                     date: date,
-                    type: req.reason === '관리자 수동 등록' ? 'manual' : 'formal',
+                    // '수동'이라는 단어가 포함되어 있으면 manual로 처리 (유연성 확보)
+                    type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
                     requestId: req.id
                 }));
             })
@@ -1375,7 +1376,23 @@ async function handleLeaveBoxClick(e) {
     if (type === 'manual') {
         const request = state.management.leaveRequests.find(r => r.id == requestId);
         if (request) {
-            alert(`[관리자 수동 등록 건]\n\n등록일: ${dayjs(request.created_at).format('YYYY-MM-DD')}\n대상일: ${request.dates.join(', ')}\n사유: ${request.reason}`);
+            const confirmMsg = `[관리자 수동 등록 건]\n\n` +
+                `등록일: ${dayjs(request.created_at).format('YYYY-MM-DD')}\n` +
+                `대상일: ${request.dates.join(', ')}\n` +
+                `사유: ${request.reason}\n\n` +
+                `이 연차 내역을 삭제하시겠습니까?`;
+
+            if (confirm(confirmMsg)) {
+                try {
+                    const { error } = await db.from('leave_requests').delete().eq('id', requestId);
+                    if (error) throw error;
+                    alert('삭제되었습니다.');
+                    await window.loadAndRenderManagement();
+                } catch (err) {
+                    console.error(err);
+                    alert('삭제 중 오류가 발생했습니다: ' + err.message);
+                }
+            }
         }
     } else {
         window.viewLeaveApplication(requestId);
