@@ -1236,10 +1236,19 @@ export function getLeaveStatusHTML() {
                 color: #9ca3af; /* 기본 연한 회색 (번호) */
             }
             .leave-box.used {
-                background-color: #dbeafe; /* 사용한 연차 배경색 */
+                background-color: #dbeafe; /* 기본(정식) 연차 배경색 (파랑) */
                 border-color: #93c5fd;
-                color: #1e40af; /* 날짜 글씨 색 */
+                color: #1e40af;
                 font-weight: bold;
+            }
+            .leave-box.used.manual {
+                background-color: #f3e8ff; /* 수동 등록 배경색 (보라) */
+                border-color: #d8b4fe;
+                color: #6b21a8;
+            }
+            .leave-box:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
             }
         </style>
         <div class="leave-status-container">
