@@ -100,7 +100,7 @@ export function getLeaveDetails(employee, referenceDate = null) {
         // renewalThisYear 가 오늘보다 뒤라면, 아직 갱신일 안 옴 -> 기간 시작은 작년 갱신일
         // renewalThisYear 가 오늘보다 앞(또는 같음)이라면, 기간 시작은 올해 갱신일
 
-        if (today.isSameOrAfter(renewalThisYear)) {
+        if (!today.isBefore(renewalThisYear)) {
             periodStart = renewalThisYear;
             periodEnd = renewalThisYear.add(1, 'year').subtract(1, 'day');
         } else {
@@ -112,7 +112,7 @@ export function getLeaveDetails(employee, referenceDate = null) {
         // 입사일의 올해 기념일 계산
         const currentYearAnniversary = dayjs(`${today.year()}-${entryDay.format('MM-DD')}`);
 
-        if (today.isSameOrAfter(currentYearAnniversary)) {
+        if (!today.isBefore(currentYearAnniversary)) {
             periodStart = currentYearAnniversary;
             periodEnd = currentYearAnniversary.add(1, 'year').subtract(1, 'day');
         } else {

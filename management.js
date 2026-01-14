@@ -728,7 +728,7 @@ window.filterLeaveList = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#filter - ${ status } `);
+    const activeBtn = _(`#filter - ${status} `);
     if (activeBtn) {
         activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
         activeBtn.classList.remove('bg-gray-200');
@@ -766,7 +766,7 @@ window.filterLeaveCalendar = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#cal - filter - ${ status } `);
+    const activeBtn = _(`#cal - filter - ${status} `);
     if (activeBtn) {
         if (status === 'pending') {
             activeBtn.classList.add('active', 'bg-yellow-500', 'text-white');
@@ -874,14 +874,14 @@ window.renderLeaveCalendar = function (containerSelector) {
             const props = info.event.extendedProps;
 
             if (props.status === 'approved') {
-                alert(`이미 승인된 연차입니다.\n\n직원: ${ props.employeeName } \n날짜: ${ info.event.start.toLocaleDateString('ko-KR') } `);
+                alert(`이미 승인된 연차입니다.\n\n직원: ${props.employeeName} \n날짜: ${info.event.start.toLocaleDateString('ko-KR')} `);
                 return;
             }
 
-            const message = `직원: ${ props.employeeName }
-날짜: ${ info.event.start.toLocaleDateString('ko-KR') }
-사유: ${ props.reason || '없음' }
-신청일: ${ dayjs(props.createdAt).format('YYYY-MM-DD HH:mm') }
+            const message = `직원: ${props.employeeName}
+날짜: ${info.event.start.toLocaleDateString('ko-KR')}
+사유: ${props.reason || '없음'}
+신청일: ${dayjs(props.createdAt).format('YYYY-MM-DD HH:mm')}
 
 승인하시겠습니까 ? `;
 
@@ -1035,13 +1035,13 @@ export async function handleBulkRegister() {
     lines.forEach((line, index) => {
         const [name, entryDate, email, password, departmentName] = line.split('\t').map(s => s.trim());
         if (!name || !entryDate || !password || !departmentName) {
-            errors.push(`- ${ index + 1 }번째 줄: 필수 항목(이름, 입사일, 비밀번호, 부서명)이 누락되었습니다.`);
+            errors.push(`- ${index + 1}번째 줄: 필수 항목(이름, 입사일, 비밀번호, 부서명)이 누락되었습니다.`);
             return;
         }
 
         const department_id = departmentNameToIdMap.get(departmentName);
         if (!department_id) {
-            errors.push(`- ${ index + 1 }번째 줄(${ name }): 존재하지 않는 부서명입니다. ('${departmentName}')`);
+            errors.push(`- ${index + 1}번째 줄(${name}): 존재하지 않는 부서명입니다. ('${departmentName}')`);
             return;
         }
 
@@ -1051,11 +1051,11 @@ export async function handleBulkRegister() {
     if (employeesToInsert.length > 0) {
         const { error } = await db.from('employees').insert(employeesToInsert);
         if (error) {
-            errors.push(`데이터베이스 저장 실패: ${ error.message } `);
+            errors.push(`데이터베이스 저장 실패: ${error.message} `);
         }
     }
 
-    let resultMessage = `총 ${ lines.length }건 중 ${ employeesToInsert.length }건 성공 / ${ errors.length }건 실패\n\n`;
+    let resultMessage = `총 ${lines.length}건 중 ${employeesToInsert.length}건 성공 / ${errors.length}건 실패\n\n`;
     if (errors.length > 0) {
         resultMessage += "실패 사유:\n" + errors.join('\n');
     }
@@ -1091,7 +1091,7 @@ export function getLeaveManagementHTML() {
         { name: '관리', width: '10%' }
     ];
 
-    const headerHtml = headers.map(h => `< th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${ h.name }</th > `).join('');
+    const headerHtml = headers.map(h => `< th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${h.name}</th > `).join('');
 
     const rows = employees.map(emp => {
         const leaveData = getLeaveDetails(emp);
@@ -1099,31 +1099,31 @@ export function getLeaveManagementHTML() {
         // 중요: 현재 연차 주기에 해당하는 승인된 연차만 합산
         const pStart = dayjs(leaveData.periodStart);
 
-const pEnd = dayjs(leaveData.periodEnd);
+        const pEnd = dayjs(leaveData.periodEnd);
 
-const used = leaveRequests
-    .filter(r => r.employee_id === emp.id && r.status === 'approved')
-    .reduce((sum, r) => {
-        // 신청일(dates) 중 현재 주기에 속하는 날짜만 카운트
-        const validDates = (r.dates || []).filter(dateStr => {
-            const d = dayjs(dateStr);
-            return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
-        });
-        return sum + validDates.length;
-    }, 0);
+        const used = leaveRequests
+            .filter(r => r.employee_id === emp.id && r.status === 'approved')
+            .reduce((sum, r) => {
+                // 신청일(dates) 중 현재 주기에 속하는 날짜만 카운트
+                const validDates = (r.dates || []).filter(dateStr => {
+                    const d = dayjs(dateStr);
+                    return (d.isSame(pStart, 'day') || d.isAfter(pStart, 'day')) && (d.isSame(pEnd, 'day') || d.isBefore(pEnd, 'day'));
+                });
+                return sum + validDates.length;
+            }, 0);
 
-const remaining = leaveData.final - used;
+        const remaining = leaveData.final - used;
 
-// 다음 갱신일 계산
-const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
-const renewalThisYear = dayjs(`${dayjs().year()} -${baseDate.format('MM-DD')} `);
-const nextRenewalDate = renewalThisYear.isAfter(dayjs()) ? renewalThisYear.format('YYYY-MM-DD') : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
+        // 다음 갱신일 계산
+        const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
+        const renewalThisYear = dayjs(`${dayjs().year()} -${baseDate.format('MM-DD')} `);
+        const nextRenewalDate = renewalThisYear.isAfter(dayjs()) ? renewalThisYear.format('YYYY-MM-DD') : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
 
-const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
-const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
-const workDaysValue = emp.work_days_per_week || 5;
+        const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
+        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
+        const workDaysValue = emp.work_days_per_week || 5;
 
-return `<tr class="border-t" >
+        return `<tr class="border-t" >
             <td class="p-2 text-sm font-semibold">${emp.name}</td>
             <td class="p-2 text-sm">${entryDateValue}</td>
             <td class="p-2">
@@ -1154,7 +1154,7 @@ return `<tr class="border-t" >
         </tr> `;
     }).join('');
 
-return `
+    return `
         <div class="mb-3" >
             <h2 class="text-lg font-semibold">연차 관리</h2>
             <div class="flex justify-between items-end">
@@ -1420,7 +1420,7 @@ export function getLeaveStatusHTML() {
                 return (req.dates || [])
                     .filter(dateStr => {
                         const d = dayjs(dateStr);
-                        return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
+                        return (d.isSame(pStart, 'day') || d.isAfter(pStart, 'day')) && (d.isSame(pEnd, 'day') || d.isBefore(pEnd, 'day'));
                     })
                     .map(date => ({
                         date: date,
@@ -1609,7 +1609,7 @@ function getLeaveStatusRow(emp) {
 
         if (i < carriedCnt) {
             boxType = 'carried';
-            boxLabel = `이${ boxIndex } `; // 이1, 이2 ...
+            boxLabel = `이${boxIndex} `; // 이1, 이2 ...
         } else if (i < finalLeaves) {
             // 금년 연차 구간
             // 이월이 2개라면, i=2는 3번째 칸이지만 금년 연차로는 1번째임.
@@ -1619,10 +1619,10 @@ function getLeaveStatusRow(emp) {
         } else {
             // 초과(당겨쓰기) 구간
             boxType = 'borrowed';
-            boxLabel = `- ${ boxIndex - finalLeaves } `; // -1, -2 ...
+            boxLabel = `- ${boxIndex - finalLeaves} `; // -1, -2 ...
         }
 
-        let boxClass = `leave - box type - ${ boxType } `;
+        let boxClass = `leave - box type - ${boxType} `;
         let dataAttrs = '';
         let displayText = boxLabel;
 
@@ -1651,7 +1651,7 @@ function getLeaveStatusRow(emp) {
         }
 
 
-        gridHTML += `< div class="${boxClass}" ${ dataAttrs }> ${ displayText }</div > `;
+        gridHTML += `< div class="${boxClass}" ${dataAttrs}> ${displayText}</div > `;
     }
     gridHTML += '</div>';
 
@@ -1706,9 +1706,9 @@ async function handleLeaveBoxClick(e) {
         const request = state.management.leaveRequests.find(r => r.id == requestId);
         if (request) {
             const confirmMsg = `[관리자 수동 등록 건]\n\n` +
-                `등록일: ${ dayjs(request.created_at).format('YYYY-MM-DD') } \n` +
-                `대상일: ${ request.dates.join(', ') } \n` +
-                `사유: ${ request.reason } \n\n` +
+                `등록일: ${dayjs(request.created_at).format('YYYY-MM-DD')} \n` +
+                `대상일: ${request.dates.join(', ')} \n` +
+                `사유: ${request.reason} \n\n` +
                 `이 연차 내역을 삭제하시겠습니까 ? `;
 
             if (confirm(confirmMsg)) {
@@ -1877,7 +1877,7 @@ async function handleLeaveBoxDblClick(e) {
 
     // 날짜 입력 받기
     const defaultDate = dayjs().format('YYYY-MM-DD');
-    const inputDate = prompt(`[${ employee.name }] 직원의 연차를 수동으로 등록하시겠습니까 ?\n등록할 날짜를 입력해주세요(YYYY - MM - DD): `, defaultDate);
+    const inputDate = prompt(`[${employee.name}] 직원의 연차를 수동으로 등록하시겠습니까 ?\n등록할 날짜를 입력해주세요(YYYY - MM - DD): `, defaultDate);
 
     if (inputDate === null) return;
 
@@ -1887,7 +1887,7 @@ async function handleLeaveBoxDblClick(e) {
         return;
     }
 
-    if (confirm(`${ employee.name }님의 ${ inputDate } 연차를 '관리자 수동 등록'으로 처리하시겠습니까 ? `)) {
+    if (confirm(`${employee.name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까 ? `)) {
         try {
             const { error } = await db.from('leave_requests').insert({
                 employee_id: employee.id,
