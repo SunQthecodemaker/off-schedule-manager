@@ -7,6 +7,7 @@ import { renderEmployeePortal } from './employee-portal-final.js?v=20251213_1515
 import { getLeaveDetails } from './leave-utils.js?v=FORCE_UPDATE_IS_SAME_FIX';
 
 dayjs.extend(window.dayjs_plugin_isSameOrAfter);
+dayjs.extend(window.dayjs_plugin_isSameOrBefore);
 
 // =========================================================================================
 // 공유 함수
