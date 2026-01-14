@@ -1,5 +1,5 @@
 import { state, db } from './state.js';
-import { _, show } from './utils.js';
+import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails } from './leave-utils.js';
 
 // =========================================================================================
@@ -660,7 +660,7 @@ export function getLeaveListHTML() {
 
     return `
         <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
-        
+
         <div class="flex flex-wrap gap-2 mb-4 items-center">
             <div class="flex gap-2">
                 <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 (${filteredRequests.length})</button>
@@ -710,7 +710,7 @@ export function getLeaveListHTML() {
             </div>
             <div id="leave-calendar-container"></div>
         </div>
-    `;
+`;
 }
 
 // 목록 필터 상태
@@ -728,7 +728,7 @@ window.filterLeaveList = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#filter-${status}`);
+    const activeBtn = _(`#filter - ${ status } `);
     if (activeBtn) {
         activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
         activeBtn.classList.remove('bg-gray-200');
@@ -766,7 +766,7 @@ window.filterLeaveCalendar = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#cal-filter-${status}`);
+    const activeBtn = _(`#cal - filter - ${ status } `);
     if (activeBtn) {
         if (status === 'pending') {
             activeBtn.classList.add('active', 'bg-yellow-500', 'text-white');
@@ -874,16 +874,16 @@ window.renderLeaveCalendar = function (containerSelector) {
             const props = info.event.extendedProps;
 
             if (props.status === 'approved') {
-                alert(`이미 승인된 연차입니다.\n\n직원: ${props.employeeName} \n날짜: ${info.event.start.toLocaleDateString('ko-KR')} `);
+                alert(`이미 승인된 연차입니다.\n\n직원: ${ props.employeeName } \n날짜: ${ info.event.start.toLocaleDateString('ko-KR') } `);
                 return;
             }
 
-            const message = `직원: ${props.employeeName}
-    날짜: ${info.event.start.toLocaleDateString('ko-KR')}
-    사유: ${props.reason || '없음'}
-    신청일: ${dayjs(props.createdAt).format('YYYY-MM-DD HH:mm')}
+            const message = `직원: ${ props.employeeName }
+날짜: ${ info.event.start.toLocaleDateString('ko-KR') }
+사유: ${ props.reason || '없음' }
+신청일: ${ dayjs(props.createdAt).format('YYYY-MM-DD HH:mm') }
 
-    승인하시겠습니까 ? `;
+승인하시겠습니까 ? `;
 
             if (confirm(message)) {
                 window.handleLeaveApproval(props.requestId, 'approved');
@@ -1035,13 +1035,13 @@ export async function handleBulkRegister() {
     lines.forEach((line, index) => {
         const [name, entryDate, email, password, departmentName] = line.split('\t').map(s => s.trim());
         if (!name || !entryDate || !password || !departmentName) {
-            errors.push(`- ${index + 1}번째 줄: 필수 항목(이름, 입사일, 비밀번호, 부서명)이 누락되었습니다.`);
+            errors.push(`- ${ index + 1 }번째 줄: 필수 항목(이름, 입사일, 비밀번호, 부서명)이 누락되었습니다.`);
             return;
         }
 
         const department_id = departmentNameToIdMap.get(departmentName);
         if (!department_id) {
-            errors.push(`- ${index + 1}번째 줄(${name}): 존재하지 않는 부서명입니다. ('${departmentName}')`);
+            errors.push(`- ${ index + 1 }번째 줄(${ name }): 존재하지 않는 부서명입니다. ('${departmentName}')`);
             return;
         }
 
@@ -1051,11 +1051,11 @@ export async function handleBulkRegister() {
     if (employeesToInsert.length > 0) {
         const { error } = await db.from('employees').insert(employeesToInsert);
         if (error) {
-            errors.push(`데이터베이스 저장 실패: ${error.message} `);
+            errors.push(`데이터베이스 저장 실패: ${ error.message } `);
         }
     }
 
-    let resultMessage = `총 ${lines.length}건 중 ${employeesToInsert.length}건 성공 / ${errors.length}건 실패\n\n`;
+    let resultMessage = `총 ${ lines.length }건 중 ${ employeesToInsert.length }건 성공 / ${ errors.length }건 실패\n\n`;
     if (errors.length > 0) {
         resultMessage += "실패 사유:\n" + errors.join('\n');
     }
@@ -1091,38 +1091,39 @@ export function getLeaveManagementHTML() {
         { name: '관리', width: '10%' }
     ];
 
-    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${h.name}</th> `).join('');
+    const headerHtml = headers.map(h => `< th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${ h.name }</th > `).join('');
 
     const rows = employees.map(emp => {
         const leaveData = getLeaveDetails(emp);
 
         // 중요: 현재 연차 주기에 해당하는 승인된 연차만 합산
         const pStart = dayjs(leaveData.periodStart);
-        const pEnd = dayjs(leaveData.periodEnd);
 
-        const used = leaveRequests
-            .filter(r => r.employee_id === emp.id && r.status === 'approved')
-            .reduce((sum, r) => {
-                // 신청일(dates) 중 현재 주기에 속하는 날짜만 카운트
-                const validDates = (r.dates || []).filter(dateStr => {
-                    const d = dayjs(dateStr);
-                    return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
-                });
-                return sum + validDates.length;
-            }, 0);
+const pEnd = dayjs(leaveData.periodEnd);
 
-        const remaining = leaveData.final - used;
+const used = leaveRequests
+    .filter(r => r.employee_id === emp.id && r.status === 'approved')
+    .reduce((sum, r) => {
+        // 신청일(dates) 중 현재 주기에 속하는 날짜만 카운트
+        const validDates = (r.dates || []).filter(dateStr => {
+            const d = dayjs(dateStr);
+            return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
+        });
+        return sum + validDates.length;
+    }, 0);
 
-        // 다음 갱신일 계산
-        const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
-        const renewalThisYear = dayjs(`${dayjs().year()} -${baseDate.format('MM-DD')} `);
-        const nextRenewalDate = renewalThisYear.isAfter(dayjs()) ? renewalThisYear.format('YYYY-MM-DD') : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
+const remaining = leaveData.final - used;
 
-        const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
-        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
-        const workDaysValue = emp.work_days_per_week || 5;
+// 다음 갱신일 계산
+const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
+const renewalThisYear = dayjs(`${dayjs().year()} -${baseDate.format('MM-DD')} `);
+const nextRenewalDate = renewalThisYear.isAfter(dayjs()) ? renewalThisYear.format('YYYY-MM-DD') : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
 
-        return `<tr class="border-t" >
+const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
+const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
+const workDaysValue = emp.work_days_per_week || 5;
+
+return `<tr class="border-t" >
             <td class="p-2 text-sm font-semibold">${emp.name}</td>
             <td class="p-2 text-sm">${entryDateValue}</td>
             <td class="p-2">
@@ -1153,7 +1154,7 @@ export function getLeaveManagementHTML() {
         </tr> `;
     }).join('');
 
-    return `
+return `
         <div class="mb-3" >
             <h2 class="text-lg font-semibold">연차 관리</h2>
             <div class="flex justify-between items-end">
@@ -1372,6 +1373,7 @@ window.handleSettlementSubmit = async function (e) {
 
 // =========================================================================================
 // 연차 현황 기능
+// =========================================================================================
 window.handleUpdateLeave = async function (id) {
     const leave_renewal_date = _(`#leave-renewal-${id}`).value || null;
     const leave_adjustment = parseFloat(_(`#leave-adj-${id}`).value) || 0;
@@ -1487,96 +1489,96 @@ export function getLeaveStatusHTML() {
             /* 이월 연차 스타일 (보라) */
             .leave-box.type-carried {
                 border-color: #d8b4fe;
-                color: #a855f7; /* text-purple-500 */
-                background-color: #faf5ff; /* bg-purple-50 */
+color: #a855f7; /* text-purple-500 */
+background - color: #faf5ff; /* bg-purple-50 */
             }
-            .leave-box.type-carried.used {
-                background-color: #d8b4fe;
-                color: #6b21a8;
-            }
+            .leave - box.type - carried.used {
+    background - color: #d8b4fe;
+    color: #6b21a8;
+}
 
             /* 일반 연차 스타일 (파랑) */
-            .leave-box.type-regular {
-                border-color: #93c5fd; /* blue-300 */
-                color: #3b82f6; /* blue-500 */
-                background-color: #eff6ff; /* blue-50 */
-            }
-            .leave-box.type-regular.used {
-                background-color: #93c5fd;
-                color: #1e40af;
-            }
+            .leave - box.type - regular {
+    border - color: #93c5fd; /* blue-300 */
+    color: #3b82f6; /* blue-500 */
+    background - color: #eff6ff; /* blue-50 */
+}
+            .leave - box.type - regular.used {
+    background - color: #93c5fd;
+    color: #1e40af;
+}
 
             /* 당겨쓰기/초과 연차 스타일 (빨강) */
-            .leave-box.type-borrowed {
-                border-color: #fca5a5; /* red-300 */
-                color: #ef4444; /* red-500 */
-                background-color: #fef2f2; /* red-50 */
-                font-weight: bold;
-            }
-            .leave-box.type-borrowed.used {
-                background-color: #fca5a5;
-                color: #991b1b;
-            }
+            .leave - box.type - borrowed {
+    border - color: #fca5a5; /* red-300 */
+    color: #ef4444; /* red-500 */
+    background - color: #fef2f2; /* red-50 */
+    font - weight: bold;
+}
+            .leave - box.type - borrowed.used {
+    background - color: #fca5a5;
+    color: #991b1b;
+}
 
             /* 수동 등록 표시 (빗금 등) - 여기선 간단히 테두리로 구분 */
-            .leave-box.manual-entry {
-                position: relative;
-            }
-            .leave-box.manual-entry::after {
-                content: '';
-                position: absolute;
-                top: 2px; right: 2px;
-                width: 4px; height: 4px;
-                border-radius: 50%;
-                background-color: #eab308; /* yellow-500 */
-            }
-        </style>
-        <div class="leave-status-container">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-2xl font-bold">연차 현황</h2>
-                <div class="flex gap-2">
-                    <select id="dept-filter" class="border rounded px-3 py-2">
-                        <option value="">전체 부서</option>
-                        ${departments.map(dept => `<option value="${dept}">${dept}</option>`).join('')}
-                    </select>
-                    <select id="sort-filter" class="border rounded px-3 py-2">
-                        <option value="name">이름순</option>
-                        <option value="remaining-asc">잔여 적은 순</option>
-                        <option value="remaining-desc">잔여 많은 순</option>
-                        <option value="usage-desc">사용률 높은 순</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div class="leave-status-table-wrapper overflow-x-auto">
-                <table class="leave-status-table min-w-full text-sm border">
-                    <thead class="bg-gray-100">
-                        <tr>
-                            <th class="p-2 w-20 text-center">이름</th>
-                            <th class="p-2 w-24 text-center">부서</th>
-                            <th class="p-2 w-24 text-center">입사일</th>
-                            <th class="p-2 w-16 text-center">확정</th>
-                            <th class="p-2 w-16 text-center">사용</th>
-                            <th class="p-2 w-16 text-center">잔여</th>
-                            <th class="p-2 text-left pl-4">
-                                <div class="flex items-center gap-4">
-                                    <span>연차 사용 현황</span>
-                                    <div class="flex gap-2 text-xs font-normal">
-                                        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월</span>
-                                        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 border border-blue-400 rounded"></span>금년</span>
-                                        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>당겨쓰기(초과)</span>
-                                    </div>
-                                </div>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody id="leave-status-tbody">
-                        ${employeeLeaveData.map(emp => getLeaveStatusRow(emp)).join('')}
-                    </tbody>
-                </table>
+            .leave - box.manual - entry {
+    position: relative;
+}
+            .leave - box.manual - entry::after {
+    content: '';
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 4px; height: 4px;
+    border - radius: 50 %;
+    background - color: #eab308; /* yellow-500 */
+}
+        </style >
+    <div class="leave-status-container">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-bold">연차 현황</h2>
+            <div class="flex gap-2">
+                <select id="dept-filter" class="border rounded px-3 py-2">
+                    <option value="">전체 부서</option>
+                    ${departments.map(dept => `<option value="${dept}">${dept}</option>`).join('')}
+                </select>
+                <select id="sort-filter" class="border rounded px-3 py-2">
+                    <option value="name">이름순</option>
+                    <option value="remaining-asc">잔여 적은 순</option>
+                    <option value="remaining-desc">잔여 많은 순</option>
+                    <option value="usage-desc">사용률 높은 순</option>
+                </select>
             </div>
         </div>
-        `;
+
+        <div class="leave-status-table-wrapper overflow-x-auto">
+            <table class="leave-status-table min-w-full text-sm border">
+                <thead class="bg-gray-100">
+                    <tr>
+                        <th class="p-2 w-20 text-center">이름</th>
+                        <th class="p-2 w-24 text-center">부서</th>
+                        <th class="p-2 w-24 text-center">입사일</th>
+                        <th class="p-2 w-16 text-center">확정</th>
+                        <th class="p-2 w-16 text-center">사용</th>
+                        <th class="p-2 w-16 text-center">잔여</th>
+                        <th class="p-2 text-left pl-4">
+                            <div class="flex items-center gap-4">
+                                <span>연차 사용 현황</span>
+                                <div class="flex gap-2 text-xs font-normal">
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월</span>
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 border border-blue-400 rounded"></span>금년</span>
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>당겨쓰기(초과)</span>
+                                </div>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="leave-status-tbody">
+                    ${employeeLeaveData.map(emp => getLeaveStatusRow(emp)).join('')}
+                </tbody>
+            </table>
+        </div>
+    </div>
+`;
 }
 
 
@@ -1607,7 +1609,7 @@ function getLeaveStatusRow(emp) {
 
         if (i < carriedCnt) {
             boxType = 'carried';
-            boxLabel = `이${boxIndex}`; // 이1, 이2 ...
+            boxLabel = `이${ boxIndex } `; // 이1, 이2 ...
         } else if (i < finalLeaves) {
             // 금년 연차 구간
             // 이월이 2개라면, i=2는 3번째 칸이지만 금년 연차로는 1번째임.
@@ -1617,10 +1619,10 @@ function getLeaveStatusRow(emp) {
         } else {
             // 초과(당겨쓰기) 구간
             boxType = 'borrowed';
-            boxLabel = `-${boxIndex - finalLeaves}`; // -1, -2 ...
+            boxLabel = `- ${ boxIndex - finalLeaves } `; // -1, -2 ...
         }
 
-        let boxClass = `leave-box type-${boxType}`;
+        let boxClass = `leave - box type - ${ boxType } `;
         let dataAttrs = '';
         let displayText = boxLabel;
 
@@ -1640,20 +1642,21 @@ function getLeaveStatusRow(emp) {
                     boxClass += ' manual-entry';
                 }
 
-                dataAttrs = `data-request-id="${requestId}" data-type="${type}" title="${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal}"`;
+                dataAttrs = `data - request - id="${requestId}" data - type="${type}" title = "${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal}"`;
             }
         }
         // 미사용 상태 (빈칸)
         else {
-            dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
+            dataAttrs = `title = "${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
         }
 
-        gridHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
+
+        gridHTML += `< div class="${boxClass}" ${ dataAttrs }> ${ displayText }</div > `;
     }
     gridHTML += '</div>';
 
     return `
-        <tr class="leave-status-row border-b hover:bg-gray-50" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
+    < tr class="leave-status-row border-b hover:bg-gray-50" data - employee - id="${emp.id}" data - dept="${deptName}" data - remaining="${emp.remainingDays}" data - usage="${emp.usagePercent}" >
             <td class="p-2 text-center font-semibold">${emp.name}</td>
             <td class="p-2 text-center text-gray-600">${deptName}</td>
             <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
@@ -1663,8 +1666,8 @@ function getLeaveStatusRow(emp) {
             <td class="p-2 text-left pl-4" style="max-width: 800px; overflow-x: auto;">
                 ${gridHTML}
             </td>
-        </tr>
-        `;
+        </tr >
+    `;
 }
 
 export function addLeaveStatusEventListeners() {
@@ -1703,10 +1706,10 @@ async function handleLeaveBoxClick(e) {
         const request = state.management.leaveRequests.find(r => r.id == requestId);
         if (request) {
             const confirmMsg = `[관리자 수동 등록 건]\n\n` +
-                `등록일: ${dayjs(request.created_at).format('YYYY-MM-DD')}\n` +
-                `대상일: ${request.dates.join(', ')}\n` +
-                `사유: ${request.reason}\n\n` +
-                `이 연차 내역을 삭제하시겠습니까?`;
+                `등록일: ${ dayjs(request.created_at).format('YYYY-MM-DD') } \n` +
+                `대상일: ${ request.dates.join(', ') } \n` +
+                `사유: ${ request.reason } \n\n` +
+                `이 연차 내역을 삭제하시겠습니까 ? `;
 
             if (confirm(confirmMsg)) {
                 try {
@@ -1742,98 +1745,98 @@ window.viewLeaveApplication = function (requestId) {
 
     // 서명 이미지 처리
     const signatureHtml = request.signature
-        ? `<img src="${request.signature}" alt="서명" style="max-width: 150px; max-height: 80px;">`
-        : `<span class="text-gray-400 italic text-sm">(서명 없음)</span>`;
+        ? `< img src = "${request.signature}" alt = "서명" style = "max-width: 150px; max-height: 80px;" > `
+        : `< span class="text-gray-400 italic text-sm" > (서명 없음)</span > `;
 
     const modalHTML = `
-        <div id="view-leave-app-modal" class="modal-overlay">
-            <div class="modal-content" style="max-width: 700px;">
-                <div class="flex justify-end no-print">
-                    <button id="close-leave-app-modal" class="text-3xl text-gray-500 hover:text-gray-800">&times;</button>
+    < div id = "view-leave-app-modal" class="modal-overlay" >
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="flex justify-end no-print">
+                <button id="close-leave-app-modal" class="text-3xl text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+
+            <div class="p-8 bg-white print-area">
+                <div class="text-center mb-10">
+                    <h1 class="text-3xl font-extrabold border-2 border-black inline-block px-8 py-2">연 차 신 청 서</h1>
                 </div>
-                
-                <div class="p-8 bg-white print-area">
-                    <div class="text-center mb-10">
-                        <h1 class="text-3xl font-extrabold border-2 border-black inline-block px-8 py-2">연 차 신 청 서</h1>
-                    </div>
 
-                    <div class="flex justify-end mb-6">
-                        <table class="border border-black text-center text-sm" style="width: 200px;">
-                            <tr>
-                                <th class="border border-black bg-gray-100 p-1 w-1/2">매니저</th>
-                                <th class="border border-black bg-gray-100 p-1 w-1/2">관리자</th>
-                            </tr>
-                            <tr style="height: 60px;">
-                                <td class="border border-black align-middle">
-                                    ${request.middle_manager_status === 'approved' ? '<span class="text-red-600 font-bold border-2 border-red-600 rounded-full p-1 text-xs">승인</span>' : (request.middle_manager_status === 'skipped' ? '-' : '')}
-                                </td>
-                                <td class="border border-black align-middle">
-                                    ${request.final_manager_status === 'approved' ? '<span class="text-red-600 font-bold border-2 border-red-600 rounded-full p-1 text-xs">승인</span>' : ''}
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-
-                    <table class="w-full border-collapse border-2 border-black mb-6">
+                <div class="flex justify-end mb-6">
+                    <table class="border border-black text-center text-sm" style="width: 200px;">
                         <tr>
-                            <th class="border border-black bg-gray-100 p-3 w-32">성 명</th>
-                            <td class="border border-black p-3">${request.employee_name}</td>
-                            <th class="border border-black bg-gray-100 p-3 w-32">소 속</th>
-                            <td class="border border-black p-3">${deptName}</td>
+                            <th class="border border-black bg-gray-100 p-1 w-1/2">매니저</th>
+                            <th class="border border-black bg-gray-100 p-1 w-1/2">관리자</th>
                         </tr>
-                        <tr>
-                            <th class="border border-black bg-gray-100 p-3">신청 기간</th>
-                            <td class="border border-black p-3" colspan="3">
-                                ${leaveDates} <span class="text-sm text-gray-600 ml-2">(총 ${daysCount}일)</span>
+                        <tr style="height: 60px;">
+                            <td class="border border-black align-middle">
+                                ${request.middle_manager_status === 'approved' ? '<span class="text-red-600 font-bold border-2 border-red-600 rounded-full p-1 text-xs">승인</span>' : (request.middle_manager_status === 'skipped' ? '-' : '')}
+                            </td>
+                            <td class="border border-black align-middle">
+                                ${request.final_manager_status === 'approved' ? '<span class="text-red-600 font-bold border-2 border-red-600 rounded-full p-1 text-xs">승인</span>' : ''}
                             </td>
                         </tr>
-                        <tr>
-                            <th class="border border-black bg-gray-100 p-3">사 유</th>
-                            <td class="border border-black p-3 h-32 align-top" colspan="3">${request.reason || '-'}</td>
-                        </tr>
                     </table>
-
-                    <div class="text-center mt-12 mb-8">
-                        <p class="text-lg mb-4">위와 같이 연차를 신청하오니 허가하여 주시기 바랍니다.</p>
-                        <p class="text-lg font-bold">${submissionDate}</p>
-                    </div>
-
-                    <div class="flex justify-end items-center mt-8">
-                        <span class="text-lg mr-4">신청인: </span>
-                        <span class="text-lg font-bold mr-4">${request.employee_name}</span>
-                        <div class="border-b border-black pb-1 min-w-[100px] text-center">
-                            ${signatureHtml}
-                        </div>
-                    </div>
                 </div>
 
-                <div class="flex justify-center mt-6 gap-2 no-print">
-                    <button id="print-leave-app-btn" class="bg-gray-800 text-white px-6 py-2 rounded hover:bg-black">인쇄하기</button>
-                    <button id="ok-leave-app-btn" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">확인</button>
+                <table class="w-full border-collapse border-2 border-black mb-6">
+                    <tr>
+                        <th class="border border-black bg-gray-100 p-3 w-32">성 명</th>
+                        <td class="border border-black p-3">${request.employee_name}</td>
+                        <th class="border border-black bg-gray-100 p-3 w-32">소 속</th>
+                        <td class="border border-black p-3">${deptName}</td>
+                    </tr>
+                    <tr>
+                        <th class="border border-black bg-gray-100 p-3">신청 기간</th>
+                        <td class="border border-black p-3" colspan="3">
+                            ${leaveDates} <span class="text-sm text-gray-600 ml-2">(총 ${daysCount}일)</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th class="border border-black bg-gray-100 p-3">사 유</th>
+                        <td class="border border-black p-3 h-32 align-top" colspan="3">${request.reason || '-'}</td>
+                    </tr>
+                </table>
+
+                <div class="text-center mt-12 mb-8">
+                    <p class="text-lg mb-4">위와 같이 연차를 신청하오니 허가하여 주시기 바랍니다.</p>
+                    <p class="text-lg font-bold">${submissionDate}</p>
+                </div>
+
+                <div class="flex justify-end items-center mt-8">
+                    <span class="text-lg mr-4">신청인: </span>
+                    <span class="text-lg font-bold mr-4">${request.employee_name}</span>
+                    <div class="border-b border-black pb-1 min-w-[100px] text-center">
+                        ${signatureHtml}
+                    </div>
                 </div>
             </div>
+
+            <div class="flex justify-center mt-6 gap-2 no-print">
+                <button id="print-leave-app-btn" class="bg-gray-800 text-white px-6 py-2 rounded hover:bg-black">인쇄하기</button>
+                <button id="ok-leave-app-btn" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">확인</button>
+            </div>
         </div>
-        
-        <style>
-            @media print {
-                body * {
-                    visibility: hidden;
-                }
-                .print-area, .print-area * {
+        </div >
+
+    <style>
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+                .print - area, .print - area * {
                     visibility: visible;
                 }
-                .print-area {
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
+                    .print - area {
+            position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
                 }
-                .no-print {
-                    display: none !important;
+        .no-print {
+            display: none !important;
                 }
             }
-        </style>
-    `;
+    </style>
+`;
 
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 
@@ -1874,7 +1877,7 @@ async function handleLeaveBoxDblClick(e) {
 
     // 날짜 입력 받기
     const defaultDate = dayjs().format('YYYY-MM-DD');
-    const inputDate = prompt(`[${employee.name}] 직원의 연차를 수동으로 등록하시겠습니까?\n등록할 날짜를 입력해주세요 (YYYY-MM-DD):`, defaultDate);
+    const inputDate = prompt(`[${ employee.name }] 직원의 연차를 수동으로 등록하시겠습니까 ?\n등록할 날짜를 입력해주세요(YYYY - MM - DD): `, defaultDate);
 
     if (inputDate === null) return;
 
@@ -1884,7 +1887,7 @@ async function handleLeaveBoxDblClick(e) {
         return;
     }
 
-    if (confirm(`${employee.name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
+    if (confirm(`${ employee.name }님의 ${ inputDate } 연차를 '관리자 수동 등록'으로 처리하시겠습니까 ? `)) {
         try {
             const { error } = await db.from('leave_requests').insert({
                 employee_id: employee.id,
