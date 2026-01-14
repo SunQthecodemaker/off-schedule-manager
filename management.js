@@ -630,8 +630,8 @@ export function getLeaveListHTML() {
 
             const datesText = (req.dates || []).join(', ');
             const dateCount = req.dates?.length || 0;
-
-            return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" >
+            // 날짜 데이터 속성 추가 for 필터링
+            return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
             <td class="p-2 text-sm">${employeeName}</td>
             <td class="p-2 text-sm">${datesText}</td>
             <td class="p-2 text-sm text-center">${dateCount}일</td>
@@ -646,7 +646,7 @@ export function getLeaveListHTML() {
                 </div>
             </td>
             <td class="p-2 text-center">${actions}</td>
-        </tr> `;
+        </tr>`;
         }).join('');
     }
 
@@ -655,21 +655,28 @@ export function getLeaveListHTML() {
     const employeeOptions = employeeIds.map(id => {
         const name = employeeNameMap[id] || '알 수 없음';
         const count = filteredRequests.filter(req => req.employee_id === id).length;
-        return `<option value = "${id}" > ${name} (${count}건)</option > `;
+        return `<option value="${id}">${name} (${count}건)</option>`;
     }).join('');
+
+    // 오늘 날짜 기준 해당 월
+    const currentMonthVal = state.management.currentListMonth || dayjs().format('YYYY-MM');
 
     return `
         <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
 
-        <div class="flex flex-wrap gap-2 mb-4 items-center">
+        <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
             <div class="flex gap-2">
-                <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 (${filteredRequests.length})</button>
-                <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">최종 대기중 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'pending').length})</button>
-                <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">최종 승인됨 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'approved').length})</button>
-                <button onclick="window.filterLeaveList('rejected')" id="filter-rejected" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려됨 (${filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'rejected').length})</button>
+                <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 보기</button>
+                <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
+                <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
+                <button onclick="window.filterLeaveList('rejected')" id="filter-rejected" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려됨</button>
             </div>
             <div class="flex gap-2 items-center ml-4">
-                <label class="text-sm font-semibold">직원:</label>
+                 <!-- 월 선택 필터 추가 -->
+                <label class="text-sm font-semibold">기간:</label>
+                <input type="month" id="leave-list-month-filter" value="${currentMonthVal}" onchange="window.filterListByMonth(this.value)" class="text-sm border rounded px-2 py-1">
+
+                <label class="text-sm font-semibold ml-2">직원:</label>
                 <select id="employee-filter" onchange="window.filterByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
                     <option value="all">전체 직원</option>
                     ${employeeOptions}
@@ -677,7 +684,7 @@ export function getLeaveListHTML() {
             </div>
         </div>
         
-        <div class="mb-8">
+        <div class="mb-8 overflow-x-auto">
             <table class="min-w-full text-sm border">
                 <thead class="bg-gray-100">
                     <tr>
@@ -716,6 +723,9 @@ export function getLeaveListHTML() {
 // 목록 필터 상태
 let currentListStatus = 'all';
 let currentListEmployee = 'all';
+// state.management.currentListMonth 에 저장하거나 전역 변수 사용
+// 여기서는 전역 변수 초기화 (state.management가 초기화 시점에 없을 수 있으므로)
+if (!state.management.currentListMonth) state.management.currentListMonth = dayjs().format('YYYY-MM');
 
 // 목록 필터
 window.filterLeaveList = function (status) {
@@ -728,7 +738,8 @@ window.filterLeaveList = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#filter - ${status} `);
+    // ID 선택자 공백 제거 수정
+    const activeBtn = _(`#filter-${status}`);
     if (activeBtn) {
         activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
         activeBtn.classList.remove('bg-gray-200');
@@ -741,15 +752,35 @@ window.filterByEmployee = function (employeeId) {
     applyListFilters();
 };
 
+// 월별 필터 (목록)
+window.filterListByMonth = function (monthStr) {
+    state.management.currentListMonth = monthStr;
+    applyListFilters();
+};
+
 // 목록 필터 적용
 function applyListFilters() {
     const rows = document.querySelectorAll('.leave-row');
+    const targetMonth = state.management.currentListMonth; // YYYY-MM or empty
 
     rows.forEach(row => {
         const statusMatch = currentListStatus === 'all' || row.dataset.status === currentListStatus;
         const employeeMatch = currentListEmployee === 'all' || row.dataset.employeeId === currentListEmployee;
 
-        row.style.display = (statusMatch && employeeMatch) ? '' : 'none';
+        let dateMatch = true;
+        if (targetMonth) {
+            // data-dates 파싱
+            try {
+                const dates = JSON.parse(row.dataset.dates || '[]');
+                // 해당 월에 포함된 날짜가 하나라도 있으면 표시
+                const hasDateInMonth = dates.some(d => d.startsWith(targetMonth));
+                if (!hasDateInMonth) dateMatch = false;
+            } catch (e) {
+                console.warn('Date parse error', e);
+            }
+        }
+
+        row.style.display = (statusMatch && employeeMatch && dateMatch) ? '' : 'none';
     });
 }
 
@@ -766,7 +797,8 @@ window.filterLeaveCalendar = function (status) {
         btn.classList.add('bg-gray-200');
     });
 
-    const activeBtn = _(`#cal - filter - ${status} `);
+    // ID 선택자 공백 제거 수정
+    const activeBtn = _(`#cal-filter-${status}`);
     if (activeBtn) {
         if (status === 'pending') {
             activeBtn.classList.add('active', 'bg-yellow-500', 'text-white');
