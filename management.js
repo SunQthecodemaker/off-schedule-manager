@@ -1082,12 +1082,12 @@ export function getLeaveManagementHTML() {
         { name: '연차 기준일', width: '9%' },
         { name: '다음 갱신일', width: '9%' },
         { name: '법정', width: '5%' },
-        { name: '이월', width: '7%' },
+        { name: '전년 이월', width: '7%' }, // 명칭 변경: 이월 -> 전년 이월
         { name: '조정', width: '7%' },
         { name: '확정', width: '5%' },
         { name: '사용', width: '5%' },
         { name: '잔여', width: '5%' },
-        { name: '이월 예정', width: '15%' },
+        { name: '갱신 안내 (이월 예정)', width: '15%' }, // 명칭 변경: 이월 예정 -> 갱신 안내
         { name: '관리', width: '10%' }
     ];
 
