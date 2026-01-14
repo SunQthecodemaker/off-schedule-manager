@@ -1091,7 +1091,7 @@ export function getLeaveManagementHTML() {
         { name: '관리', width: '10%' }
     ];
 
-    const headerHtml = headers.map(h => `< th class="p-2 text-left text-xs font-semibold" style = "width: ${h.width};" > ${h.name}</th > `).join('');
+    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
 
     const rows = employees.map(emp => {
         const leaveData = getLeaveDetails(emp);
@@ -1489,49 +1489,49 @@ export function getLeaveStatusHTML() {
             /* 이월 연차 스타일 (보라) */
             .leave-box.type-carried {
                 border-color: #d8b4fe;
-color: #a855f7; /* text-purple-500 */
-background - color: #faf5ff; /* bg-purple-50 */
+                color: #a855f7; /* text-purple-500 */
+                background-color: #faf5ff; /* bg-purple-50 */
             }
-            .leave - box.type - carried.used {
-    background - color: #d8b4fe;
-    color: #6b21a8;
-}
+            .leave-box.type-carried.used {
+                background-color: #d8b4fe;
+                color: #6b21a8;
+            }
 
             /* 일반 연차 스타일 (파랑) */
-            .leave - box.type - regular {
-    border - color: #93c5fd; /* blue-300 */
-    color: #3b82f6; /* blue-500 */
-    background - color: #eff6ff; /* blue-50 */
-}
-            .leave - box.type - regular.used {
-    background - color: #93c5fd;
-    color: #1e40af;
-}
+            .leave-box.type-regular {
+                border-color: #93c5fd; /* blue-300 */
+                color: #3b82f6; /* blue-500 */
+                background-color: #eff6ff; /* blue-50 */
+            }
+            .leave-box.type-regular.used {
+                background-color: #93c5fd;
+                color: #1e40af;
+            }
 
             /* 당겨쓰기/초과 연차 스타일 (빨강) */
-            .leave - box.type - borrowed {
-    border - color: #fca5a5; /* red-300 */
-    color: #ef4444; /* red-500 */
-    background - color: #fef2f2; /* red-50 */
-    font - weight: bold;
-}
-            .leave - box.type - borrowed.used {
-    background - color: #fca5a5;
-    color: #991b1b;
-}
+            .leave-box.type-borrowed {
+                border-color: #fca5a5; /* red-300 */
+                color: #ef4444; /* red-500 */
+                background-color: #fef2f2; /* red-50 */
+                font-weight: bold;
+            }
+            .leave-box.type-borrowed.used {
+                background-color: #fca5a5;
+                color: #991b1b;
+            }
 
             /* 수동 등록 표시 (빗금 등) - 여기선 간단히 테두리로 구분 */
-            .leave - box.manual - entry {
-    position: relative;
-}
-            .leave - box.manual - entry::after {
-    content: '';
-    position: absolute;
-    top: 2px; right: 2px;
-    width: 4px; height: 4px;
-    border - radius: 50 %;
-    background - color: #eab308; /* yellow-500 */
-}
+            .leave-box.manual-entry {
+                position: relative;
+            }
+            .leave-box.manual-entry::after {
+                content: '';
+                position: absolute;
+                top: 2px; right: 2px;
+                width: 4px; height: 4px;
+                border-radius: 50%;
+                background-color: #eab308; /* yellow-500 */
+            }
         </style >
     <div class="leave-status-container">
         <div class="flex justify-between items-center mb-4">
@@ -1619,10 +1619,10 @@ function getLeaveStatusRow(emp) {
         } else {
             // 초과(당겨쓰기) 구간
             boxType = 'borrowed';
-            boxLabel = `- ${boxIndex - finalLeaves} `; // -1, -2 ...
+            boxLabel = `-${boxIndex - finalLeaves}`; // -1, -2 ...
         }
 
-        let boxClass = `leave - box type - ${boxType} `;
+        let boxClass = `leave-box type-${boxType}`;
         let dataAttrs = '';
         let displayText = boxLabel;
 
@@ -1642,21 +1642,21 @@ function getLeaveStatusRow(emp) {
                     boxClass += ' manual-entry';
                 }
 
-                dataAttrs = `data - request - id="${requestId}" data - type="${type}" title = "${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal}"`;
+                dataAttrs = `data-request-id="${requestId}" data-type="${type}" title="${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal}"`;
             }
         }
         // 미사용 상태 (빈칸)
         else {
-            dataAttrs = `title = "${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
+            dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
         }
 
 
-        gridHTML += `< div class="${boxClass}" ${dataAttrs}> ${displayText}</div > `;
+        gridHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
     }
     gridHTML += '</div>';
 
     return `
-    < tr class="leave-status-row border-b hover:bg-gray-50" data - employee - id="${emp.id}" data - dept="${deptName}" data - remaining="${emp.remainingDays}" data - usage="${emp.usagePercent}" >
+        <tr class="leave-status-row border-b hover:bg-gray-50" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
             <td class="p-2 text-center font-semibold">${emp.name}</td>
             <td class="p-2 text-center text-gray-600">${deptName}</td>
             <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
@@ -1666,7 +1666,7 @@ function getLeaveStatusRow(emp) {
             <td class="p-2 text-left pl-4" style="max-width: 800px; overflow-x: auto;">
                 ${gridHTML}
             </td>
-        </tr >
+        </tr>
     `;
 }
 
