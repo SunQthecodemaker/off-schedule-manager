@@ -91,8 +91,51 @@ export function getLeaveDetails(employee, referenceDate = null) {
         }
     }
 
-    const adjustment = leave_adjustment || 0;
-    const finalLeaves = prorataLeaves + adjustment;
+    // 현재 주기 시작/끝일 계산 (사용량 필터링용)
+    // 갱신일이 있으면 그 기준으로, 없으면 입사일 기준 1년 단위
+    let periodStart, periodEnd;
+    if (leave_renewal_date) {
+        const renewalBase = dayjs(leave_renewal_date);
+        const renewalThisYear = dayjs(`${today.year()}-${renewalBase.format('MM-DD')}`);
+        // renewalThisYear 가 오늘보다 뒤라면, 아직 갱신일 안 옴 -> 기간 시작은 작년 갱신일
+        // renewalThisYear 가 오늘보다 앞(또는 같음)이라면, 기간 시작은 올해 갱신일
 
-    return { legal: prorataLeaves, adjustment: adjustment, final: finalLeaves, carriedOver: carriedOver, note: note };
+        if (today.isSameOrAfter(renewalThisYear)) {
+            periodStart = renewalThisYear;
+            periodEnd = renewalThisYear.add(1, 'year').subtract(1, 'day');
+        } else {
+            periodStart = renewalThisYear.subtract(1, 'year'); // 작년 갱신일
+            periodEnd = renewalThisYear.subtract(1, 'day'); // 올해 갱신일 전날
+        }
+    } else {
+        // 입사일 기준
+        // 입사일의 올해 기념일 계산
+        const currentYearAnniversary = dayjs(`${today.year()}-${entryDay.format('MM-DD')}`);
+
+        if (today.isSameOrAfter(currentYearAnniversary)) {
+            periodStart = currentYearAnniversary;
+            periodEnd = currentYearAnniversary.add(1, 'year').subtract(1, 'day');
+        } else {
+            periodStart = currentYearAnniversary.subtract(1, 'year');
+            periodEnd = currentYearAnniversary.subtract(1, 'day');
+        }
+    }
+
+    const adjustment = leave_adjustment || 0;
+    const carriedOverLeave = employee.carried_over_leave || 0;
+
+    // 최종 연차 = (법정 + 조정 + 이월)
+    // * carriedOver (자동 계산된 예상 이월분)는 통계용으로만 유지하고, 실제 합산은 DB값(carriedOverLeave)을 사용
+    const finalLeaves = prorataLeaves + adjustment + carriedOverLeave;
+
+    return {
+        legal: prorataLeaves,
+        adjustment: adjustment,
+        carriedOverCnt: carriedOverLeave, // 명칭 구분: carriedOverCnt (확정 이월), carriedOver (예상 이월)
+        final: finalLeaves,
+        carriedOver: carriedOver,
+        note: note,
+        periodStart: periodStart.format('YYYY-MM-DD'),
+        periodEnd: periodEnd.format('YYYY-MM-DD')
+    };
 }

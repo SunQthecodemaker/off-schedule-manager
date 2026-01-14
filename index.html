@@ -100,6 +100,29 @@
                         <label for="form-reason" class="font-semibold">사유 (선택)</label>
                         <textarea id="form-reason" rows="3" class="w-full mt-1 p-2 border rounded"></textarea>
                     </div>
+
+                    <!-- 당겨쓰기 동의 섹션 (숨김 처리) -->
+                    <div id="borrowing-agreement-section"
+                        class="hidden bg-red-50 border border-red-200 rounded p-3 text-red-700 space-y-2">
+                        <div class="font-bold flex items-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                                </path>
+                            </svg>
+                            연차 당겨쓰기 경고
+                        </div>
+                        <p class="text-sm">
+                            현재 잔여 연차가 부족하여 <span id="borrowing-amount" class="font-bold"></span>일을 내년 연차에서 당겨 사용해야 합니다.
+                        </p>
+                        <div class="flex items-start items-center gap-2 mt-2">
+                            <input type="checkbox" id="borrowing-agreement-check" class="mt-1 w-4 h-4">
+                            <label for="borrowing-agreement-check" class="text-xs font-semibold">
+                                본인은 내년도 발생할 연차를 미리 사용하는 것에 동의하며,<br>
+                                추후 발생 연차에서 차감되거나 퇴직 시 정산됨을 확인합니다.
+                            </label>
+                        </div>
+                    </div>
                     <div>
                         <div class="flex justify-between items-center">
                             <label class="font-semibold">서명</label>

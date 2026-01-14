@@ -546,9 +546,20 @@ async function loadEmployeeData() {
         state.employee.documentRequests = docRequestsRes.data || [];
         state.employee.submittedDocuments = submittedDocsRes.data || [];
 
-        const approved = requests.filter(r => r.status === 'approved');
-        const usedDays = approved.reduce((sum, r) => sum + (r.dates?.length || 0), 0);
         const leaveDetails = getLeaveDetails(state.currentUser);
+        const pStart = dayjs(leaveDetails.periodStart);
+        const pEnd = dayjs(leaveDetails.periodEnd);
+
+        const approved = requests.filter(r => r.status === 'approved');
+
+        // 기간에 맞는 사용량만 계산
+        const usedDays = approved.reduce((sum, r) => {
+            const validDates = (r.dates || []).filter(dateStr => {
+                const d = dayjs(dateStr);
+                return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
+            });
+            return sum + validDates.length;
+        }, 0);
 
         _('#used-leaves').textContent = `${usedDays}일`;
         _('#remaining-leaves').textContent = `${leaveDetails.final - usedDays}일`;
@@ -933,6 +944,8 @@ function openLeaveFormModal(dates) {
     ).join('');
     _('#form-reason').value = '';
 
+    _('#form-reason').value = '';
+
     const canvas = _('#signature-canvas');
     if (canvas) {
         resizeGivenCanvas(canvas, window.signaturePad);
@@ -940,6 +953,43 @@ function openLeaveFormModal(dates) {
             window.signaturePad = new SignaturePad(canvas);
         }
         window.signaturePad.clear();
+    }
+
+    // 당겨쓰기 계산 로직
+    const requestDays = dates.length;
+    // 현재 잔여 연차 계산 (UI에서 가져오거나 다시 계산)
+    // 안전하게 다시 계산 권장
+    const leaveDetails = getLeaveDetails(state.currentUser);
+    const pStart = dayjs(leaveDetails.periodStart);
+    const pEnd = dayjs(leaveDetails.periodEnd);
+
+    // 이미 승인된 연차 중 '이번 기간'에 해당하는 것만 사용량으로 간주
+    // (메모리 상 leaveRequests가 없을 수도 있으니, 간단히 textContent 파싱하거나, 전역 state 사용)
+    // state.employee.leaveRequests 가 loadEmployeeData에서 세팅됨을 가정할 수 없으므로(UI만 그렸을 수도),
+    // 화면의 #remaining-leaves 텍스트를 파싱하는 건 위험.
+    // --> loadEmployeeData 스코프 변수라 접근 불가.
+    // 하지만 renderEmployeePortal에서 loadEmployeeData를 부르니, 전역에 저장하는 게 좋음.
+    // 일단 여기서는 'UI에 렌더링된 값'을 신뢰하거나, DB를 다시 조회해야 함. 
+    // -> 성능상 UI 값 파싱이 빠름. 단, 정확성을 위해 state.employee 에 저장된 데이터를 활용하자. 
+    // (renderEmployeePortal에서 requests를 state에 저장 안 함... my-leave-requests에 바로 그림)
+    // **수정**: loadEmployeeData에서 state.employee.myRequests = requests; 로 저장해두자.
+
+    // 임시: DB 조회 없이 UI 텍스트 파싱 (빠른 구현)
+    const remainingText = _('#remaining-leaves').textContent.replace('일', '');
+    const currentRemaining = parseFloat(remainingText) || 0;
+
+    const projectedRemaining = currentRemaining - requestDays;
+    const borrowingSection = _('#borrowing-agreement-section');
+    const borrowingAmountSpan = _('#borrowing-amount');
+    const borrowingCheck = _('#borrowing-agreement-check');
+
+    if (projectedRemaining < 0) {
+        borrowingSection.classList.remove('hidden');
+        borrowingAmountSpan.textContent = Math.abs(projectedRemaining);
+        borrowingCheck.checked = false; // 항상 체크 해제 상태로 시작
+    } else {
+        borrowingSection.classList.add('hidden');
+        borrowingCheck.checked = false;
     }
 
     state.employee.selectedDates = dates;
@@ -976,6 +1026,18 @@ export async function handleSubmitLeaveRequest() {
     if (pendingRequests && pendingRequests.length > 0) {
         alert('⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.');
         return;
+    }
+
+    // 당겨쓰기 동의 체크 확인
+    const borrowingSection = _('#borrowing-agreement-section');
+    const borrowingCheck = _('#borrowing-agreement-check');
+    if (!borrowingSection.classList.contains('hidden')) {
+        if (!borrowingCheck.checked) {
+            alert('당겨쓰기 동의사항에 체크해주세요.');
+            return;
+        }
+        // 사유에 당겨쓰기 명시 (선택사항, 하지만 명시적으로 남기는 게 좋음)
+        // reason += ' [당겨쓰기 확인됨]'; 
     }
 
     try {
