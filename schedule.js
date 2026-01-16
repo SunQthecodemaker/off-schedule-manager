@@ -1608,6 +1608,7 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
             </div>
             <div class="flex items-center gap-2">
                 <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
+                <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
                 <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
@@ -1649,6 +1650,7 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
+        _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
@@ -1849,5 +1851,171 @@ async function handleConfirmSchedule(isConfirm = true) {
     } catch (error) {
         console.error('스케줄 확정 오류:', error);
         alert('오류가 발생했습니다: ' + error.message);
+    }
+}
+
+// =========================================================================================
+// [신규] 지난달 스케줄 불러오기 (주차 기준 매칭 + 정기 휴무 반영)
+// =========================================================================================
+
+async function handleImportPreviousMonth() {
+    if (!confirm('현재 보고 있는 달의 모든 스케줄을 지우고, 지난달 데이터를 기반으로 새 스케줄을 생성하시겠습니까?\n(주간 패턴 매칭 + 정기 휴무 규칙 적용)')) {
+        return;
+    }
+
+    const importBtn = _('#import-last-month-btn');
+    importBtn.disabled = true;
+    importBtn.textContent = '불러오는 중...';
+
+    try {
+        const currentDate = dayjs(state.schedule.currentDate);
+        const prevDate = currentDate.subtract(1, 'month');
+
+        const currentStart = currentDate.startOf('month');
+        const currentEnd = currentDate.endOf('month');
+        const prevStart = prevDate.startOf('month');
+        const prevEnd = prevDate.endOf('month');
+
+        // 1. 지난달 데이터 가져오기 (DB)
+        const { data: prevSchedules, error: fetchError } = await db.from('schedules')
+            .select('*')
+            .gte('date', prevStart.format('YYYY-MM-DD'))
+            .lte('date', prevEnd.format('YYYY-MM-DD'))
+            .eq('status', '근무'); // 근무만 복사
+
+        if (fetchError) throw fetchError;
+
+        console.log(`📅 지난달(${prevDate.format('YYYY-MM')}) 데이터: ${prevSchedules.length}건`);
+
+        // 2. 현재 달 스케줄 초기화 (DB 삭제)
+        // 주의: unsavedChanges도 초기화해야 함
+        const { error: deleteError } = await db.from('schedules')
+            .delete()
+            .gte('date', currentStart.format('YYYY-MM-DD'))
+            .lte('date', currentEnd.format('YYYY-MM-DD'));
+
+        if (deleteError) throw deleteError;
+
+        unsavedChanges.clear(); // 프론트엔드 변경분 초기화
+
+        // 3. 주차별/요일별 날짜 매핑 생성
+        // 예: Sun[0] -> prevSun[0], Mon[1] -> prevMon[1]
+        const dayMapping = new Map(); // targetDateStr -> sourceDateStr or null
+        const weekDays = [0, 1, 2, 3, 4, 5, 6]; // Sun to Sat
+
+        weekDays.forEach(dayIdx => {
+            // 지난달의 해당 요일 날짜들
+            const prevDays = [];
+            let p = prevStart.clone();
+            while (p.day() !== dayIdx) p = p.add(1, 'day'); // 첫 해당 요일 찾기
+            while (p.isSameOrBefore(prevEnd)) {
+                if (p.isSameOrAfter(prevStart)) prevDays.push(p.format('YYYY-MM-DD'));
+                p = p.add(7, 'day');
+            }
+
+            // 이번달의 해당 요일 날짜들
+            const currentDays = [];
+            let c = currentStart.clone();
+            while (c.day() !== dayIdx) c = c.add(1, 'day');
+            while (c.isSameOrBefore(currentEnd)) {
+                if (c.isSameOrAfter(currentStart)) currentDays.push(c.format('YYYY-MM-DD'));
+                c = c.add(7, 'day');
+            }
+
+            // 매핑 (인덱스 기준)
+            currentDays.forEach((currDateStr, idx) => {
+                const prevDateStr = prevDays[idx] || null; // 매칭되는 주차가 없으면 null
+                dayMapping.set(currDateStr, prevDateStr);
+            });
+        });
+
+        // 4. 새 스케줄 생성
+        const newSchedules = [];
+        const activeEmployees = state.management.employees.filter(e => !e.resignation_date); // 퇴사자 제외
+
+        // 모든 날짜 순회
+        let iter = currentStart.clone();
+        while (iter.isSameOrBefore(currentEnd)) {
+            const targetDateStr = iter.format('YYYY-MM-DD');
+            const sourceDateStr = dayMapping.get(targetDateStr);
+            const dayOfWeek = iter.day(); // 0(Sun) ~ 6(Sat)
+
+            let schedulesForDay = [];
+
+            if (sourceDateStr) {
+                // ✅ 매칭되는 지난달 날짜가 있음 -> 복사
+                const sourceSchedules = prevSchedules.filter(s => s.date === sourceDateStr);
+
+                // 직원 ID가 유효한지 확인하며 복사 (퇴사자 등 체크)
+                sourceSchedules.forEach(src => {
+                    // 현재 존재하는 직원인지 확인
+                    if (activeEmployees.some(e => e.id === src.employee_id)) {
+                        schedulesForDay.push({
+                            date: targetDateStr,
+                            employee_id: src.employee_id,
+                            status: '근무',
+                            sort_order: src.sort_order, // 순서 유지
+                            grid_position: src.grid_position // 그리드 위치 유지
+                        });
+                    }
+                });
+
+                // 만약 지난달에 근무자가 아예 없었다면? -> 기본 규칙 적용?
+                // 사용자 요청: "복사... 수정... 복잡... 그냥 불러오기"
+                // 매칭되면 그대로 복사가 맞음.
+            }
+
+            // ✅ 매칭 데이터가 없거나(5주차), 매칭은 됐는데 근무자가 0명인 경우(휴일이었을 수 있음)
+            // -> "남는 날짜나 모자른 날짜... 모든 직원 표시"
+            if (!sourceDateStr || schedulesForDay.length === 0) {
+                // 기본값: 모든 직원 근무
+                // 단, 정기 휴무 규칙 적용
+                let positionCounter = 0;
+
+                activeEmployees.forEach(emp => {
+                    const rules = emp.regular_holiday_rules || [];
+                    // 정기 휴무 요일이면 제외
+                    if (!rules.includes(dayOfWeek)) {
+                        schedulesForDay.push({
+                            date: targetDateStr,
+                            employee_id: emp.id,
+                            status: '근무',
+                            sort_order: positionCounter,
+                            grid_position: positionCounter
+                        });
+                        positionCounter++;
+                    }
+                });
+            }
+
+            // 수집된 스케줄 추가
+            newSchedules.push(...schedulesForDay);
+
+            iter = iter.add(1, 'day');
+        }
+
+        console.log(`✨ 생성된 새 스케줄: ${newSchedules.length}건`);
+
+        // 5. DB에 일괄 저장
+        if (newSchedules.length > 0) {
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < newSchedules.length; i += BATCH_SIZE) {
+                const batch = newSchedules.slice(i, i + BATCH_SIZE);
+                const { error: insertError } = await db.from('schedules').insert(batch);
+                if (insertError) throw insertError;
+            }
+        }
+
+        alert('지난달 스케줄을 성공적으로 불러왔습니다.');
+
+        // 6. 화면 갱신
+        await loadAndRenderScheduleData(state.schedule.currentDate);
+
+    } catch (error) {
+        console.error('스케줄 불러오기 실패:', error);
+        alert(`스케줄 불러오기 실패: ${error.message}`);
+    } finally {
+        importBtn.disabled = false;
+        importBtn.textContent = '📅 지난달 불러오기';
     }
 }

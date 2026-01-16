@@ -18,6 +18,7 @@ export function assignManagementEventHandlers() {
     window.toggleEmployeeFilter = toggleEmployeeFilter;
     window.handleResetPassword = handleResetPassword;
     window.handleUpdateLeave = handleUpdateLeave;
+    window.openRegularHolidayModal = openRegularHolidayModal;
 }
 
 // =========================================================================================
@@ -361,6 +362,7 @@ export function getManagementHTML() {
         <th class="p-2 text-left">입사일</th>
         <th class="p-2 text-left">이메일</th>
         <th class="p-2 text-center w-20">매니저</th>
+        <th class="p-2 text-center w-24">정기휴무</th>
         <th class="p-2 text-center w-48">관리</th>
     `;
 
@@ -395,6 +397,11 @@ export function getManagementHTML() {
                 <td class="p-2"><input type="date" id="entry-${emp.id}" class="table-input" value="${emp.entryDate}"></td>
                 <td class="p-2"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
                 <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
+                <td class="p-2 text-center">
+                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 truncate w-20">
+                        ${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? emp.regular_holiday_rules.map(d => ['일', '월', '화', '수', '목', '금', '토'][d]).join(',') : '설정'}
+                    </button>
+                </td>
                 <td class="p-2 text-center">${actions}</td>
             </tr>
         `;
@@ -2019,3 +2026,91 @@ function filterAndSortLeaveStatus() {
     // 재배치
     visibleRows.forEach(row => tbody.appendChild(row));
 }
+
+// =========================================================================================
+// 정기 휴무 관리 (Regular Holiday Rules)
+// =========================================================================================
+
+function openRegularHolidayModal(employeeId, employeeName) {
+    const employee = state.management.employees.find(e => e.id === employeeId);
+    if (!employee) return;
+
+    const rules = employee.regular_holiday_rules || []; // [0, 1, ...] (0=Sun)
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+
+    // 기존 모달 제거
+    const existing = document.getElementById('regular-holiday-modal');
+    if (existing) existing.remove();
+
+    const checkBoxesHtml = days.map((day, index) => {
+        const isChecked = rules.includes(index) ? 'checked' : '';
+        return `
+            <label class="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
+                <input type="checkbox" class="regular-rule-checkbox w-4 h-4 text-blue-600 rounded" value="${index}" ${isChecked}>
+                <span class="text-gray-700">${day}요일</span>
+            </label>
+        `;
+    }).join('');
+
+    const modalHTML = `
+        <div id="regular-holiday-modal" class="modal-overlay">
+            <div class="modal-content" style="max-width: 400px;">
+                <h3 class="text-xl font-bold mb-4">${employeeName}님 정기 휴무 설정</h3>
+                <p class="text-sm text-gray-500 mb-4">매주 반복되는 휴무 요일을 선택해주세요. 스케줄 자동 생성 시 반영됩니다.</p>
+                
+                <div class="grid grid-cols-2 gap-2 mb-6 border p-4 rounded bg-white">
+                    ${checkBoxesHtml}
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <button id="close-regular-modal" class="px-4 py-2 border rounded hover:bg-gray-100">취소</button>
+                    <button onclick="handleSaveRegularHoliday(${employeeId})" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">저장</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    const overlay = document.getElementById('regular-holiday-modal');
+    const closeBtn = document.getElementById('close-regular-modal');
+
+    closeBtn.onclick = () => overlay.remove();
+    overlay.onclick = (e) => {
+        if (e.target === overlay) overlay.remove();
+    };
+}
+
+window.handleSaveRegularHoliday = async function (employeeId) {
+    const checkboxes = document.querySelectorAll('.regular-rule-checkbox:checked');
+    const selectedDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+    // Sort days (0 to 6)
+    selectedDays.sort((a, b) => a - b);
+
+    console.log(`💾 정기 휴무 저장: Emp ${employeeId}, Rules: ${selectedDays}`);
+
+    try {
+        // DB 업데이트
+        // 주의: regular_holiday_rules 컬럼이 JSONB로 존재해야 함
+        const { error } = await db.from('employees')
+            .update({ regular_holiday_rules: selectedDays })
+            .eq('id', employeeId);
+
+        if (error) {
+            console.error('Update error:', error);
+            if (error.message.includes('column') && error.message.includes('reuglar_holiday_rules')) {
+                alert('DB에 regular_holiday_rules 컬럼이 없습니다. Supabase에서 컬럼을 추가해주세요.');
+            } else {
+                throw error;
+            }
+        } else {
+            alert('정기 휴무 규칙이 저장되었습니다.');
+            document.getElementById('regular-holiday-modal').remove();
+            await window.loadAndRenderManagement();
+        }
+    } catch (error) {
+        console.error('정기 휴무 저장 실패:', error);
+        alert(`저장 실패: ${error.message}\n(Tip: employees 테이블에 regular_holiday_rules jsonb 컬럼이 있는지 확인하세요)`);
+    }
+};
