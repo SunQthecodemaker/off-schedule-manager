@@ -1,10 +1,10 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20251213_1515_FIX_HOLIDAY_RETRY_2';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=FORCE_UPDATE_IS_SAME_FIX_V3';
+import { renderScheduleManagement } from './schedule.js';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js';
-import { renderEmployeePortal } from './employee-portal-final.js?v=20251213_1515_GRID_FIX';
-import { getLeaveDetails } from './leave-utils.js?v=FORCE_UPDATE_IS_SAME_FIX';
+import { renderEmployeePortal } from './employee-portal-final.js';
+import { getLeaveDetails } from './leave-utils.js';
 
 dayjs.extend(window.dayjs_plugin_isSameOrAfter);
 dayjs.extend(window.dayjs_plugin_isSameOrBefore);
