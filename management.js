@@ -168,8 +168,18 @@ async function handleAddEmployee() {
     const password = _('#newPassword').value.trim();
     const department_id_val = _('#newDepartment').value;
 
+    console.log('📝 [하단 신규등록] 입력값 확인:', {
+        name,
+        entryDate,
+        email,
+        password,
+        department_id_val,
+        deptElement: _('#newDepartment'),
+        deptOptions: _('#newDepartment')?.innerHTML
+    });
+
     if (!name || !entryDate || !password || !department_id_val) {
-        alert('이름, 입사일, 비밀번호, 부서는 필수 입력 항목입니다.');
+        alert(`입력 정보가 부족합니다.\n\n확인된 정보:\n이름: ${name}\n입사일: ${entryDate}\n비밀번호: ${password ? '입력됨' : '미입력'}\n부서ID: ${department_id_val}`);
         return;
     }
 
