@@ -276,8 +276,9 @@ async function handleSaveSchedules() {
 }
 
 // 리셋 함수 추가
+// 리셋 함수 추가
 async function handleResetSchedule() {
-    if (!confirm('현재 달의 모든 스케줄을 리셋하고 사이드바 순서대로 근무자로 초기화하시겠습니까?')) {
+    if (!confirm('현재 달의 모든 스케줄을 리셋하고 사이드바 순서대로 근무자로 초기화하시겠습니까?\n(승인된 연차는 보존됩니다)')) {
         return;
     }
 
@@ -296,7 +297,7 @@ async function handleResetSchedule() {
 
             if (!isNaN(empId)) {
                 if (empId < 0) {
-                    // 음수 ID = 빈칸 (DB에 저장하지 않음)
+                    // 음수 ID = 빈칸
                     orderedEmployees.push({
                         type: 'spacer',
                         position: gridPosition++
@@ -312,16 +313,12 @@ async function handleResetSchedule() {
             }
         });
 
-        console.log('📋 리셋에 포함될 항목:', orderedEmployees.length, '개');
-
-        // ✅ 제외 목록 확인 (로그용)
-        const excludedCount = document.querySelectorAll('.excluded-list .draggable-employee').length;
-        console.log('🚫 제외된 직원:', excludedCount, '명');
-
         // 2. 해당 월의 모든 날짜 가져오기
         const currentDate = dayjs(state.schedule.currentDate);
         const startOfMonth = currentDate.startOf('month');
         const endOfMonth = currentDate.endOf('month');
+        const startOfMonthStr = startOfMonth.format('YYYY-MM-DD');
+        const endOfMonthStr = endOfMonth.format('YYYY-MM-DD');
 
         const allDates = [];
         let currentLoop = startOfMonth.clone();
@@ -330,13 +327,28 @@ async function handleResetSchedule() {
             currentLoop = currentLoop.add(1, 'day');
         }
 
-        console.log('📅 대상 날짜:', allDates.length, '일');
+        // ✅ 3. 승인된 연차 정보 수집 (리셋 시 보존하기 위함)
+        const leaveMap = new Map(); // date -> Set(employee_id)
+        const requests = state.management.leaveRequests || [];
+        requests.forEach(req => {
+            // Admin 등록 등 status 확인
+            const isApproved = (req.status === 'approved' || req.final_manager_status === 'approved');
 
-        // 3. 기존 스케줄 삭제
+            if (isApproved && req.dates) {
+                req.dates.forEach(date => {
+                    if (date >= startOfMonthStr && date <= endOfMonthStr) {
+                        if (!leaveMap.has(date)) leaveMap.set(date, new Set());
+                        leaveMap.get(date).add(req.employee_id);
+                    }
+                });
+            }
+        });
+
+        // 4. 기존 스케줄 삭제
         const { error: deleteError } = await db.from('schedules')
             .delete()
-            .gte('date', startOfMonth.format('YYYY-MM-DD'))
-            .lte('date', endOfMonth.format('YYYY-MM-DD'));
+            .gte('date', startOfMonthStr)
+            .lte('date', endOfMonthStr);
 
         if (deleteError) {
             console.error('❌ 삭제 오류:', deleteError);
@@ -345,35 +357,39 @@ async function handleResetSchedule() {
 
         console.log('✅ 기존 스케줄 삭제 완료');
 
-        // 4. 모든 날짜에 대해 근무자로 삽입
+        // 5. 모든 날짜에 대해 근무자로 삽입 (연차인 날은 제외)
         const schedulesToInsert = [];
 
         allDates.forEach(dateStr => {
+            const leaveSet = leaveMap.get(dateStr);
+
             orderedEmployees.forEach(item => {
-                // ✅ 실제 직원만 저장 (빈칸은 제외)
+                // ✅ 실제 직원만 저장
                 if (item.type === 'employee') {
-                    schedulesToInsert.push({
-                        date: dateStr,
-                        employee_id: item.employee_id,
-                        status: '근무',
-                        sort_order: item.position,
-                        grid_position: item.position
-                    });
+                    // 연차인 직원은 근무 스케줄 생성 안 함
+                    if (leaveSet && leaveSet.has(item.employee_id)) {
+                        // console.log(`[Reset] Skipping ${item.employee_id} on ${dateStr} (Leave)`);
+                    } else {
+                        schedulesToInsert.push({
+                            date: dateStr,
+                            employee_id: item.employee_id,
+                            status: '근무',
+                            sort_order: item.position,
+                            grid_position: item.position
+                        });
+                    }
                 }
-                // spacer는 DB에 저장하지 않음 (렌더링 시 빈 공간으로 표시됨)
+                // spacer는 DB에 저장하지 않음
             });
         });
 
         console.log('➕ 삽입할 스케줄:', schedulesToInsert.length, '건');
 
-        // 5. 새 스케줄 삽입 (배치 처리)
+        // 6. 새 스케줄 삽입 (배치 처리)
         const BATCH_SIZE = 50;
         for (let i = 0; i < schedulesToInsert.length; i += BATCH_SIZE) {
             const batch = schedulesToInsert.slice(i, i + BATCH_SIZE);
-            console.log(`⏳ 배치 삽입 중 (${i + 1} ~ ${Math.min(i + BATCH_SIZE, schedulesToInsert.length)} / ${schedulesToInsert.length})`);
-
-            const { error: insertError } = await db.from('schedules')
-                .insert(batch);
+            const { error: insertError } = await db.from('schedules').insert(batch);
 
             if (insertError) {
                 console.error(`❌ 배치 삽입 오류 (인덱스 ${i}):`, insertError);
@@ -383,10 +399,10 @@ async function handleResetSchedule() {
 
         console.log('✅ 스케줄 리셋 완료');
 
-        // 6. 화면 다시 로드
+        // 7. 화면 다시 로드
         await loadAndRenderScheduleData(state.schedule.currentDate);
 
-        alert('스케줄이 성공적으로 리셋되었습니다.');
+        alert('스케줄이 성공적으로 리셋되었습니다. (승인된 연차는 제외됨)');
 
     } catch (error) {
         console.error('❌ 리셋 실패:', error);
@@ -826,7 +842,8 @@ function getOffEmployeesOnDate(dateStr) {
 
     // ✅ 2. 승인된 연차 (DB에 스케줄 없어도 표시)
     state.management.leaveRequests.forEach(req => {
-        if (req.status === 'approved' && req.dates?.includes(dateStr)) {
+        // status 확인: 'approved' OR 'final_manager_status' === 'approved'
+        if ((req.status === 'approved' || req.final_manager_status === 'approved') && req.dates?.includes(dateStr)) {
             const emp = state.management.employees.find(e => e.id === req.employee_id);
             // 이미 추가된 경우 제외 (스케줄 상 휴무로 되어있을 수 있음)
             const alreadyAdded = offEmps.some(item => item.employee.id === req.employee_id);

@@ -162,23 +162,43 @@ async function handleDeleteEmployee(id) {
 }
 
 async function handleAddEmployee() {
-    const name = _('#newName').value;
+    const name = _('#newName').value.trim();
     const entryDate = _('#newEntry').value;
-    const email = _('#newEmail').value;
-    const password = _('#newPassword').value;
-    const department_id = _('#newDepartment').value;
+    const email = _('#newEmail').value.trim();
+    const password = _('#newPassword').value.trim();
+    const department_id_val = _('#newDepartment').value;
 
-    if (!name || !entryDate || !password || !department_id) {
+    if (!name || !entryDate || !password || !department_id_val) {
         alert('이름, 입사일, 비밀번호, 부서는 필수 입력 항목입니다.');
         return;
     }
 
-    const { error } = await db.from('employees').insert([{ name, entryDate, email, password, department_id: parseInt(department_id, 10) }]).select();
+    const department_id = parseInt(department_id_val, 10);
+    if (isNaN(department_id)) {
+        alert('유효하지 않은 부서입니다.');
+        return;
+    }
+
+    // Insert with explicit default for regular_holiday_rules
+    const { error } = await db.from('employees').insert([{
+        name,
+        entryDate,
+        email,
+        password,
+        department_id,
+        regular_holiday_rules: [] // Explicit empty array
+    }]).select();
 
     if (error) {
+        console.error('직원 추가 오류:', error);
         alert('직원 추가에 실패했습니다: ' + error.message);
     } else {
         alert(`${name} 직원이 성공적으로 추가되었습니다.`);
+        // 입력 필드 초기화
+        _('#newName').value = '';
+        _('#newEmail').value = '';
+        _('#newPassword').value = '';
+        _('#newDepartment').value = '';
         await window.loadAndRenderManagement();
     }
 }
