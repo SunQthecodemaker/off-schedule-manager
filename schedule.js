@@ -15,6 +15,10 @@ state.schedule.activeReorder = {
 let isDragging = false;
 let dragStartTime = 0;
 
+// ✨ 다중 선택 및 클립보드 상태
+state.schedule.selectedSchedules = new Set(); // Set<schedule_id>
+let scheduleClipboard = []; // Array of { employee_id, status }
+
 
 // ✅ 그리드 위치 기반 업데이트 (완전 재작성 - 빈칸 포함)
 function updateScheduleSortOrders(dateStr) {
@@ -885,9 +889,30 @@ function handleEventCardClick(e) {
         return;
     }
 
-    // ✨ 카드 클릭: 상태 전환
+    // ✨ 카드 클릭: 상태 전환 및 다중 선택
     console.log('Card clicked:', empId, 'on', dateStr);
 
+    // 1. 다중 선택 모드 (Ctrl / Cmd 키)
+    if (e.ctrlKey || e.metaKey) {
+        const schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
+        if (schedule) {
+            if (state.schedule.selectedSchedules.has(schedule.id)) {
+                state.schedule.selectedSchedules.delete(schedule.id);
+                card.classList.remove('selected');
+            } else {
+                state.schedule.selectedSchedules.add(schedule.id);
+                card.classList.add('selected');
+            }
+        }
+        return; // 다중 선택 시 상태 변경 안 함
+    }
+
+    // 2. 단일 선택 (기존 선택 해제)
+    if (state.schedule.selectedSchedules.size > 0 && !state.schedule.selectedSchedules.has(card.dataset.scheduleId)) {
+        clearSelection();
+    }
+
+    // 3. 상태 토글 (기존 로직)
     let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
 
     if (schedule) {
@@ -896,7 +921,8 @@ function handleEventCardClick(e) {
         unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
         console.log('Updated schedule:', schedule);
     } else {
-        // 새 스케줄 생성
+        // 새 스케줄 생성 (이 로직은 사실 빈칸 클릭이 아니면 실행되기 어려움, 카드는 이미 스케줄이 있을 때만 렌더링되므로)
+        // 하지만 빈칸이나 예외 상황 고려하여 유지
         const currentlyWorking = getWorkingEmployeesOnDate(dateStr).some(emp => emp.id === empId);
         const newStatus = currentlyWorking ? '휴무' : '근무';
 
@@ -906,21 +932,26 @@ function handleEventCardClick(e) {
             .filter(o => o !== null && o !== undefined);
         const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1;
 
-        const tempId = `temp-${Date.now()}-${empId}`;
+        const dummyId = `temp-${Date.now()}-${empId}`;
         const newSchedule = {
-            id: tempId,
+            id: dummyId,
             date: dateStr,
             employee_id: empId,
             status: newStatus,
             sort_order: maxOrder + 1
         };
         state.schedule.schedules.push(newSchedule);
-        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-        console.log('Created schedule:', newSchedule);
+        unsavedChanges.set(dummyId, { type: 'new', data: newSchedule });
     }
 
     renderCalendar();
     updateSaveButtonState();
+}
+
+// ✨ 선택 해제 함수
+function clearSelection() {
+    state.schedule.selectedSchedules.clear();
+    document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
 }
 
 function handleDateNumberClick(e) {
@@ -1092,9 +1123,10 @@ function renderCalendar() {
                         <span class="slot-number">${position + 1}</span>
                     </div>`;
                 } else if (schedule.employee_id < 0) {
-                    // ✅ 빈칸 카드: 텍스트가 배경색과 같아서 안보임
+                    // ✅ 빈칸 카드
                     const spacerName = `빈칸${-schedule.employee_id}`;
-                    return `<div class="event-card event-working" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                    const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                    return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
                         <span class="event-dot" style="background-color: #f3f4f6;"></span>
                         <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
                     </div>`;
@@ -1102,16 +1134,18 @@ function renderCalendar() {
                     // 직원 카드
                     const emp = state.management.employees.find(e => e.id === schedule.employee_id);
                     if (!emp) {
-                        // 음수 ID거나 삭제된 직원 - 빈칸으로 표시
+                        // 삭제된 직원
                         const spacerName = schedule.employee_id < 0 ? `빈칸${-schedule.employee_id}` : '알수없음';
-                        return `<div class="event-card event-working" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                        const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                        return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
                             <span class="event-dot" style="background-color: #f3f4f6;"></span>
                             <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
                         </div>`;
                     }
 
                     const deptColor = getDepartmentColor(emp.departments?.id);
-                    return `<div class="event-card event-working" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working">
+                    const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                    return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working">
                         <span class="event-dot" style="background-color: ${deptColor};"></span>
                         <span class="event-name">${emp.name}</span>
                     </div>`;
@@ -1647,12 +1681,118 @@ function handleDateHeaderDblClick(e) {
     }
 }
 
-// ✨ 더블클릭 이벤트 연결을 위한 초기화
+// ✨ 더블클릭 및 키보드 이벤트 연결을 위한 초기화
 function initializeCalendarEvents() {
     const calendarGrid = document.querySelector('#pure-calendar');
     if (calendarGrid) {
         calendarGrid.removeEventListener('dblclick', handleDateHeaderDblClick);
         calendarGrid.addEventListener('dblclick', handleDateHeaderDblClick);
+    }
+
+    // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
+    document.removeEventListener('keydown', handleGlobalKeydown);
+    document.addEventListener('keydown', handleGlobalKeydown);
+}
+
+// ✨ 키보드 이벤트 핸들러
+function handleGlobalKeydown(e) {
+    // 입력 필드 등에서는 무시
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // Delete / Backspace: 선택된 스케줄 삭제
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (state.schedule.selectedSchedules.size > 0) {
+            if (confirm(`선택한 ${state.schedule.selectedSchedules.size}개의 스케줄을 삭제(휴무 처리)하시겠습니까?`)) {
+                let deletedCount = 0;
+                state.schedule.selectedSchedules.forEach(scheduleId => {
+                    const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                    if (schedule) {
+                        schedule.status = '휴무'; // 또는 영구 삭제? 보통은 휴무로 처리
+                        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                        deletedCount++;
+                    }
+                });
+                clearSelection();
+                renderCalendar();
+                updateSaveButtonState();
+                console.log(`Deleted ${deletedCount} schedules.`);
+            }
+        }
+    }
+
+    // Ctrl+C: 복사
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        if (state.schedule.selectedSchedules.size > 0) {
+            scheduleClipboard = [];
+            state.schedule.selectedSchedules.forEach(scheduleId => {
+                const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                if (schedule) {
+                    scheduleClipboard.push({
+                        employee_id: schedule.employee_id,
+                        status: schedule.status
+                    });
+                }
+            });
+            alert(`${scheduleClipboard.length}개의 스케줄이 복사되었습니다.\n원하는 날짜를 클릭하고 Ctrl+V를 누르세요.`);
+            console.log('Copied to clipboard:', scheduleClipboard);
+        }
+    }
+
+    // Ctrl+V: 붙여넣기
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        // 마우스가 올라가 있는 날짜 찾기 (hover) - 정확도가 떨어질 수 있음
+        // 또는 마지막으로 클릭된 날짜를 state에 저장해야 함.
+        // 여기서는 '마지막 클릭된 날짜' 또는 '현재 hover 중인 날짜'를 찾아야 함.
+
+        // CSS :hover를 이용해 현재 hover된 .calendar-day 찾기
+        const hoveredDay = document.querySelector('.calendar-day:hover');
+        if (hoveredDay && scheduleClipboard.length > 0) {
+            const dateStr = hoveredDay.dataset.date;
+            let pastedCount = 0;
+
+            console.log(`Pasting to ${dateStr}...`);
+
+            scheduleClipboard.forEach(item => {
+                // 이미 해당 날짜에 근무 중인지 확인
+                const exist = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === item.employee_id && s.status === '근무');
+                if (exist) {
+                    console.log(`Skipping ${item.employee_id} (already working)`);
+                } else {
+                    // 새 스케줄 생성
+                    const tempId = `paste-${Date.now()}-${item.employee_id}-${Math.random()}`;
+
+                    // 마지막 순서 찾기
+                    const existingOrders = state.schedule.schedules
+                        .filter(s => s.date === dateStr)
+                        .map(s => s.sort_order)
+                        .filter(o => o !== null && o !== undefined);
+                    const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1;
+
+                    const newSchedule = {
+                        id: tempId,
+                        date: dateStr,
+                        employee_id: item.employee_id,
+                        status: '근무', // 보통 복사는 근무를 복사함
+                        sort_order: maxOrder + 1,
+                        grid_position: maxOrder + 1
+                    };
+                    state.schedule.schedules.push(newSchedule);
+                    unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+                    pastedCount++;
+                }
+            });
+
+            if (pastedCount > 0) {
+                renderCalendar();
+                updateSaveButtonState();
+                console.log(`Pasted ${pastedCount} schedules to ${dateStr}`);
+
+                // 시각적 피드백
+                hoveredDay.style.transition = 'background-color 0.2s';
+                hoveredDay.style.backgroundColor = '#dbeafe';
+                setTimeout(() => hoveredDay.style.backgroundColor = '', 300);
+            }
+        }
     }
 }
 

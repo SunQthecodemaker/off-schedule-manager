@@ -2,9 +2,7 @@
     box-sizing: border-box;
 }
 
-.hidden {
-    display: none !important;
-}
+.hidden { display: none !important; }
 
 /* FullCalendar 툴바 버튼 간격 조정 */
 .fc-toolbar-chunk {
@@ -19,42 +17,21 @@
     color: #4b5563;
     border-bottom: 2px solid transparent;
 }
-
 .main-tab-btn.active {
     border-bottom: 2px solid #3b82f6;
     color: #3b82f6;
     font-weight: 600;
 }
 
-.table-input {
-    padding: 0.25rem 0.5rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.25rem;
-    width: 100%;
-}
-
-.table-input-center {
-    text-align: center;
-}
-
-.stepper-btn {
-    padding: 0 0.5rem;
-    height: 1.75rem;
-    border: 1px solid #d1d5db;
-    background-color: #f9fafb;
-    cursor: pointer;
-}
-
-.fixed-table {
-    table-layout: fixed;
-    width: 100%;
-}
+.table-input { padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem; width: 100%; }
+.table-input-center { text-align: center; }
+.stepper-btn { padding: 0 0.5rem; height: 1.75rem; border: 1px solid #d1d5db; background-color: #f9fafb; cursor: pointer; }
+.fixed-table { table-layout: fixed; width: 100%; }
 
 /* ✨ 순수 달력 스타일 - 일요일 폭 축소 */
 .calendar-grid {
     display: grid;
-    grid-template-columns: 0.4fr repeat(6, 1fr);
-    /* ✅ 일요일 40% 폭으로 축소 */
+    grid-template-columns: 0.4fr repeat(6, 1fr); /* ✅ 일요일 40% 폭으로 축소 */
     gap: 1px;
     background-color: #e5e7eb;
     border: 1px solid #e5e7eb;
@@ -81,15 +58,12 @@
 /* ✅ 일요일 칸 스타일 - 드래그 비활성화 */
 .calendar-day.sunday-col {
     min-height: 120px;
-    pointer-events: none;
-    /* 드래그 불가 */
-    opacity: 0.3;
-    /* 흐리게 표시 */
+    pointer-events: none; /* 드래그 불가 */
+    opacity: 0.3; /* 흐리게 표시 */
 }
 
 .calendar-day.sunday-col .day-events {
-    display: none !important;
-    /* 일요일 이벤트 표시 안 함 */
+    display: none !important; /* 일요일 이벤트 표시 안 함 */
 }
 
 .calendar-day.other-month {
@@ -128,19 +102,42 @@
     background-color: rgba(59, 130, 246, 0.1);
 }
 
-/* ✅ Flow Layout (Left-to-Right Wrapped) */
 .day-events {
     display: flex;
     flex-wrap: wrap;
-    /* ✨ 줄바꿈 허용 */
     gap: 2px;
     flex-grow: 1;
     align-content: flex-start;
     min-height: 80px;
-    max-height: none;
-    /* ✅ 높이 제한 해제하여 내용에 따라 늘어나게 함 (스크롤 대신) */
+    max-height: 200px; /* ✅ 최대 높이 설정 */
     padding: 4px;
-    /* overflow-y: auto; 스크롤 대신 칸이 늘어나는 것을 선호하심 */
+    overflow-y: auto; /* ✅ 세로 스크롤 추가 */
+    overflow-x: hidden;
+}
+
+/* ✅ 스크롤바 스타일링 (WebKit 브라우저) */
+.day-events::-webkit-scrollbar {
+    width: 6px;
+}
+
+.day-events::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.day-events::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.day-events::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* ✅ Firefox 스크롤바 스타일 */
+.day-events {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f1f1;
 }
 
 /* ✅ 이벤트 카드 - 폰트 크기 증가 + 텍스트 줄임 해제 */
@@ -150,10 +147,8 @@
     background-color: white;
     border: 1px solid #e2e8f0;
     border-radius: 3px;
-    padding: 3px 5px;
-    /* ✅ 패딩 증가 */
-    font-size: 12px;
-    /* ✅ 11px → 12px */
+    padding: 3px 5px; /* ✅ 패딩 증가 */
+    font-size: 12px; /* ✅ 11px → 12px */
     display: flex;
     align-items: center;
     gap: 3px;
@@ -205,8 +200,7 @@
 }
 
 .event-dot {
-    width: 5px;
-    /* ✅ 4px → 5px */
+    width: 5px; /* ✅ 4px → 5px */
     height: 5px;
     border-radius: 50%;
     flex-shrink: 0;
@@ -216,10 +210,8 @@
 .event-name {
     font-weight: 500;
     white-space: nowrap;
-    overflow: visible;
-    /* ✅ hidden → visible */
-    text-overflow: clip;
-    /* ✅ ellipsis → clip */
+    overflow: visible; /* ✅ hidden → visible */
+    text-overflow: clip; /* ✅ ellipsis → clip */
     flex-grow: 1;
     line-height: 1.3;
     pointer-events: none;
@@ -246,230 +238,50 @@
     background-color: #eff6ff !important;
 }
 
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal-content { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 600px; }
+.modal-content-sm { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 400px; }
+.modal-content-lg { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 900px; }
 
-.modal-content {
-    background-color: white;
-    padding: 2rem;
-    border-radius: 0.5rem;
-    width: 90%;
-    max-width: 600px;
-}
-
-.modal-content-sm {
-    background-color: white;
-    padding: 2rem;
-    border-radius: 0.5rem;
-    width: 90%;
-    max-width: 400px;
-}
-
-.modal-content-lg {
-    background-color: white;
-    padding: 2rem;
-    border-radius: 0.5rem;
-    width: 90%;
-    max-width: 900px;
-}
-
-.schedule-grid {
-    display: grid;
-    grid-template-columns: 1fr 240px;
-    gap: 1rem;
+.schedule-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 240px; 
+    gap: 1rem; 
     align-items: start;
 }
+.schedule-main-content { display: flex; flex-direction: column; min-height: 0; }
+#schedule-sidebar-area { display: flex; flex-direction: column; background-color: #f9fafb; border-radius: 0.5rem; padding: 1rem; border: 1px solid #e5e7eb; }
 
-.schedule-main-content {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
+.schedule-view-btn { border: 1px solid #d1d5db; background-color: white; font-size: 0.875rem; font-weight: 500; padding: 0.5rem 1rem; color: #1f2937; }
+.schedule-view-btn:hover { background-color: #f9fafb; }
+.schedule-view-btn.active { background-color: #3b82f6; color: white; z-index: 10; }
+.schedule-view-btn.rounded-l-lg { border-top-left-radius: 0.5rem; border-bottom-left-radius: 0.5rem; }
+.schedule-view-btn.rounded-r-md { border-top-right-radius: 0.5rem; border-bottom-right-radius: 0.5rem; margin-left: -1px;}
 
-#schedule-sidebar-area {
-    display: flex;
-    flex-direction: column;
-    background-color: #f9fafb;
-    border-radius: 0.5rem;
-    padding: 1rem;
-    border: 1px solid #e5e7eb;
-}
+#revert-schedule-btn, #save-schedule-btn, #print-schedule-btn, #reset-schedule-btn { font-size: 0.875rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-weight: 700; }
+#revert-schedule-btn { background-color: #e5e7eb; color: #374151; }
+#revert-schedule-btn:hover { background-color: #d1d5db; }
+#revert-schedule-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#reset-schedule-btn { background-color: #10b981; color: white; }
+#reset-schedule-btn:hover { background-color: #059669; }
+#save-schedule-btn { color: white; }
+#save-schedule-btn:not(:disabled) { background-color: #3b82f6; }
+#save-schedule-btn:not(:disabled):hover { background-color: #2563eb; }
+#save-schedule-btn:disabled { background-color: #9ca3af; opacity: 0.5; cursor: not-allowed; }
+#print-schedule-btn { background-color: #10b981; color: white; }
+#print-schedule-btn:hover { background-color: #059669; }
 
-.schedule-view-btn {
-    border: 1px solid #d1d5db;
-    background-color: white;
-    font-size: 0.875rem;
-    font-weight: 500;
-    padding: 0.5rem 1rem;
-    color: #1f2937;
-}
-
-.schedule-view-btn:hover {
-    background-color: #f9fafb;
-}
-
-.schedule-view-btn.active {
-    background-color: #3b82f6;
-    color: white;
-    z-index: 10;
-}
-
-.schedule-view-btn.rounded-l-lg {
-    border-top-left-radius: 0.5rem;
-    border-bottom-left-radius: 0.5rem;
-}
-
-.schedule-view-btn.rounded-r-md {
-    border-top-right-radius: 0.5rem;
-    border-bottom-right-radius: 0.5rem;
-    margin-left: -1px;
-}
-
-#revert-schedule-btn,
-#save-schedule-btn,
-#print-schedule-btn,
-#reset-schedule-btn {
-    font-size: 0.875rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.5rem;
-    font-weight: 700;
-}
-
-#revert-schedule-btn {
-    background-color: #e5e7eb;
-    color: #374151;
-}
-
-#revert-schedule-btn:hover {
-    background-color: #d1d5db;
-}
-
-#revert-schedule-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-#reset-schedule-btn {
-    background-color: #10b981;
-    color: white;
-}
-
-#reset-schedule-btn:hover {
-    background-color: #059669;
-}
-
-#save-schedule-btn {
-    color: white;
-}
-
-#save-schedule-btn:not(:disabled) {
-    background-color: #3b82f6;
-}
-
-#save-schedule-btn:not(:disabled):hover {
-    background-color: #2563eb;
-}
-
-#save-schedule-btn:disabled {
-    background-color: #9ca3af;
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-#print-schedule-btn {
-    background-color: #10b981;
-    color: white;
-}
-
-#print-schedule-btn:hover {
-    background-color: #059669;
-}
-
-.handle {
-    margin-right: 0.5rem;
-    cursor: move;
-    color: #9ca3af;
-}
-
-.handle:hover {
-    color: #1f2937;
-}
-
-.draggable-employee {
-    display: flex;
-    align-items: center;
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.375rem;
-    margin-bottom: 0.25rem;
-    background-color: white;
-    border: 1px solid #e5e7eb;
-    font-size: 0.875rem;
-}
-
-.draggable-employee:active {
-    cursor: grabbing;
-}
-
-.fc-draggable-item {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    cursor: grab;
-}
-
-.department-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 0.5rem;
-    flex-shrink: 0;
-}
-
-.list-separator {
-    height: 20px;
-    padding: 0 0.5rem;
-    border: none;
-    background: transparent;
-    cursor: default;
-    display: flex;
-    align-items: center;
-}
-
-.list-separator .line {
-    flex-grow: 1;
-    height: 2px;
-    background-color: #60a5fa;
-    border-radius: 1px;
-}
-
-.list-separator .delete-separator-btn {
-    background: none;
-    border: none;
-    color: #9ca3af;
-    cursor: pointer;
-    margin-left: 0.5rem;
-    visibility: hidden;
-    font-weight: bold;
-    font-size: 1rem;
-}
-
-.list-separator:hover .delete-separator-btn {
-    visibility: visible;
-}
-
-.list-separator:hover .delete-separator-btn:hover {
-    color: #ef4444;
-}
+.handle { margin-right: 0.5rem; cursor: move; color: #9ca3af; }
+.handle:hover { color: #1f2937; }
+.draggable-employee { display: flex; align-items: center; padding: 0.2rem 0.5rem; border-radius: 0.375rem; margin-bottom: 0.25rem; background-color: white; border: 1px solid #e5e7eb; font-size: 0.875rem; }
+.draggable-employee:active { cursor: grabbing; }
+.fc-draggable-item { display: flex; align-items: center; width: 100%; cursor: grab; }
+.department-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 0.5rem; flex-shrink: 0; }
+.list-separator { height: 20px; padding: 0 0.5rem; border: none; background: transparent; cursor: default; display: flex; align-items: center;}
+.list-separator .line { flex-grow: 1; height: 2px; background-color: #60a5fa; border-radius: 1px; }
+.list-separator .delete-separator-btn { background: none; border: none; color: #9ca3af; cursor: pointer; margin-left: 0.5rem; visibility: hidden; font-weight: bold; font-size: 1rem; }
+.list-separator:hover .delete-separator-btn { visibility: visible; }
+.list-separator:hover .delete-separator-btn:hover { color: #ef4444; }
 
 .list-spacer {
     display: flex;
@@ -481,22 +293,12 @@
     border: 1px dashed #d1d5db;
     border-radius: 0.375rem;
 }
-
 .list-spacer .delete-spacer-btn {
-    background: none;
-    border: none;
-    color: #9ca3af;
-    cursor: pointer;
-    margin-left: auto;
-    visibility: hidden;
-    font-weight: bold;
-    font-size: 1rem;
+    background: none; border: none; color: #9ca3af; cursor: pointer; margin-left: auto; visibility: hidden; font-weight: bold; font-size: 1rem;
 }
-
 .list-spacer:hover .delete-spacer-btn {
     visibility: visible;
 }
-
 .list-spacer:hover .delete-spacer-btn:hover {
     color: #ef4444;
 }
@@ -523,11 +325,9 @@
 .handle {
     cursor: move;
 }
-
 .fc-draggable-item {
     cursor: grab;
 }
-
 .fc-draggable-item:active {
     cursor: grabbing;
 }
@@ -535,11 +335,9 @@
 .sortable-ghost {
     opacity: 0.3;
 }
-
 .sortable-drag {
     opacity: 0;
 }
-
 .sortable-chosen {
     border-color: #3b82f6;
 }
@@ -588,7 +386,7 @@
     padding: 20mm;
     margin: 0 auto;
     background: white;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
 }
 
 .a4-content {
@@ -635,94 +433,214 @@
    인쇄 스타일
    ======================================== */
 
-/* ✅ 이벤트 카드 선택 스타일 */
-.event-card.selected {
-    border-color: #2563eb;
-    background-color: #eff6ff;
-    box-shadow: 0 0 0 2px #3b82f6;
-    /* 두꺼운 테두리 효과 */
-    z-index: 10;
+.print-only {
+    display: none !important;
 }
 
-/* ✅ 인쇄 시 A4 가로 방향 강제 및 축소 */
 @media print {
-    @page {
-        size: A4 landscape;
-        /* 가로 방향 */
-        margin: 5mm;
-        /* 여백 최소화 */
-    }
-
-    body {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-        background: white;
-        zoom: 0.9;
-        /* 90% 축소해서 한 페이지에 맞춤 (브라우저마다 다를 수 있음) */
-    }
-
-    /* 불필요한 요소 숨김 */
     .no-print,
     #schedule-sidebar-area,
     .schedule-view-btn,
     #department-filters,
     .calendar-controls,
     button,
-    #top-controls,
-    /* 상단 버튼 영역 ID 가정 */
-    .modal-overlay,
-    header,
-    /* 만약 있다면 */
-    .day-number.text-red-500,
-    /* 일요일 색상은 유지하되, 클릭 커서는 제거됨 */
-    #schedule-status-badge {
+    .schedule-grid:not(.print-only) {
         display: none !important;
     }
-
-    /* 메인 그리드 확장 */
-    .schedule-grid {
+    
+    .print-only {
         display: block !important;
-        /* 사이드바 사라지므로 블록으로 변경 */
-        width: 100% !important;
-        height: 100% !important;
     }
-
-    .schedule-main-content {
-        width: 100% !important;
+    
+    @page {
+        size: A4;
+        margin: 20mm;
     }
-
-    /* 달력 그리드 스타일 재정의 (인쇄용) */
+    
+    * {
+        margin: 0;
+        padding: 0;
+    }
+    
+    html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: white;
+    }
+    
+    .a4-document {
+        width: 100%;
+        min-height: auto;
+        box-shadow: none;
+        page-break-after: always;
+    }
+    
+    .a4-content {
+        font-size: 12pt;
+        line-height: 1.8;
+    }
+    
+    .template-variable {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    
+    .signature-image {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    
+    #print-area {
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .print-header {
+        flex-shrink: 0;
+        margin-bottom: 8pt;
+        text-align: center;
+    }
+    
+    #print-title {
+        font-size: 20pt;
+        font-weight: bold;
+        margin-bottom: 4pt;
+    }
+    
+    #print-mode {
+        font-size: 12pt;
+        color: #666;
+        margin-bottom: 6pt;
+    }
+    
+    #print-calendar {
+        flex-grow: 1;
+        display: block;
+    }
+    
     .calendar-grid {
-        display: grid !important;
-        grid-template-columns: 0.4fr repeat(6, 1fr) !important;
-        /* 일요일 좁게 유지 */
+        display: grid;
+        grid-template-columns: 0.3fr repeat(6, 1fr);
+        gap: 0;
         border: 2px solid #000;
         width: 100%;
-        page-break-inside: avoid;
+        height: 100%;
     }
-
+    
+    .calendar-header {
+        background-color: #f3f4f6;
+        padding: 6pt;
+        text-align: center;
+        font-weight: 700;
+        font-size: 10pt;
+        border-bottom: 2px solid #000;
+        border-right: 1px solid #666;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
     .calendar-day {
-        min-height: 100px !important;
-        /* 인쇄 시 높이 고정보다는 내용에 맞게 */
-        height: auto !important;
-        border: 1px solid #000 !important;
-        page-break-inside: avoid;
+        background-color: white;
+        padding: 3pt;
+        border-right: 1px solid #666;
+        border-bottom: 1px solid #666;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
-
-    /* 이벤트 카드 인쇄 스타일 */
-    .event-card {
-        border: 1px solid #000 !important;
-        box-shadow: none !important;
-        page-break-inside: avoid;
-        font-size: 10px !important;
-        /* 글자 크기 축소 */
-        padding: 1px 2px !important;
+    
+    .calendar-day.other-month {
+        background-color: #f9fafb;
+        opacity: 0.5;
     }
-
+    
+    .calendar-day.today {
+        background-color: #fef3c7;
+    }
+    
+    .calendar-day.company-holiday {
+        background-color: #fee2e2;
+    }
+    
+    .calendar-day.sunday-col {
+        background-color: #fef2f2;
+        opacity: 0.3;
+    }
+    
+    .day-header {
+        margin-bottom: 3pt;
+        flex-shrink: 0;
+    }
+    
+    .day-number {
+        font-weight: 700;
+        font-size: 9pt;
+    }
+    
     .day-events {
-        max-height: none !important;
-        /* 스크롤 제거하고 다 보여줌 */
-        overflow: visible !important;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5pt;
+        flex-grow: 1;
+        align-content: flex-start;
+    }
+    
+    .event-card {
+        flex-basis: calc(33.33% - 1.5pt);
+        min-width: 0;
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 2pt;
+        padding: 2pt 3pt;
+        font-size: 7.5pt;
+        display: flex;
+        align-items: center;
+        gap: 2pt;
+        page-break-inside: avoid;
+    }
+    
+    .event-working {
+        background-color: #e0f2fe;
+        border-color: #0284c7;
+    }
+    
+    .event-off {
+        background-color: #fef3c7;
+        border-color: #f59e0b;
+        border-style: dashed;
+    }
+    
+    .event-leave {
+        background-color: #f0fdf4;
+        border-color: #16a34a;
+    }
+    
+    .event-dot {
+        width: 3pt;
+        height: 3pt;
+        border-radius: 50%;
+        flex-shrink: 0;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    
+    .event-name {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-grow: 1;
+        line-height: 1.2;
+    }
+    
+    * {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
     }
 }
 
@@ -772,7 +690,6 @@
 
 /* 태블릿 ~ 모바일 (768px 이하) */
 @media (max-width: 768px) {
-
     /* 전체 레이아웃 */
     body {
         padding: 0.5rem;
@@ -905,7 +822,7 @@
     }
 
     /* 내 연차 신청 내역 - 버튼 한줄 표시 */
-    #my-leave-requests .space-y-4>div {
+    #my-leave-requests .space-y-4 > div {
         padding: 0.5rem;
         display: grid;
         grid-template-columns: auto 1fr auto auto;
@@ -913,15 +830,15 @@
         align-items: center;
     }
 
-    #my-leave-requests .space-y-4>div>div {
+    #my-leave-requests .space-y-4 > div > div {
         display: flex;
         flex-direction: column;
         gap: 0.125rem;
     }
 
-    #my-leave-requests .space-y-4>div .bg-green-100,
-    #my-leave-requests .space-y-4>div .bg-red-100,
-    #my-leave-requests .space-y-4>div .bg-yellow-100 {
+    #my-leave-requests .space-y-4 > div .bg-green-100,
+    #my-leave-requests .space-y-4 > div .bg-red-100,
+    #my-leave-requests .space-y-4 > div .bg-yellow-100 {
         padding: 0.125rem 0.375rem;
         border-radius: 0.25rem;
         font-size: 0.7rem;
@@ -929,7 +846,7 @@
         display: inline-block;
     }
 
-    #my-leave-requests .space-y-4>div button {
+    #my-leave-requests .space-y-4 > div button {
         white-space: nowrap;
         padding: 0.25rem 0.5rem;
         font-size: 0.7rem;
@@ -949,8 +866,8 @@
         align-items: center;
     }
 
-    #document-requests-list .bg-white>div,
-    #submitted-docs-list .bg-white>div {
+    #document-requests-list .bg-white > div,
+    #submitted-docs-list .bg-white > div {
         display: flex;
         flex-direction: column;
         gap: 0.125rem;
@@ -1046,7 +963,6 @@
 
 /* 매니저 전용 탭 PC 전용 안내 */
 @media (max-width: 1024px) {
-
     #employee-leave-list-tab.tab-content:not(.hidden)::before,
     #employee-schedule-tab.tab-content:not(.hidden)::before {
         content: '💻 이 기능은 PC에서만 사용 가능합니다.';
@@ -1063,12 +979,11 @@
     }
 
     /* 매니저 탭 컨텐츠 숨김 (모바일에서) */
-    #employee-leave-list-tab.tab-content:not(.hidden)>*:not(style),
-    #employee-schedule-tab.tab-content:not(.hidden)>*:not(style) {
+    #employee-leave-list-tab.tab-content:not(.hidden) > *:not(style),
+    #employee-schedule-tab.tab-content:not(.hidden) > *:not(style) {
         display: none !important;
     }
 }
-
 /* =========================================================================================
    연차 현황 스타일
    ========================================================================================= */
@@ -1080,7 +995,7 @@
 .leave-status-table-wrapper {
     overflow-x: auto;
     border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
 .leave-status-table {
@@ -1165,7 +1080,6 @@
         opacity: 0;
         max-height: 0;
     }
-
     to {
         opacity: 1;
         max-height: 100px;
@@ -1174,21 +1088,20 @@
 
 /* 모바일 반응형 */
 @media (max-width: 768px) {
-
     .leave-status-table th,
     .leave-status-table td {
         padding: 8px 12px;
         font-size: 13px;
     }
-
+    
     .leave-progress-cell {
         min-width: 150px;
     }
-
+    
     .progress-bar-container {
         height: 20px;
     }
-
+    
     .progress-text {
         font-size: 10px;
     }
