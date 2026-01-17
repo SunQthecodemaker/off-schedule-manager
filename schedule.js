@@ -1624,7 +1624,18 @@ async function handleAddTempStaff() {
         // loadAndRenderScheduleData는 전체 리로드라 스케줄 위치가 초기화될 수 있나? 
         // -> 아니요, DB에서 불러오므로 괜찮습니다. 하지만 *저장하지 않은 변경사항*이 있으면 경고 필요.
 
-        // 하지만 UX상 바로 보이는게 좋으므로, insert 성공 후 리로드 호출
+        // ✨ 데이터 일관성을 위해 직원 목록 다시 불러오기
+        const { data: empData, error: empError } = await db.from('employees')
+            .select('*, departments(*)')
+            .order('id');
+
+        if (empError) throw empError;
+        if (empData) {
+            state.management.employees = empData;
+            console.log('✅ Temporary Staff Added & Employee List Updated:', empData.length);
+        }
+
+        // UX상 바로 보이는게 좋으므로, 스케줄 데이터 리로드
         await loadAndRenderScheduleData(state.schedule.currentDate);
 
     } catch (err) {
