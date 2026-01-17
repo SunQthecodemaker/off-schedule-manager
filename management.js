@@ -2137,7 +2137,13 @@ function openRegularHolidayModal(employeeId, employeeName) {
 
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 
-    const overlay = document.getElementById('regular-holiday-modal');
+    const overlay = document.getElementById('regular-holiday-modal');    // 신규 직원 등록 버튼 (이벤트 리스너 분리)
+    const addBtn = document.querySelector('#btnAddEmployee');
+    if (addBtn) {
+        addBtn.onclick = function () {
+            handleRegisterNewEmployee(this);
+        };
+    }
     const closeBtn = document.getElementById('close-regular-modal');
 
     closeBtn.onclick = () => overlay.remove();
