@@ -165,7 +165,7 @@ async function handleAddEmployee() {
     const name = _('#newName').value.trim();
     const entryDate = _('#newEntry').value;
     const email = _('#newEmail').value.trim();
-    const password = _('#newPassword').value.trim();
+    const password = _('#newEmployeePassword').value.trim();
     const department_id_val = _('#newDepartment').value;
 
     console.log('📝 [하단 신규등록] 입력값 확인:', {
@@ -207,7 +207,7 @@ async function handleAddEmployee() {
         // 입력 필드 초기화
         _('#newName').value = '';
         _('#newEmail').value = '';
-        _('#newPassword').value = '';
+        _('#newEmployeePassword').value = '';
         _('#newDepartment').value = '';
         await window.loadAndRenderManagement();
     }
@@ -454,7 +454,7 @@ export function getManagementHTML() {
             <td class="p-2"><input type="email" id="newEmail" class="table-input" placeholder="이메일"></td>
             <td class="p-2" colspan="2">
                 <div class="flex gap-2">
-                    <input type="password" id="newPassword" class="table-input" placeholder="초기 비밀번호">
+                    <input type="password" id="newEmployeePassword" class="table-input" placeholder="초기 비밀번호">
                     <button class="text-sm bg-green-600 text-white px-4 py-1 rounded w-full" onclick="handleAddEmployee()">추가</button>
                 </div>
             </td>
