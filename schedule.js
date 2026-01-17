@@ -1590,8 +1590,22 @@ async function handleDeleteTempStaff(id) {
         const { error } = await db.from('employees').delete().eq('id', id);
         if (error) throw error;
 
-        // 데이터 리로드
+        // ✨ 데이터 일관성을 위해 직원 목록 다시 불러오기
+        const { data: empData, error: empError } = await db.from('employees')
+            .select('*, departments(*)')
+            .order('id');
+
+        if (empError) throw empError;
+        if (empData) {
+            state.management.employees = empData;
+            console.log('✅ Temporary Staff Deleted & Employee List Updated:', empData.length);
+        }
+
+        // 데이터 리로드 (스케줄 정리)
         await loadAndRenderScheduleData(state.schedule.currentDate);
+
+        // ✨ 사이드바 명시적 갱신
+        renderScheduleSidebar();
 
     } catch (err) {
         console.error('임시 직원 삭제 실패:', err);
