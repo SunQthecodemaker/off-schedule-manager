@@ -1652,6 +1652,9 @@ async function handleAddTempStaff() {
         // UX상 바로 보이는게 좋으므로, 스케줄 데이터 리로드
         await loadAndRenderScheduleData(state.schedule.currentDate);
 
+        // ✨ 사이드바 명시적 갱신 (추가된 직원 표시)
+        renderScheduleSidebar();
+
     } catch (err) {
         console.error('임시 직원 추가 실패:', err);
         alert('임시 직원 추가 중 오류가 발생했습니다:\n' + (typeof err === 'object' ? JSON.stringify(err, null, 2) : err));
