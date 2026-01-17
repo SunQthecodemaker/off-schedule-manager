@@ -1,7 +1,7 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=FIX_LOGIN_VF';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=FIX_REF_ERR';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js';
 import { renderEmployeePortal } from './employee-portal-final.js';
 import { getLeaveDetails } from './leave-utils.js';

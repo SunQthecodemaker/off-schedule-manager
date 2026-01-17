@@ -161,7 +161,7 @@ async function handleDeleteEmployee(id) {
     }
 }
 
-async function handleRegisterNewEmployee(btnElement) {
+window.handleRegisterNewEmployee = async function (btnElement) {
     const name = _('#newName').value.trim();
     const entryDate = _('#newEntry').value;
     const email = _('#newEmail').value.trim();
@@ -238,6 +238,9 @@ async function handleRegisterNewEmployee(btnElement) {
         await window.loadAndRenderManagement();
     }
 }
+
+// ✨ 구버전 코드 캐싱 방지용 별칭 (혹시 모를 에러 방지)
+window.handleAddEmployee = window.handleRegisterNewEmployee;
 
 // =========================================================================================
 // 서류 요청 모달 - 서식 목록 동적 로딩으로 수정
