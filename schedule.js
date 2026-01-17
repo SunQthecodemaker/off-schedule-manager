@@ -912,17 +912,29 @@ function handleEventCardClick(e) {
         clearSelection();
     }
 
-    // 3. 상태 토글 (기존 로직)
+    // 3. 상태 토글 또는 삭제 (임시 직원)
     let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === empId);
 
+    // ✨ 임시 직원 확인
+    const emp = state.management.employees.find(e => e.id === empId);
+    const isTemp = emp && emp.is_temp;
+
     if (schedule) {
-        // 기존 스케줄: 상태 전환
-        schedule.status = schedule.status === '근무' ? '휴무' : '근무';
-        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-        console.log('Updated schedule:', schedule);
+        if (isTemp) {
+            // ✨ 임시 직원은 클릭 시 스케줄에서 삭제 (휴무 토글이 아님)
+            // 배열에서 제거하고 unsavedChanges에 delete로 기록
+            state.schedule.schedules = state.schedule.schedules.filter(s => s.id !== schedule.id);
+            unsavedChanges.set(schedule.id, { type: 'delete', data: schedule.id });
+            console.log('Removed temp staff schedule:', schedule);
+        } else {
+            // 기존 정규 직원 스케줄: 상태 전환
+            schedule.status = schedule.status === '근무' ? '휴무' : '근무';
+            unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+            console.log('Updated schedule:', schedule);
+        }
     } else {
-        // 새 스케줄 생성 (이 로직은 사실 빈칸 클릭이 아니면 실행되기 어려움, 카드는 이미 스케줄이 있을 때만 렌더링되므로)
-        // 하지만 빈칸이나 예외 상황 고려하여 유지
+        // 새 스케줄 생성
+        // 이미 근무 중인지 확인 (중복 방지용 로직 일부)
         const currentlyWorking = getWorkingEmployeesOnDate(dateStr).some(emp => emp.id === empId);
         const newStatus = currentlyWorking ? '휴무' : '근무';
 
@@ -1507,8 +1519,17 @@ async function renderScheduleSidebar() {
     // HTML 생성 - 제외 목록
     const excludedListHtml = excludedEmployees.map(emp => getEmployeeHtml(emp)).join('');
 
-    // HTML 생성 - 임시 직원 목록
-    const tempListHtml = tempEmployees.map(emp => getEmployeeHtml(emp)).join('');
+    // HTML 생성 - 임시 직원 목록 (삭제 버튼 추가)
+    const tempListHtml = tempEmployees.map(emp => {
+        return `<div class="draggable-employee" data-employee-id="${emp.id}" data-type="employee">
+            <span class="handle">☰</span>
+            <div class="fc-draggable-item" style="background-color: #f3f4f6;">
+                <span style="background-color: #a855f7;" class="department-dot"></span>
+                <span class="flex-grow font-semibold" style="color: #333;">${emp.name}</span>
+                <button class="delete-temp-btn text-gray-400 hover:text-red-500 ml-2 font-bold px-1" data-id="${emp.id}">×</button>
+            </div>
+        </div>`;
+    }).join('');
 
     sidebar.innerHTML = `
         <div class="flex flex-col h-full">
@@ -1546,10 +1567,36 @@ async function renderScheduleSidebar() {
 
     _('#add-spacer-btn')?.addEventListener('click', handleAddSpacer);
     _('#save-employee-order-btn')?.addEventListener('click', handleSaveEmployeeOrder);
-    _('#add-temp-staff-btn')?.addEventListener('click', handleAddTempStaff); // ✨ 이벤트 연결
-    sidebar.addEventListener('click', handleDeleteSpacer);
+    _('#add-temp-staff-btn')?.addEventListener('click', handleAddTempStaff);
+
+    // 이벤트 위임: 삭제 버튼 처리
+    sidebar.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('delete-spacer-btn')) {
+            handleDeleteSpacer(e);
+        } else if (e.target.classList.contains('delete-temp-btn')) {
+            const id = e.target.dataset.id;
+            await handleDeleteTempStaff(id);
+        }
+    });
 
     initializeSortableAndDraggable();
+}
+
+// ✨ 임시 직원 삭제 핸들러
+async function handleDeleteTempStaff(id) {
+    if (!confirm('정말로 이 임시 직원을 삭제하시겠습니까?\n(배치된 스케줄에서도 모두 사라질 수 있습니다)')) return;
+
+    try {
+        const { error } = await db.from('employees').delete().eq('id', id);
+        if (error) throw error;
+
+        // 데이터 리로드
+        await loadAndRenderScheduleData(state.schedule.currentDate);
+
+    } catch (err) {
+        console.error('임시 직원 삭제 실패:', err);
+        alert('삭제 중 오류가 발생했습니다: ' + err.message);
+    }
 }
 
 // ✨ 임시 직원 추가 핸들러
@@ -1582,7 +1629,7 @@ async function handleAddTempStaff() {
 
     } catch (err) {
         console.error('임시 직원 추가 실패:', err);
-        alert('임시 직원 추가 중 오류가 발생했습니다: ' + err.message);
+        alert('임시 직원 추가 중 오류가 발생했습니다:\n' + (typeof err === 'object' ? JSON.stringify(err, null, 2) : err));
     }
 }
 
