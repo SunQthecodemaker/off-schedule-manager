@@ -1361,6 +1361,35 @@ function initializeSortableAndDraggable() {
         state.schedule.sortableInstances.push(excludedSortable);
     }
 
+    // ✨ 임시 직원 목록에도 Sortable 적용
+    const tempStaffList = document.querySelector('.temp-staff-list');
+    if (tempStaffList) {
+        const tempSortable = new Sortable(tempStaffList, {
+            group: {
+                name: 'sidebar-employees',
+                pull: 'clone', // 복사 모드 (임시 직원은 목록에 계속 남아있도록) -> 아니면 이동? 
+                // 임시 직원은 "소모품" 개념이 아니라 "인력 풀" 개념이므로 복사(clone)가 나을 수도 있으나, 
+                // 다른 일반 직원(employee-list)은 move임. 일관성을 위해 move로 하되, 필요하면 다시 추가하게?
+                // 아니면 "배치 시뮬레이션"이니까 복사가 더 유용할 수도 있음. (여러 날짜에 배치)
+                // 하지만 DB 구조상 ID는 유니크해야 스케줄 저장 시 충돌 안남.
+                // handleSameDateMove 로직 등에서 ID 기반으로 움직이므로, "한 명"은 "한 번"만 등장해야 함 (같은 날짜에)
+                // 따라서 'pull: true' (이동) 가 맞음. 달력에 배치되면 목록에서 사라지는게 직관적.
+                // 배치 안 된 날짜로 이동하면 다시 나타나는건 아니지만... 
+                // 아, 일반 직원도 달력으로 드래그하면 목록에서는 안 사라짐! 
+                // wait. initializeSortableAndDraggable 의 employeeList 설정을 보자.
+                // pull: function() { ... if to calendar -> return 'clone' }
+                // 아하! 일반 직원도 달력으로 갈땐 복사(clone)됨. 
+                // 그러면 임시 직원도 똑같이 'clone'으로 동작해야 함.
+                put: false // 임시 직원 목록으로 다른 직원이 들어오는건 막음
+            },
+            draggable: '.draggable-employee',
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            sort: true
+        });
+        state.schedule.sortableInstances.push(tempSortable);
+    }
+
     console.log('✅ Initialized', state.schedule.sortableInstances.length, 'sidebar sortable instances');
     console.log('✅ Calendar has', document.querySelectorAll('.day-events').length, 'droppable day-events');
 
@@ -1384,7 +1413,11 @@ async function renderScheduleSidebar() {
         filteredEmployees.map(emp => [emp.id, emp])
     ).values());
 
-    // ✅ 저장된 순서가 있으면 그 순서대로 정렬
+    // ✨ 정규 직원과 임시 직원 분리
+    const regularEmployees = uniqueEmployees.filter(e => !e.is_temp);
+    const tempEmployees = uniqueEmployees.filter(e => e.is_temp);
+
+    // ✅ 저장된 순서가 있으면 그 순서대로 정렬 (정규 직원만)
     let orderedEmployees = [];
     let excludedEmployees = [];
     const savedLayout = state.schedule.teamLayout?.data?.[0];
@@ -1398,27 +1431,28 @@ async function renderScheduleSidebar() {
                 // 음수 ID는 빈칸
                 orderedEmployees.push({ id: memberId, isSpacer: true, name: `빈칸${-memberId}` });
             } else {
-                const emp = uniqueEmployees.find(e => e.id === memberId);
+                const emp = regularEmployees.find(e => e.id === memberId);
                 if (emp) {
                     orderedEmployees.push(emp);
                 }
             }
         });
 
-        // ✅ 저장된 순서에 없는 직원들은 제외 목록으로
-        uniqueEmployees.forEach(emp => {
+        // ✅ 저장된 순서에 없는 직원들은 제외 목록으로 (정규 직원 중)
+        regularEmployees.forEach(emp => {
             if (!savedLayout.members.includes(emp.id)) {
                 excludedEmployees.push(emp);
             }
         });
     } else {
         // 저장된 순서가 없으면 기본 순서 사용
-        orderedEmployees = uniqueEmployees;
+        orderedEmployees = regularEmployees;
         console.log('📋 기본 순서 사용');
     }
 
     console.log('📋 사이드바 직원 수:', orderedEmployees.length);
     console.log('🚫 제외된 직원 수:', excludedEmployees.length);
+    console.log('🧪 임시 직원 수:', tempEmployees.length);
 
     // HTML 생성 - 직원 목록
     const employeeListHtml = orderedEmployees.map(item => {
@@ -1439,6 +1473,9 @@ async function renderScheduleSidebar() {
     // HTML 생성 - 제외 목록
     const excludedListHtml = excludedEmployees.map(emp => getEmployeeHtml(emp)).join('');
 
+    // HTML 생성 - 임시 직원 목록
+    const tempListHtml = tempEmployees.map(emp => getEmployeeHtml(emp)).join('');
+
     sidebar.innerHTML = `
         <div class="flex flex-col h-full">
             <div class="flex justify-between items-center mb-2 pb-2 border-b">
@@ -1453,6 +1490,17 @@ async function renderScheduleSidebar() {
             <div class="mt-2 pt-2 border-t">
                 <button id="add-spacer-btn" class="w-full text-sm py-2 px-2 border border-dashed rounded-lg text-gray-600 hover:bg-gray-100">📄 빈 칸 추가</button>
             </div>
+            
+            <div class="mt-2 pt-2 border-t">
+                <div class="flex justify-between items-center mb-1">
+                    <h3 class="font-bold text-xs text-purple-600">🧪 임시 직원 (배치 시뮬레이션)</h3>
+                    <button id="add-temp-staff-btn" class="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 font-bold">+</button>
+                </div>
+                <div class="temp-staff-list min-h-[40px] p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                    ${tempListHtml}
+                </div>
+            </div>
+
             <div class="mt-2 pt-2 border-t">
                 <h3 class="font-bold text-xs text-gray-500 mb-2">🚫 리셋 제외 목록</h3>
                 <div class="excluded-list min-h-[80px] p-2 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg">
@@ -1464,9 +1512,44 @@ async function renderScheduleSidebar() {
 
     _('#add-spacer-btn')?.addEventListener('click', handleAddSpacer);
     _('#save-employee-order-btn')?.addEventListener('click', handleSaveEmployeeOrder);
+    _('#add-temp-staff-btn')?.addEventListener('click', handleAddTempStaff); // ✨ 이벤트 연결
     sidebar.addEventListener('click', handleDeleteSpacer);
 
     initializeSortableAndDraggable();
+}
+
+// ✨ 임시 직원 추가 핸들러
+async function handleAddTempStaff() {
+    const name = prompt("임시 직원의 이름을 입력하세요 (예: 알바1, 임시 김의사):");
+    if (!name) return;
+
+    try {
+        // 임시 직원 insert
+        // 이메일이나 비밀번호는 더미 데이터로 채움
+        const dummyId = Date.now();
+        const { error } = await db.from('employees').insert({
+            name: name,
+            entryDate: dayjs().format('YYYY-MM-DD'),
+            email: `temp-${dummyId}@simulation.local`,
+            password: 'temp-password',
+            department_id: null, // 부서 없음
+            is_temp: true, // ✨ 임시 직원 플래그
+            regular_holiday_rules: []
+        });
+
+        if (error) throw error;
+
+        // 리로드 (단, 스케줄 보존을 위해 현재 상태 체크 필요하지만, 사이드바 추가이므로 리로드해도 무방)
+        // loadAndRenderScheduleData는 전체 리로드라 스케줄 위치가 초기화될 수 있나? 
+        // -> 아니요, DB에서 불러오므로 괜찮습니다. 하지만 *저장하지 않은 변경사항*이 있으면 경고 필요.
+
+        // 하지만 UX상 바로 보이는게 좋으므로, insert 성공 후 리로드 호출
+        await loadAndRenderScheduleData(state.schedule.currentDate);
+
+    } catch (err) {
+        console.error('임시 직원 추가 실패:', err);
+        alert('임시 직원 추가 중 오류가 발생했습니다: ' + err.message);
+    }
 }
 
 // ✨ 날짜 헤더 더블클릭 핸들러 (휴일 토글)

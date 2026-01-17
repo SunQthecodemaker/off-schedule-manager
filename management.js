@@ -380,6 +380,9 @@ export function getManagementHTML() {
 
     // Filter employees
     const filteredEmployees = employees.filter(emp => {
+        // ✨ 임시직원(is_temp)은 관리 목록에서 제외
+        if (emp.is_temp) return false;
+
         if (filter === 'active') return !emp.resignation_date;
         if (filter === 'retired') return emp.resignation_date;
         return true;
@@ -580,13 +583,16 @@ export function getLeaveListHTML() {
     const { leaveRequests, employees } = state.management;
 
     const employeeNameMap = employees.reduce((map, emp) => {
+        // 임시직원 제외 (혹시 섞여있을 경우)
+        if (emp.is_temp) return map;
+
         const suffix = emp.resignation_date ? ' (퇴사)' : '';
         map[emp.id] = emp.name + suffix;
         return map;
     }, {});
 
-    // 모든 신청 내역 표시 (반려 포함)
-    const filteredRequests = leaveRequests;
+    // 모든 신청 내역 표시 (반려 포함) - 임시직원 등 이름 없는 경우 제외
+    const filteredRequests = leaveRequests.filter(req => employeeNameMap[req.employee_id]);
 
     let rows = '';
     if (filteredRequests.length === 0) {
