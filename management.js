@@ -161,25 +161,50 @@ async function handleDeleteEmployee(id) {
     }
 }
 
-async function handleAddEmployee() {
+async function handleAddEmployee(btnElement) {
     const name = _('#newName').value.trim();
     const entryDate = _('#newEntry').value;
     const email = _('#newEmail').value.trim();
-    const password = _('#newEmployeePassword').value.trim();
+
+    // ✨ 강력한 찾기: 버튼 형제 요소에서 비밀번호 입력창 찾기 (ID 의존성 제거)
+    let password = '';
+    let passwordInput = null;
+
+    if (btnElement && btnElement.previousElementSibling) {
+        // 버튼 바로 앞의 input 찾기
+        const prev = btnElement.previousElementSibling;
+        if (prev.tagName === 'INPUT' && prev.type === 'password') {
+            passwordInput = prev;
+            password = prev.value.trim();
+        }
+    }
+
+    // 찾지 못했으면 ID로 재시도 (백업)
+    if (!passwordInput) {
+        const inputById = document.getElementById('newEmployeePassword_v2'); // 캐시 방지용 v2
+        if (inputById) {
+            password = inputById.value.trim();
+            passwordInput = inputById;
+        } else {
+            // 구버전 캐시 대응
+            const oldInput = document.getElementById('newEmployeePassword');
+            if (oldInput) password = oldInput.value.trim();
+        }
+    }
+
     const department_id_val = _('#newDepartment').value;
 
     console.log('📝 [하단 신규등록] 입력값 확인:', {
         name,
         entryDate,
         email,
-        password,
-        department_id_val,
-        deptElement: _('#newDepartment'),
-        deptOptions: _('#newDepartment')?.innerHTML
+        passwordLength: password.length,
+        foundInput: !!passwordInput,
+        department_id_val
     });
 
     if (!name || !entryDate || !password || !department_id_val) {
-        alert(`입력 정보가 부족합니다.\n\n확인된 정보:\n이름: ${name}\n입사일: ${entryDate}\n비밀번호: ${password ? '입력됨' : '미입력'}\n부서ID: ${department_id_val}`);
+        alert(`입력 정보가 부족합니다.\n\n확인된 정보:\n이름: ${name}\n입사일: ${entryDate}\n비밀번호: ${password ? '입력됨 (' + password.length + '자)' : '미입력 (시스템이 값을 읽지 못함)'}\n부서ID: ${department_id_val}`);
         return;
     }
 
@@ -207,7 +232,7 @@ async function handleAddEmployee() {
         // 입력 필드 초기화
         _('#newName').value = '';
         _('#newEmail').value = '';
-        _('#newEmployeePassword').value = '';
+        _('#newEmployeePassword_v2').value = '';
         _('#newDepartment').value = '';
         await window.loadAndRenderManagement();
     }
@@ -454,8 +479,8 @@ export function getManagementHTML() {
             <td class="p-2"><input type="email" id="newEmail" class="table-input" placeholder="이메일"></td>
             <td class="p-2" colspan="2">
                 <div class="flex gap-2">
-                    <input type="password" id="newEmployeePassword" class="table-input" placeholder="초기 비밀번호">
-                    <button class="text-sm bg-green-600 text-white px-4 py-1 rounded w-full" onclick="handleAddEmployee()">추가</button>
+                    <input type="password" id="newEmployeePassword_v2" class="table-input" placeholder="초기 비밀번호">
+                    <button class="text-sm bg-green-600 text-white px-4 py-1 rounded w-full" onclick="handleAddEmployee(this)">추가</button>
                 </div>
             </td>
         </tr>` : '';
