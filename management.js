@@ -161,7 +161,7 @@ async function handleDeleteEmployee(id) {
     }
 }
 
-async function handleAddEmployee(btnElement) {
+async function handleRegisterNewEmployee(btnElement) {
     const name = _('#newName').value.trim();
     const entryDate = _('#newEntry').value;
     const email = _('#newEmail').value.trim();
@@ -200,7 +200,8 @@ async function handleAddEmployee(btnElement) {
         email,
         passwordLength: password.length,
         foundInput: !!passwordInput,
-        department_id_val
+        department_id_val,
+        btn: btnElement
     });
 
     if (!name || !entryDate || !password || !department_id_val) {
@@ -480,7 +481,7 @@ export function getManagementHTML() {
             <td class="p-2" colspan="2">
                 <div class="flex gap-2">
                     <input type="password" id="newEmployeePassword_v2" class="table-input" placeholder="초기 비밀번호">
-                    <button class="text-sm bg-green-600 text-white px-4 py-1 rounded w-full" onclick="handleAddEmployee(this)">추가</button>
+                    <button class="text-sm bg-green-600 text-white px-4 py-1 rounded w-full" onclick="handleRegisterNewEmployee(this)">추가</button>
                 </div>
             </td>
         </tr>` : '';
