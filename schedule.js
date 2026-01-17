@@ -1972,6 +1972,11 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
             undoStack: [] // ✨ Undo 스택 초기화
         };
     }
+
+    // ✨ 안전장치: 빈 state 객체가 넘어왔을 때 undoStack 보장
+    if (!state.schedule.undoStack) {
+        state.schedule.undoStack = [];
+    }
     state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장
 
     if (!state.management) {
