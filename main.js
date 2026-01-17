@@ -6,8 +6,18 @@ import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.
 import { renderEmployeePortal } from './employee-portal-final.js';
 import { getLeaveDetails } from './leave-utils.js';
 
-dayjs.extend(window.dayjs_plugin_isSameOrAfter);
-dayjs.extend(window.dayjs_plugin_isSameOrBefore);
+// Safely initialize dayjs plugins
+if (window.dayjs_plugin_isSameOrAfter) {
+    dayjs.extend(window.dayjs_plugin_isSameOrAfter);
+} else {
+    console.warn('⚠️ dayjs_plugin_isSameOrAfter not loaded');
+}
+
+if (window.dayjs_plugin_isSameOrBefore) {
+    dayjs.extend(window.dayjs_plugin_isSameOrBefore);
+} else {
+    console.warn('⚠️ dayjs_plugin_isSameOrBefore not loaded');
+}
 
 // =========================================================================================
 // 공유 함수
