@@ -1221,6 +1221,82 @@ function handleCalendarClick(e) {
     }
 }
 
+// ✨ 달력 더블클릭 핸들러 (이벤트 위임)
+function handleCalendarDblClick(e) {
+    const card = e.target.closest('.event-card');
+    if (card) {
+        handleEventCardDblClick(e, card);
+    }
+}
+
+// ✨ 클릭 핸들러: 선택(Selection) 로직
+function handleEventCardClick(e) {
+    const card = e.target.closest('.event-card');
+    if (!card) return;
+
+    const scheduleId = card.dataset.scheduleId;
+    if (!scheduleId) return; // 빈 슬롯 등 ID 없는 경우
+
+    // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
+    if (e.ctrlKey || e.metaKey) {
+        if (state.schedule.selectedSchedules.has(scheduleId)) {
+            state.schedule.selectedSchedules.delete(scheduleId);
+            card.classList.remove('selected');
+        } else {
+            state.schedule.selectedSchedules.add(scheduleId);
+            card.classList.add('selected');
+        }
+    }
+    // 일반 클릭: 기존 선택 해제하고 단일 선택
+    else {
+        clearSelection();
+        state.schedule.selectedSchedules.add(scheduleId);
+        // 다시 렌더링하지 않고 DOM만 업데이트 (성능 최적화)
+        document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
+        card.classList.add('selected');
+    }
+
+    console.log('Selected count:', state.schedule.selectedSchedules.size);
+}
+
+// ✨ 더블클릭 핸들러: 상태 변경(Toggle) / 삭제 로직 (기존 클릭 로직 이동)
+function handleEventCardDblClick(e, card) {
+    const empId = parseInt(card.dataset.employeeId);
+    const scheduleId = card.dataset.scheduleId;
+
+    // 빈칸 등 유효하지 않은 카드 제외
+    if (!scheduleId || isNaN(empId)) return;
+
+    // 3. 상태 토글 또는 삭제 (임시 직원)
+    let schedule = state.schedule.schedules.find(s => s.id == scheduleId); // 타입 주의
+
+    // ✨ 임시 직원 확인
+    const emp = state.management.employees.find(e => e.id === empId);
+    const isTemp = emp && emp.is_temp;
+
+    if (schedule) {
+        pushUndoState('Toggle Status'); // 상태 변경 전 Undo 저장
+
+        if (isTemp) {
+            // ✨ 임시 직원은 더블클릭 시 스케줄에서 삭제
+            state.schedule.schedules = state.schedule.schedules.filter(s => s.id !== schedule.id);
+            unsavedChanges.set(schedule.id, { type: 'delete', data: schedule.id });
+            console.log('Removed temp staff schedule:', schedule);
+        } else {
+            // 기존 정규 직원 스케줄: 상태 전환 (근무 <-> 휴무)
+            // 현재 무조건 '근무'인 카드만 보여지므로, 더블클릭하면 '휴무'로 변경되어 사라짐
+            schedule.status = schedule.status === '근무' ? '휴무' : '근무';
+            unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+            console.log('Updated schedule:', schedule);
+        }
+
+        // 선택 상태 해제 및 리렌더링
+        clearSelection();
+        renderCalendar();
+        updateSaveButtonState();
+    }
+}
+
 function navigateMonth(direction) {
     const totalChanges = unsavedChanges.size + unsavedHolidayChanges.toAdd.size + unsavedHolidayChanges.toRemove.size;
     if (totalChanges > 0 && !confirm("저장되지 않은 변경사항이 있습니다. 다른 달로 이동하면 변경사항이 사라집니다. 정말 이동하시겠습니까?")) {
@@ -1761,7 +1837,17 @@ function initializeCalendarEvents() {
     const calendarGrid = document.querySelector('#pure-calendar');
     if (calendarGrid) {
         calendarGrid.removeEventListener('dblclick', handleDateHeaderDblClick);
-        calendarGrid.addEventListener('dblclick', handleDateHeaderDblClick);
+        calendarGrid.addEventListener('dblclick', (e) => {
+            // 헤더 더블클릭과 카드 더블클릭 구분
+            if (e.target.closest('.calendar-day')) {
+                // 날짜 클릭은 기존 핸들러 (헤더 토글 등)
+                handleDateHeaderDblClick(e);
+            }
+            // 카드 더블클릭
+            if (e.target.closest('.event-card')) {
+                handleCalendarDblClick(e);
+            }
+        });
     }
 
     // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
@@ -1770,32 +1856,19 @@ function initializeCalendarEvents() {
 }
 
 // ✨ 키보드 이벤트 핸들러
+// ✨ 키보드 이벤트 핸들러
 function handleGlobalKeydown(e) {
     // 입력 필드 등에서는 무시
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-    // Delete / Backspace: 선택된 스케줄 삭제
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (state.schedule.selectedSchedules.size > 0) {
-            if (confirm(`선택한 ${state.schedule.selectedSchedules.size}개의 스케줄을 삭제(휴무 처리)하시겠습니까?`)) {
-                let deletedCount = 0;
-                state.schedule.selectedSchedules.forEach(scheduleId => {
-                    const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
-                    if (schedule) {
-                        schedule.status = '휴무'; // 또는 영구 삭제? 보통은 휴무로 처리
-                        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                        deletedCount++;
-                    }
-                });
-                clearSelection();
-                renderCalendar();
-                updateSaveButtonState();
-                console.log(`Deleted ${deletedCount} schedules.`);
-            }
-        }
+    // Undo (Ctrl+Z)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        performUndo();
+        return;
     }
 
-    // Ctrl+C: 복사
+    // Copy (Ctrl+C)
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         if (state.schedule.selectedSchedules.size > 0) {
             scheduleClipboard = [];
@@ -1808,20 +1881,57 @@ function handleGlobalKeydown(e) {
                     });
                 }
             });
-            alert(`${scheduleClipboard.length}개의 스케줄이 복사되었습니다.\n원하는 날짜를 클릭하고 Ctrl+V를 누르세요.`);
+            // alert(`${scheduleClipboard.length}개의 스케줄이 복사되었습니다.`); // 알림 너무 자주 뜨면 귀찮음
             console.log('Copied to clipboard:', scheduleClipboard);
+
+            // 시각적 피드백 (선택된 카드 반짝임)
+            document.querySelectorAll('.event-card.selected').forEach(el => {
+                el.style.opacity = '0.5';
+                setTimeout(() => el.style.opacity = '1', 200);
+            });
         }
+        return;
     }
 
-    // Ctrl+V: 붙여넣기
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        // 마우스가 올라가 있는 날짜 찾기 (hover) - 정확도가 떨어질 수 있음
-        // 또는 마지막으로 클릭된 날짜를 state에 저장해야 함.
-        // 여기서는 '마지막 클릭된 날짜' 또는 '현재 hover 중인 날짜'를 찾아야 함.
+    // Cut (Ctrl+X)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        if (state.schedule.selectedSchedules.size > 0) {
+            pushUndoState('Cut Schedules'); // Undo 저장
 
-        // CSS :hover를 이용해 현재 hover된 .calendar-day 찾기
+            scheduleClipboard = [];
+            state.schedule.selectedSchedules.forEach(scheduleId => {
+                const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                if (schedule) {
+                    // 복사
+                    scheduleClipboard.push({
+                        employee_id: schedule.employee_id,
+                        status: schedule.status
+                    });
+
+                    // 삭제 (상태 변경 또는 제거)
+                    // 여기서는 '휴무'로 변경보다는 아예 제거(빈칸) 처리하거나 휴무로 처리
+                    // 사용자 요청: "제거" -> 휴무로 변경이 일반적이나, 드래그앤드롭 맥락에서는 '삭제'일 수도.
+                    // 임시 직원은 삭제, 정규직원은 휴무로? 
+                    // 통일성을 위해 '휴무'로 처리.
+                    schedule.status = '휴무';
+                    unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                }
+            });
+
+            clearSelection();
+            renderCalendar();
+            updateSaveButtonState();
+            console.log('Cut to clipboard:', scheduleClipboard);
+        }
+        return;
+    }
+
+    // Paste (Ctrl+V)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         const hoveredDay = document.querySelector('.calendar-day:hover');
         if (hoveredDay && scheduleClipboard.length > 0) {
+            pushUndoState('Paste Schedules'); // Undo 저장
+
             const dateStr = hoveredDay.dataset.date;
             let pastedCount = 0;
 
@@ -1831,36 +1941,44 @@ function handleGlobalKeydown(e) {
                 // 이미 해당 날짜에 근무 중인지 확인
                 const exist = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === item.employee_id && s.status === '근무');
                 if (exist) {
-                    console.log(`Skipping ${item.employee_id} (already working)`);
+                    // 이미 근무중이면 패스
                 } else {
-                    // 새 스케줄 생성
-                    const tempId = `paste-${Date.now()}-${item.employee_id}-${Math.random()}`;
+                    // 휴무인 기존 스케줄이 있으면 근무로 변경
+                    const existingOff = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === item.employee_id);
 
-                    // 마지막 순서 찾기
-                    const existingOrders = state.schedule.schedules
-                        .filter(s => s.date === dateStr)
-                        .map(s => s.sort_order)
-                        .filter(o => o !== null && o !== undefined);
-                    const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1;
+                    if (existingOff) {
+                        existingOff.status = '근무';
+                        unsavedChanges.set(existingOff.id, { type: 'update', data: existingOff });
+                        pastedCount++;
+                    } else {
+                        // 아예 없으면 신규 생성
+                        const tempId = `paste-${Date.now()}-${item.employee_id}-${Math.random()}`;
 
-                    const newSchedule = {
-                        id: tempId,
-                        date: dateStr,
-                        employee_id: item.employee_id,
-                        status: '근무', // 보통 복사는 근무를 복사함
-                        sort_order: maxOrder + 1,
-                        grid_position: maxOrder + 1
-                    };
-                    state.schedule.schedules.push(newSchedule);
-                    unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-                    pastedCount++;
+                        // 순서 계산
+                        const existingOrders = state.schedule.schedules
+                            .filter(s => s.date === dateStr)
+                            .map(s => s.sort_order)
+                            .filter(o => o !== null && o !== undefined);
+                        const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1;
+
+                        const newSchedule = {
+                            id: tempId,
+                            date: dateStr,
+                            employee_id: item.employee_id,
+                            status: '근무',
+                            sort_order: maxOrder + 1,
+                            grid_position: maxOrder + 1
+                        };
+                        state.schedule.schedules.push(newSchedule);
+                        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+                        pastedCount++;
+                    }
                 }
             });
 
             if (pastedCount > 0) {
                 renderCalendar();
                 updateSaveButtonState();
-                console.log(`Pasted ${pastedCount} schedules to ${dateStr}`);
 
                 // 시각적 피드백
                 hoveredDay.style.transition = 'background-color 0.2s';
@@ -1868,7 +1986,67 @@ function handleGlobalKeydown(e) {
                 setTimeout(() => hoveredDay.style.backgroundColor = '', 300);
             }
         }
+        return;
     }
+
+    // Delete / Backspace: 선택된 스케줄 삭제
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (state.schedule.selectedSchedules.size > 0) {
+            if (confirm(`선택한 ${state.schedule.selectedSchedules.size}개의 스케줄을 삭제(휴무 처리)하시겠습니까?`)) {
+                pushUndoState('Delete Schedules'); // Undo 저장
+
+                let deletedCount = 0;
+                state.schedule.selectedSchedules.forEach(scheduleId => {
+                    const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                    if (schedule) {
+                        schedule.status = '휴무';
+                        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                        deletedCount++;
+                    }
+                });
+                clearSelection();
+                renderCalendar();
+                updateSaveButtonState();
+                console.log(`Deleted ${deletedCount} schedules.`);
+            }
+        }
+    }
+}
+
+// ✨ Undo 기능 구현
+function pushUndoState(actionName) {
+    // 깊은 복사를 위해 JSON 사용 (간단한 객체이므로 가능)
+    // 주의: Set 객체 등은 소실되므로 복구 시 유의해야 함. 
+    // 여기서는 schedules 배열과 unsavedChanges가 핵심임.
+
+    const snapshot = {
+        schedules: JSON.parse(JSON.stringify(state.schedule.schedules)),
+        unsavedChanges: Array.from(unsavedChanges.entries()), // Map -> Array
+        action: actionName
+    };
+
+    state.schedule.undoStack.push(snapshot);
+    // 스택 제한 (예: 20단계)
+    if (state.schedule.undoStack.length > 20) state.schedule.undoStack.shift();
+
+    console.log(`Undo state pushed: ${actionName} (Stack: ${state.schedule.undoStack.length})`);
+}
+
+function performUndo() {
+    if (state.schedule.undoStack.length === 0) {
+        alert('되돌릴 작업이 없습니다.');
+        return;
+    }
+
+    const snapshot = state.schedule.undoStack.pop();
+    console.log(`Undoing: ${snapshot.action}`);
+
+    // 상태 복구
+    state.schedule.schedules = snapshot.schedules;
+    unsavedChanges = new Map(snapshot.unsavedChanges);
+
+    renderCalendar();
+    updateSaveButtonState();
 }
 
 export async function renderScheduleManagement(container, isReadOnly = false) {
@@ -1883,7 +2061,10 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
             activeDepartmentFilters: new Set(),
             companyHolidays: new Set(),
             activeReorder: { date: null, sortable: null },
-            sortableInstances: []
+            activeReorder: { date: null, sortable: null },
+            sortableInstances: [],
+            selectedSchedules: new Set(),
+            undoStack: [] // ✨ Undo 스택 초기화
         };
     }
     state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장

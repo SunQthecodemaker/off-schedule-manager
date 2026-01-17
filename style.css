@@ -636,12 +636,13 @@
    ======================================== */
 
 /* ✅ 이벤트 카드 선택 스타일 */
+/* ✅ 이벤트 카드 선택 스타일 */
 .event-card.selected {
-    border-color: #2563eb;
-    background-color: #eff6ff;
-    box-shadow: 0 0 0 2px #3b82f6;
-    /* 두꺼운 테두리 효과 */
-    z-index: 10;
+    border-color: #2563eb !important;
+    background-color: #eff6ff !important;
+    box-shadow: 0 0 0 2px #3b82f6 !important;
+    transform: translateY(-2px);
+    z-index: 50 !important;
 }
 
 /* ✅ 인쇄 시 A4 가로 방향 강제 및 축소 */
