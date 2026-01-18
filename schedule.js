@@ -2220,8 +2220,10 @@ function handleGlobalKeydown(e) {
                         unsavedChanges.set(newSchedule.id, { type: 'create', data: newSchedule });
                         pastedCount++;
                     } else {
+                        alert(`[${dateStr}] 빈 자리가 없어 ${item.name || item.employee_id}님을 배치할 수 없습니다.`);
                     }
-                });
+                }
+            });
 
             if (pastedCount > 0) {
                 renderCalendar();
