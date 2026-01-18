@@ -2071,19 +2071,15 @@ function handleGlobalKeydown(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         let targetDate = null;
         let targetPosition = null;
-        let debugInfo = [];
 
         // 1순위: 선택된 빈 슬롯 (.selected 클래스)
         const selectedSlot = document.querySelector('.event-slot.selected');
-        debugInfo.push(`선택된 슬롯: ${selectedSlot ? '찾음' : '없음'}`);
         if (selectedSlot) {
             const dayEl = selectedSlot.closest('.calendar-day');
             const pos = selectedSlot.dataset.position;
-            debugInfo.push(`날짜 요소: ${dayEl ? '찾음' : '없음'}, 위치값: ${pos}`);
             if (dayEl && pos !== undefined) {
                 targetDate = dayEl.dataset.date;
                 targetPosition = parseInt(pos, 10);
-                debugInfo.push(`✅ 선택된 슬롯 사용: ${targetDate}, ${targetPosition}번`);
             }
         }
 
@@ -2092,14 +2088,12 @@ function handleGlobalKeydown(e) {
             const hoveredElement = document.querySelector(':hover');
             if (hoveredElement) {
                 const hoveredSlotOrCard = hoveredElement.closest('.event-slot, .event-card');
-                debugInfo.push(`호버 요소: ${hoveredSlotOrCard ? '찾음' : '없음'}`);
                 if (hoveredSlotOrCard) {
                     const dayEl = hoveredSlotOrCard.closest('.calendar-day');
                     const pos = hoveredSlotOrCard.dataset.position;
                     if (dayEl && pos !== undefined) {
                         targetDate = dayEl.dataset.date;
                         targetPosition = parseInt(pos, 10);
-                        debugInfo.push(`✅ 호버 요소 사용: ${targetDate}, ${targetPosition}번`);
                     }
                 }
             }
@@ -2108,10 +2102,8 @@ function handleGlobalKeydown(e) {
         // 3순위: 날짜만 (자동 배치)
         if (!targetDate) {
             const hoveredDay = document.querySelector('.calendar-day:hover');
-            debugInfo.push(`호버 날짜: ${hoveredDay ? '찾음' : '없음'}`);
             if (hoveredDay) {
                 targetDate = hoveredDay.dataset.date;
-                debugInfo.push(`✅ 날짜만 사용 (자동 배치): ${targetDate}`);
             }
         }
 
@@ -2120,150 +2112,116 @@ function handleGlobalKeydown(e) {
             const dateStr = targetDate;
             let pastedCount = 0;
 
-            alert(`🔍 디버깅 정보:\n${debugInfo.join('\n')}\n\n날짜: ${dateStr}\n복사된 항목: ${scheduleClipboard.length}개\n타겟 위치: ${targetPosition !== null && !isNaN(targetPosition) ? targetPosition + '번' : '자동'}`);
-            console.log(`Pasting to ${dateStr}...`);
+            console.log(`Pasting to ${dateStr}... (Target Position: ${targetPosition})`);
 
             scheduleClipboard.forEach(item => {
-                // 이미 해당 날짜에 근무 중인지 확인 (ID 타입 통일)
-                let exist = state.schedule.schedules.find(s => s.date === dateStr && String(s.employee_id) === String(item.employee_id) && s.status === '근무');
-
-                // ✨ [Fix] 이미 근무 중이라도, 위치가 없으면 투명인간임! -> 수리 대상
+                // 기존 스케줄 찾기 (근무 중이든 휴무든)
+                let target = state.schedule.schedules.find(s => s.date === dateStr && String(s.employee_id) === String(item.employee_id));
                 const GRID_SIZE = 24;
-                if (exist) {
-                    if (exist.grid_position === null || exist.grid_position === undefined || exist.grid_position >= GRID_SIZE || exist.grid_position < 0) {
-                        console.warn(`[${dateStr}] 투명 스케줄 감지! 위치 수리 시도: ${item.employee_id}`);
-                        // exist를 null로 처리하지 않고, 아래 로직에서 수리하거나 여기서 직접 수리
-                        // 여기서 수리 로직 태우기 위해 exist를 처리
 
+                // 이미 존재하는 경우 (위치 이동 또는 상태 변경)
+                if (target) {
+                    target.status = '근무';
+
+                    // ✨ [Fix] 사용자가 특정 위치를 찍었으면 무조건 그곳으로 이동
+                    if (targetPosition !== null && !isNaN(targetPosition)) {
+                        /* 
+                           내 위치가 아닌 다른 사람이 그 자리에 있는지 확인
+                           (단, '유령' 데이터가 있을 수 있으므로, 화면상 빈칸이라고 판단되면 그냥 덮어씀)
+                           안전장치로 occupiedPositions 다시 계산하되, 자신은 제외
+                        */
+                        const occupiedByOthers = state.schedule.schedules.some(s =>
+                            s.date === dateStr &&
+                            s.status === '근무' &&
+                            s.grid_position === targetPosition &&
+                            s.id !== target.id
+                        );
+
+                        if (!occupiedByOthers) {
+                            target.grid_position = targetPosition;
+                            target.sort_order = targetPosition;
+                            console.log(`✅ Moved existing schedule to target: ${targetPosition}`);
+                        } else {
+                            // 자리가 차 있으면 경고하고 자동 배치는 하지 않음 (사용자 의도 존중 실패 알림)
+                            // 혹은 자동 배치로 넘어갈 수도 있음. 여기선 자동 배치로 fallback
+                            console.warn(`⚠️ Target position ${targetPosition} is occupied by another. Auto-assigning.`);
+                            // 아래의 자동 할당 로직을 태우기 위해 targetPosition을 null로 취급하거나 별도 처리
+                            // 여기서는 간단히 자동 할당 로직 재사용을 위해 grid_position을 -1로 설정하여 수리 유도
+                            target.grid_position = -1;
+                        }
+                    }
+
+                    // 위치가 유효하지 않으면 (또는 방금 충돌나서 -1이 되었으면) 자동 할당
+                    if (target.grid_position === null || target.grid_position === undefined || target.grid_position < 0 || target.grid_position >= GRID_SIZE) {
                         const occupiedPositions = new Set(
                             state.schedule.schedules
-                                .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
+                                .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null && s.id !== target.id)
                                 .map(s => s.grid_position)
                         );
-                        let availablePos = -1;
 
-                        // ✨ [Fix] 수리 시에도 사용자가 지정한 위치 우선 사용
-                        if (targetPosition !== null && !occupiedPositions.has(targetPosition)) {
-                            availablePos = targetPosition;
-                            console.log(`✅ Repair using target position: ${availablePos}`);
-                        } else {
-                            for (let i = 0; i < GRID_SIZE; i++) {
-                                if (!occupiedPositions.has(i)) {
-                                    availablePos = i;
-                                    break;
-                                }
+                        let availablePos = -1;
+                        for (let i = 0; i < GRID_SIZE; i++) {
+                            if (!occupiedPositions.has(i)) {
+                                availablePos = i;
+                                break;
                             }
-                            console.log(`🔍 Repair auto-found position: ${availablePos}`);
                         }
 
                         if (availablePos !== -1) {
-                            exist.grid_position = availablePos;
-                            exist.sort_order = availablePos;
-                            unsavedChanges.set(exist.id, { type: 'update', data: exist });
-                            pastedCount++;
-                            occupiedPositions.add(availablePos);
+                            target.grid_position = availablePos;
+                            target.sort_order = availablePos;
+                        } else {
+                            alert(`[${dateStr}] 빈 자리가 없어 ${item.name || item.employee_id}님을 배치할 수 없습니다.`);
+                            return; // 저장 안 하고 건너뜀
                         }
                     }
-                    // 근무 중이고 위치도 정상이면 진짜 패스
-                    return;
-                }
 
-                // 휴무인 기존 스케줄 탐색
-                // ... (아래는 else { 로 연결되지 않음, 위에서 return 처리함)
-                {
+                    unsavedChanges.set(target.id, { type: 'update', data: target });
+                    pastedCount++;
 
+                } else {
+                    // 신규 생성
+                    const occupiedPositions = new Set(
+                        state.schedule.schedules
+                            .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
+                            .map(s => s.grid_position)
+                    );
 
-                    // 휴무인 기존 스케줄이 있으면 근무로 변경 (ID 타입 통일)
-                    const existingOff = state.schedule.schedules.find(s => s.date === dateStr && String(s.employee_id) === String(item.employee_id));
+                    let availablePos = -1;
 
-                    if (existingOff) {
-                        existingOff.status = '근무';
-
-                        // ✨ [Fix] 기존 스케줄이 살아날 때, grid_position이 없거나 24 이상이면 재할당해야 함
-                        const GRID_SIZE = 24;
-                        if (existingOff.grid_position === null || existingOff.grid_position === undefined || existingOff.grid_position >= GRID_SIZE || existingOff.grid_position < 0) {
-                            const occupiedPositions = new Set(
-                                state.schedule.schedules
-                                    .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
-                                    .map(s => s.grid_position)
-                            );
-                            let availablePos = -1;
-
-                            // ✨ [Fix] 휴무 -> 근무 전환 시에도 사용자 지정 위치 우선
-                            if (targetPosition !== null && !occupiedPositions.has(targetPosition)) {
-                                availablePos = targetPosition;
-                                console.log(`✅ Reactivate using target position: ${availablePos}`);
-                            } else {
-                                for (let i = 0; i < GRID_SIZE; i++) {
-                                    if (!occupiedPositions.has(i)) {
-                                        availablePos = i;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (availablePos !== -1) {
-                                existingOff.grid_position = availablePos;
-                                existingOff.sort_order = availablePos;
-                                occupiedPositions.add(availablePos);
-                            } else {
-                                console.warn(`[${dateStr}] 위치 할당 실패 (꽉 참): ${existingOff.employee_id}`);
-                                alert(`[${dateStr}] 빈 자리가 없어 ${existingOff.employee_id}번 직원을 배치할 수 없습니다.`);
+                    // 사용자가 지정한 위치 우선
+                    if (targetPosition !== null && !isNaN(targetPosition) && !occupiedPositions.has(targetPosition)) {
+                        availablePos = targetPosition;
+                        console.log(`✅ New schedule at target: ${availablePos}`);
+                    } else {
+                        // 자동 찾기
+                        for (let i = 0; i < GRID_SIZE; i++) {
+                            if (!occupiedPositions.has(i)) {
+                                availablePos = i;
+                                break;
                             }
                         }
+                        console.log(`🔍 New schedule auto-found: ${availablePos}`);
+                    }
 
-                        unsavedChanges.set(existingOff.id, { type: 'update', data: existingOff });
+                    if (availablePos !== -1) {
+                        const newSchedule = {
+                            id: `paste-${Date.now()}-${item.employee_id}-${Math.random()}`,
+                            date: dateStr,
+                            employee_id: item.employee_id,
+                            status: '근무', // 근무로 생성
+                            grid_position: availablePos,
+                            sort_order: availablePos,
+                            created_at: new Date().toISOString()
+                        };
+
+                        // state에 즉시 반영 (렌더링 위해)
+                        state.schedule.schedules.push(newSchedule);
+                        unsavedChanges.set(newSchedule.id, { type: 'create', data: newSchedule });
                         pastedCount++;
                     } else {
-                        // 아예 없으면 신규 생성
-                        // ✨ [Fix] targetPosition이 있으면 우선 사용, 없으면 빈 슬롯(0~23)을 찾아 할당
-                        const GRID_SIZE = 24;
-                        const occupiedPositions = new Set(
-                            state.schedule.schedules
-                                .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
-                                .map(s => s.grid_position)
-                        );
-
-                        let availablePos = -1;
-
-                        // 사용자가 지정한 위치가 있고, 그 위치가 비어 있으면 사용
-                        if (targetPosition !== null && !occupiedPositions.has(targetPosition)) {
-                            availablePos = targetPosition;
-                            console.log(`✅ Using target position: ${availablePos}`);
-                        } else {
-                            // 아니면 첫 번째 빈 자리 찾기
-                            for (let i = 0; i < GRID_SIZE; i++) {
-                                if (!occupiedPositions.has(i)) {
-                                    availablePos = i;
-                                    break;
-                                }
-                            }
-                            console.log(`🔍 Auto-found position: ${availablePos}`);
-                        }
-
-                        if (availablePos !== -1) {
-                            const tempId = `paste-${Date.now()}-${item.employee_id}-${Math.random()}`;
-                            const newSchedule = {
-                                id: tempId,
-                                date: dateStr,
-                                employee_id: item.employee_id,
-                                status: '근무',
-                                sort_order: availablePos,
-                                grid_position: availablePos
-                            };
-                            state.schedule.schedules.push(newSchedule);
-                            unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-                            pastedCount++;
-                            // 다음 반복을 위해 점유 표시 + targetPosition 초기화
-                            occupiedPositions.add(availablePos);
-                            targetPosition = null; // 두 번째 항목부터는 자동 배치
-                        } else {
-                            console.warn(`[${dateStr}] 그리드가 가득 차서 붙여넣기 실패: ${item.employee_id}`);
-                            alert(`[${dateStr}] 빈 자리가 없어 ${item.employee_id}번 직원을 추가할 수 없습니다.`);
-                        }
                     }
-                }
-            });
+                });
 
             if (pastedCount > 0) {
                 renderCalendar();
