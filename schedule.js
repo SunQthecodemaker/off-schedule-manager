@@ -2084,41 +2084,7 @@ function handleGlobalKeydown(e) {
     }
 }
 
-// ✨ Undo 기능 구현
-function pushUndoState(actionName) {
-    // 깊은 복사를 위해 JSON 사용 (간단한 객체이므로 가능)
-    // 주의: Set 객체 등은 소실되므로 복구 시 유의해야 함. 
-    // 여기서는 schedules 배열과 unsavedChanges가 핵심임.
-
-    const snapshot = {
-        schedules: JSON.parse(JSON.stringify(state.schedule.schedules)),
-        unsavedChanges: Array.from(unsavedChanges.entries()), // Map -> Array
-        action: actionName
-    };
-
-    state.schedule.undoStack.push(snapshot);
-    // 스택 제한 (예: 20단계)
-    if (state.schedule.undoStack.length > 20) state.schedule.undoStack.shift();
-
-    console.log(`Undo state pushed: ${actionName} (Stack: ${state.schedule.undoStack.length})`);
-}
-
-function performUndo() {
-    if (state.schedule.undoStack.length === 0) {
-        alert('되돌릴 작업이 없습니다.');
-        return;
-    }
-
-    const snapshot = state.schedule.undoStack.pop();
-    console.log(`Undoing: ${snapshot.action}`);
-
-    // 상태 복구
-    state.schedule.schedules = snapshot.schedules;
-    unsavedChanges = new Map(snapshot.unsavedChanges);
-
-    renderCalendar();
-    updateSaveButtonState();
-}
+// Old Undo implementation removed to avoid duplicates
 
 export async function renderScheduleManagement(container, isReadOnly = false) {
     console.log('renderScheduleManagement called', { isReadOnly });
