@@ -2062,34 +2062,49 @@ function handleGlobalKeydown(e) {
 
     // Paste (Ctrl+V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        // ✨ [Fix] 붙여넣기 시점에 선택된 빈 슬롯을 직접 확인
         let targetDate = null;
         let targetPosition = null;
+        let debugInfo = [];
 
-        // 1순위: 현재 선택된 빈 슬롯 찾기
+        // 1순위: 선택된 빈 슬롯 (.selected 클래스)
         const selectedSlot = document.querySelector('.event-slot.selected');
+        debugInfo.push(`선택된 슬롯: ${selectedSlot ? '찾음' : '없음'}`);
         if (selectedSlot) {
             const dayEl = selectedSlot.closest('.calendar-day');
-            if (dayEl) {
+            const pos = selectedSlot.dataset.position;
+            debugInfo.push(`날짜 요소: ${dayEl ? '찾음' : '없음'}, 위치값: ${pos}`);
+            if (dayEl && pos !== undefined) {
                 targetDate = dayEl.dataset.date;
-                targetPosition = parseInt(selectedSlot.dataset.position, 10);
-                console.log(`📍 Using selected slot: ${targetDate} at position ${targetPosition}`);
+                targetPosition = parseInt(pos, 10);
+                debugInfo.push(`✅ 선택된 슬롯 사용: ${targetDate}, ${targetPosition}번`);
             }
         }
 
-        // 2순위: window.lastClickedSlot (이전 방식 호환)
-        if (!targetDate && window.lastClickedSlot) {
-            targetDate = window.lastClickedSlot.date;
-            targetPosition = window.lastClickedSlot.position;
-            console.log(`📍 Using last clicked slot: ${targetDate} at position ${targetPosition}`);
+        // 2순위: 마우스가 올려진 빈 슬롯 또는 카드
+        if (targetPosition === null || isNaN(targetPosition)) {
+            const hoveredElement = document.querySelector(':hover');
+            if (hoveredElement) {
+                const hoveredSlotOrCard = hoveredElement.closest('.event-slot, .event-card');
+                debugInfo.push(`호버 요소: ${hoveredSlotOrCard ? '찾음' : '없음'}`);
+                if (hoveredSlotOrCard) {
+                    const dayEl = hoveredSlotOrCard.closest('.calendar-day');
+                    const pos = hoveredSlotOrCard.dataset.position;
+                    if (dayEl && pos !== undefined) {
+                        targetDate = dayEl.dataset.date;
+                        targetPosition = parseInt(pos, 10);
+                        debugInfo.push(`✅ 호버 요소 사용: ${targetDate}, ${targetPosition}번`);
+                    }
+                }
+            }
         }
 
-        // 3순위: 마우스 호버된 날짜
+        // 3순위: 날짜만 (자동 배치)
         if (!targetDate) {
             const hoveredDay = document.querySelector('.calendar-day:hover');
+            debugInfo.push(`호버 날짜: ${hoveredDay ? '찾음' : '없음'}`);
             if (hoveredDay) {
                 targetDate = hoveredDay.dataset.date;
-                console.log(`🖱️ Using hovered date: ${targetDate}`);
+                debugInfo.push(`✅ 날짜만 사용 (자동 배치): ${targetDate}`);
             }
         }
 
@@ -2098,7 +2113,7 @@ function handleGlobalKeydown(e) {
             const dateStr = targetDate;
             let pastedCount = 0;
 
-            alert(`🔍 Debug: 붙여넣기 시도\n날짜: ${dateStr}\n복사된 항목: ${scheduleClipboard.length}개\n타겟 위치: ${targetPosition !== null ? targetPosition + '번' : '자동'}`);
+            alert(`🔍 디버깅 정보:\n${debugInfo.join('\n')}\n\n날짜: ${dateStr}\n복사된 항목: ${scheduleClipboard.length}개\n타겟 위치: ${targetPosition !== null && !isNaN(targetPosition) ? targetPosition + '번' : '자동'}`);
             console.log(`Pasting to ${dateStr}...`);
 
             scheduleClipboard.forEach(item => {
