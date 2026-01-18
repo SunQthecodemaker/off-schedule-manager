@@ -19,6 +19,48 @@ let dragStartTime = 0;
 state.schedule.selectedSchedules = new Set(); // Set<schedule_id>
 let scheduleClipboard = []; // Array of { employee_id, status }
 
+// =========================================================================================
+// ⚡ Undo / Redo System
+// =========================================================================================
+const undoStack = [];
+const redoStack = [];
+
+function pushUndoState(actionName) {
+    const snapshot = {
+        schedules: JSON.parse(JSON.stringify(state.schedule.schedules)),
+        unsavedChanges: new Map(unsavedChanges)
+    };
+    undoStack.push({ name: actionName, snapshot });
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack.length = 0; // New action clears redo stack
+    console.log(`📸 Undo Point Saved: ${actionName} (Stack: ${undoStack.length})`);
+}
+
+function undoLastChange() {
+    if (undoStack.length === 0) {
+        alert('되돌릴 작업이 없습니다.');
+        return;
+    }
+    const { name, snapshot } = undoStack.pop();
+
+    // Save current to redo
+    const currentSnapshot = {
+        schedules: JSON.parse(JSON.stringify(state.schedule.schedules)),
+        unsavedChanges: new Map(unsavedChanges)
+    };
+    redoStack.push({ name, snapshot: currentSnapshot });
+
+    // Restore
+    state.schedule.schedules = snapshot.schedules;
+    unsavedChanges = snapshot.unsavedChanges;
+
+    console.log(`⏪ Undoing: ${name}`);
+    renderCalendar();
+    updateSaveButtonState();
+}
+
+// Keyboard shortcuts are handled in the main event handler section below
+
 
 // ✅ 그리드 위치 기반 업데이트 (완전 재작성 - 빈칸 포함)
 function updateScheduleSortOrders(dateStr) {
@@ -523,6 +565,18 @@ function handleDepartmentFilterChange(e) {
 
 // ✅ 같은 날짜 내 이동 처리 (24칸 고정 그리드)
 function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
+    if (oldIndex === newIndex) return;
+
+    // ✨ [Group Move Check]
+    // 이동하려는 대상이 "선택된 그룹"에 포함되어 있고, 선택된 항목이 2개 이상인 경우 그룹 이동 처리
+    // movedEmployeeId는 직원 ID임. 스케줄 ID를 찾아야 함.
+    const movingSchedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === movedEmployeeId && s.status === '근무');
+
+    if (movingSchedule && state.schedule.selectedSchedules.has(movingSchedule.id) && state.schedule.selectedSchedules.size > 1) {
+        handleGroupSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex);
+        return;
+    }
+
     console.log(`🔄 [${dateStr}] ${movedEmployeeId}번 이동: ${oldIndex} → ${newIndex}`);
 
     const GRID_SIZE = 24;
@@ -1154,6 +1208,13 @@ function handleEventCardClick(e) {
     }
     // 일반 클릭: 기존 선택 해제하고 단일 선택
     else {
+        // ✨ [개선] 이미 선택된 항목을 다시 클릭하면 선택 해제 (토글 방식)
+        if (state.schedule.selectedSchedules.has(scheduleId) && state.schedule.selectedSchedules.size === 1) {
+            clearSelection();
+            card.classList.remove('selected');
+            return;
+        }
+
         clearSelection();
         state.schedule.selectedSchedules.add(scheduleId);
         // 다시 렌더링하지 않고 DOM만 업데이트 (성능 최적화)
@@ -1162,6 +1223,111 @@ function handleEventCardClick(e) {
     }
 
     console.log('Selected count:', state.schedule.selectedSchedules.size);
+}
+
+// ✨ 그룹 이동 처리 함수
+function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
+    console.log(`👨‍👩‍👧‍👦 그룹 이동 감지: ${pivotEmpId} (Delta: ${newIndex - oldIndex})`);
+
+    const delta = newIndex - oldIndex;
+    if (delta === 0) return;
+
+    const GRID_SIZE = 24;
+
+    // 1. 현재 그리드 구성 (배경)
+    const currentGrid = new Array(GRID_SIZE).fill(null);
+    state.schedule.schedules.forEach(s => {
+        if (s.date === dateStr && s.status === '근무' && s.grid_position != null) {
+            const pos = s.grid_position;
+            if (pos >= 0 && pos < GRID_SIZE) currentGrid[pos] = s.employee_id;
+        }
+    });
+
+    // 2. 이동 대상(선택된) 직원 식별
+    const selectedIds = state.schedule.selectedSchedules;
+
+    // 현재 날짜에 있고 선택된 스케줄만 필터링
+    const movingItems = state.schedule.schedules
+        .filter(s => s.date === dateStr && s.status === '근무' && selectedIds.has(s.id))
+        .map(s => ({
+            id: s.employee_id,
+            oldPos: s.grid_position,
+            scheduleId: s.id
+        }));
+
+    // 기준점(pivot)이 선택 그룹에 없으면(예외) 추가
+    if (!movingItems.some(item => item.id === pivotEmpId)) {
+        movingItems.push({ id: pivotEmpId, oldPos: oldIndex, scheduleId: 'temp_pivot' });
+    }
+
+    // 3. 임시 그리드에서 이동 대상 제거
+    const tempGrid = [...currentGrid];
+    movingItems.forEach(item => {
+        if (tempGrid[item.oldPos] === item.id) tempGrid[item.oldPos] = null;
+    });
+
+    // 4. 새 위치 계산 및 배치
+    // 이동할 아이템들을 새 위치 기준 정렬
+    const placements = movingItems.map(item => {
+        let targetPos = item.oldPos + delta;
+        // 그리드 경계 처리 (Clamp)
+        targetPos = Math.max(0, Math.min(GRID_SIZE - 1, targetPos));
+        return { id: item.id, newPos: targetPos, scheduleId: item.scheduleId };
+    });
+
+    // 충돌 방지: 앞쪽으로 이동하면 앞쪽부터, 뒤쪽이면 뒤쪽부터 배치해야 겹침 최소화?
+    // 사실 빈 공간을 찾아서 밀어내는 로직이 필요.
+    // 여기서는 "밀어내기" 로직을 각자 적용.
+
+    // 배치 순서: 낮은 위치부터?
+    placements.sort((a, b) => a.newPos - b.newPos);
+
+    const finalGrid = [...tempGrid];
+
+    placements.forEach(p => {
+        let insertPos = p.newPos;
+
+        // 자리 비우기 (Shift)
+        if (finalGrid[insertPos] !== null) {
+            const itemsToShift = [];
+            for (let i = insertPos; i < GRID_SIZE; i++) {
+                if (finalGrid[i] !== null) {
+                    itemsToShift.push(finalGrid[i]);
+                    finalGrid[i] = null;
+                }
+            }
+            finalGrid[insertPos] = p.id;
+            let shiftIdx = insertPos + 1;
+            itemsToShift.forEach(sid => {
+                while (shiftIdx < GRID_SIZE && finalGrid[shiftIdx] !== null) shiftIdx++;
+                if (shiftIdx < GRID_SIZE) finalGrid[shiftIdx] = sid;
+            });
+        } else {
+            finalGrid[insertPos] = p.id;
+        }
+    });
+
+    // 5. State 업데이트 (중복 로직이지만 안전하게 처리)
+    state.schedule.schedules.forEach(schedule => {
+        if (schedule.date === dateStr && schedule.status === '근무') {
+            const currentPos = finalGrid.indexOf(schedule.employee_id);
+            if (currentPos === -1) {
+                // 그리드에서 밀려남 (삭제)
+                if (!schedule.id.toString().startsWith('temp-')) {
+                    unsavedChanges.set(schedule.id, { type: 'delete', data: schedule });
+                }
+            } else if (schedule.grid_position !== currentPos) {
+                schedule.grid_position = currentPos;
+                schedule.sort_order = currentPos;
+                unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+            }
+        }
+    });
+
+    // 새 아이템 생성 로직은 생략 (이동만 처리하므로)
+
+    renderCalendar();
+    updateSaveButtonState();
 }
 
 // ✨ 더블클릭 핸들러: 상태 변경(Toggle) / 삭제 로직 (기존 클릭 로직 이동)
@@ -1769,7 +1935,7 @@ function handleGlobalKeydown(e) {
     // Undo (Ctrl+Z)
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
-        performUndo();
+        undoLastChange();
         return;
     }
 
