@@ -2057,15 +2057,52 @@ function handleGlobalKeydown(e) {
             let pastedCount = 0;
 
             console.log(`Pasting to ${dateStr}...`);
+            // alert(`Debug: Pasting to ${dateStr}, Items: ${scheduleClipboard.length}`); // 🔍 임시 디버깅용
 
             scheduleClipboard.forEach(item => {
-                // 이미 해당 날짜에 근무 중인지 확인
-                const exist = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === item.employee_id && s.status === '근무');
+                // 이미 해당 날짜에 근무 중인지 확인 (ID 타입 통일)
+                let exist = state.schedule.schedules.find(s => s.date === dateStr && String(s.employee_id) === String(item.employee_id) && s.status === '근무');
+
+                // ✨ [Fix] 이미 근무 중이라도, 위치가 없으면 투명인간임! -> 수리 대상
+                const GRID_SIZE = 24;
                 if (exist) {
-                    // 이미 근무중이면 패스
-                } else {
-                    // 휴무인 기존 스케줄이 있으면 근무로 변경
-                    const existingOff = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === item.employee_id);
+                    if (exist.grid_position === null || exist.grid_position === undefined || exist.grid_position >= GRID_SIZE || exist.grid_position < 0) {
+                        console.warn(`[${dateStr}] 투명 스케줄 감지! 위치 수리 시도: ${item.employee_id}`);
+                        // exist를 null로 처리하지 않고, 아래 로직에서 수리하거나 여기서 직접 수리
+                        // 여기서 수리 로직 태우기 위해 exist를 처리
+
+                        const occupiedPositions = new Set(
+                            state.schedule.schedules
+                                .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
+                                .map(s => s.grid_position)
+                        );
+                        let availablePos = -1;
+                        for (let i = 0; i < GRID_SIZE; i++) {
+                            if (!occupiedPositions.has(i)) {
+                                availablePos = i;
+                                break;
+                            }
+                        }
+
+                        if (availablePos !== -1) {
+                            exist.grid_position = availablePos;
+                            exist.sort_order = availablePos;
+                            unsavedChanges.set(exist.id, { type: 'update', data: exist });
+                            pastedCount++;
+                            occupiedPositions.add(availablePos);
+                        }
+                    }
+                    // 근무 중이고 위치도 정상이면 진짜 패스
+                    return;
+                }
+
+                // 휴무인 기존 스케줄 탐색
+                // ... (아래는 else { 로 연결되지 않음, 위에서 return 처리함)
+                {
+
+
+                    // 휴무인 기존 스케줄이 있으면 근무로 변경 (ID 타입 통일)
+                    const existingOff = state.schedule.schedules.find(s => s.date === dateStr && String(s.employee_id) === String(item.employee_id));
 
                     if (existingOff) {
                         existingOff.status = '근무';
@@ -2091,6 +2128,7 @@ function handleGlobalKeydown(e) {
                                 occupiedPositions.add(availablePos);
                             } else {
                                 console.warn(`[${dateStr}] 위치 할당 실패 (꽉 참): ${existingOff.employee_id}`);
+                                alert(`[${dateStr}] 빈 자리가 없어 ${existingOff.employee_id}번 직원을 배치할 수 없습니다.`);
                             }
                         }
 
@@ -2132,7 +2170,7 @@ function handleGlobalKeydown(e) {
                             occupiedPositions.add(availablePos);
                         } else {
                             console.warn(`[${dateStr}] 그리드가 가득 차서 붙여넣기 실패: ${item.employee_id}`);
-                            // 사용자에게 알림을 줄지 고민 (너무 많이 뜨면 방해됨)
+                            alert(`[${dateStr}] 빈 자리가 없어 ${item.employee_id}번 직원을 추가할 수 없습니다.`);
                         }
                     }
                 }
