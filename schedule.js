@@ -565,6 +565,8 @@ function handleDepartmentFilterChange(e) {
 
 // ✅ 같은 날짜 내 이동 처리 (24칸 고정 그리드)
 function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
+    console.log(`🔍 handleSameDateMove called: ${movedEmployeeId} (${oldIndex} -> ${newIndex})`);
+
     if (oldIndex === newIndex) return;
 
     // ✨ [Group Move Check]
@@ -1201,6 +1203,8 @@ function handleEventCardClick(e) {
     if (!card) return;
 
     const scheduleId = card.dataset.scheduleId;
+    console.log(`👆 Card Click: ${scheduleId} (Selected before: ${state.schedule.selectedSchedules.has(scheduleId)})`);
+
     if (!scheduleId) return; // 빈 슬롯 등 ID 없는 경우
 
     // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
@@ -1241,61 +1245,60 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
 
     const GRID_SIZE = 24;
 
-    // 1. 현재 그리드 구성 (배경)
+    // 1. 전체 스케줄 가져오기 (해당 날짜, 근무자)
+    const allSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무' && s.grid_position != null && s.grid_position < GRID_SIZE);
+
+    // 2. 현재 그리드 구성 (배경) - 직원 ID 매핑
     const currentGrid = new Array(GRID_SIZE).fill(null);
-    state.schedule.schedules.forEach(s => {
-        if (s.date === dateStr && s.status === '근무' && s.grid_position != null) {
-            const pos = s.grid_position;
-            if (pos >= 0 && pos < GRID_SIZE) currentGrid[pos] = s.employee_id;
+    allSchedules.forEach(s => {
+        currentGrid[s.grid_position] = s.employee_id;
+    });
+
+    // 3. 이동 대상(선택된) 직원 및 피벗 식별
+    const selectedIds = new Set(state.schedule.selectedSchedules);
+    const movingScheduleIds = new Set();
+    const movingItems = [];
+
+    // 피벗(드래그 중인 아이템)이 선택 그룹에 포함되어 있지 않다면 강제로 포함 (UX 보정)
+    // 일반적으로 SortableJS는 드래그 아이템을 포함해서 처리하지만, 데이터 일관성을 위해 체크
+    // 하지만 pivotEmpId는 empId이고 selectedIds는 scheduleId임. 조회 필요.
+
+    // 이동할 아이템 추출
+    allSchedules.forEach(s => {
+        if (selectedIds.has(s.id) || s.employee_id === pivotEmpId) {
+            movingScheduleIds.add(s.id);
+            movingItems.push({
+                empId: s.employee_id,
+                scheduleId: s.id,
+                oldPos: s.grid_position,
+                newPos: Math.max(0, Math.min(GRID_SIZE - 1, s.grid_position + delta)) // Clamp
+            });
         }
     });
 
-    // 2. 이동 대상(선택된) 직원 식별
-    const selectedIds = state.schedule.selectedSchedules;
-
-    // 현재 날짜에 있고 선택된 스케줄만 필터링
-    const movingItems = state.schedule.schedules
-        .filter(s => s.date === dateStr && s.status === '근무' && selectedIds.has(s.id))
-        .map(s => ({
-            id: s.employee_id,
-            oldPos: s.grid_position,
-            scheduleId: s.id
-        }));
-
-    // 기준점(pivot)이 선택 그룹에 없으면(예외) 추가
-    if (!movingItems.some(item => item.id === pivotEmpId)) {
-        movingItems.push({ id: pivotEmpId, oldPos: oldIndex, scheduleId: 'temp_pivot' });
-    }
-
-    // 3. 임시 그리드에서 이동 대상 제거
+    // 4. 그리드에서 이동 대상 제거 (빈 공간 확보)
     const tempGrid = [...currentGrid];
     movingItems.forEach(item => {
-        if (tempGrid[item.oldPos] === item.id) tempGrid[item.oldPos] = null;
+        // 기존 위치 비우기 (단, 같은 위치에 다른 이동 아이템이 없었던 경우만 - 근데 중복 위치는 없어야 정상)
+        if (tempGrid[item.oldPos] === item.empId) {
+            tempGrid[item.oldPos] = null;
+        }
     });
 
-    // 4. 새 위치 계산 및 배치
-    // 이동할 아이템들을 새 위치 기준 정렬
-    const placements = movingItems.map(item => {
-        let targetPos = item.oldPos + delta;
-        // 그리드 경계 처리 (Clamp)
-        targetPos = Math.max(0, Math.min(GRID_SIZE - 1, targetPos));
-        return { id: item.id, newPos: targetPos, scheduleId: item.scheduleId };
-    });
-
-    // 충돌 방지: 앞쪽으로 이동하면 앞쪽부터, 뒤쪽이면 뒤쪽부터 배치해야 겹침 최소화?
-    // 사실 빈 공간을 찾아서 밀어내는 로직이 필요.
-    // 여기서는 "밀어내기" 로직을 각자 적용.
-
-    // 배치 순서: 낮은 위치부터?
-    placements.sort((a, b) => a.newPos - b.newPos);
+    // 5. 이동 아이템 배치 (새 위치 기준 정렬)
+    // 충돌 시 밀어내기 방향을 고려하여 정렬:
+    // 앞쪽으로 배치할 때는 앞쪽 인덱스부터, 뒤쪽은 뒤쪽부터?
+    // 사실 "삽입" 방식이므로, 위치가 낮은 순서대로 배치하면서 뒤로 밀어내는게 일반적임.
+    movingItems.sort((a, b) => a.newPos - b.newPos);
 
     const finalGrid = [...tempGrid];
 
-    placements.forEach(p => {
-        let insertPos = p.newPos;
+    movingItems.forEach(item => {
+        let insertPos = item.newPos;
 
-        // 자리 비우기 (Shift)
+        // 대상 위치에(혹은 밀려난 위치에) 다른 아이템(이동하지 않는)이 있다면 뒤로 밀기
         if (finalGrid[insertPos] !== null) {
+            // insertPos 이후의 모든 비-null 아이템 수집
             const itemsToShift = [];
             for (let i = insertPos; i < GRID_SIZE; i++) {
                 if (finalGrid[i] !== null) {
@@ -1303,35 +1306,60 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
                     finalGrid[i] = null;
                 }
             }
-            finalGrid[insertPos] = p.id;
-            let shiftIdx = insertPos + 1;
-            itemsToShift.forEach(sid => {
-                while (shiftIdx < GRID_SIZE && finalGrid[shiftIdx] !== null) shiftIdx++;
-                if (shiftIdx < GRID_SIZE) finalGrid[shiftIdx] = sid;
+
+            // 이동 아이템 배치
+            finalGrid[insertPos] = item.empId;
+
+            // 밀린 아이템들 재배치 (빈 공간 찾아 채우기)
+            let currentShiftPos = insertPos + 1;
+            itemsToShift.forEach(shiftedEmpId => {
+                while (currentShiftPos < GRID_SIZE && finalGrid[currentShiftPos] !== null) {
+                    currentShiftPos++;
+                }
+                if (currentShiftPos < GRID_SIZE) {
+                    finalGrid[currentShiftPos] = shiftedEmpId;
+                } else {
+                    // 공간 부족으로 탈락? (경고 또는 처리 필요)
+                    console.warn(`공간 부족으로 직원(${shiftedEmpId})이 그리드에서 밀려났습니다.`);
+                    // 탈락 처리는 아래 State 업데이트에서 반영됨 (그리드에 없으면 삭제 처리됨)
+                }
             });
         } else {
-            finalGrid[insertPos] = p.id;
+            // 빈 공간이면 그냥 배치
+            finalGrid[insertPos] = item.empId;
         }
     });
 
-    // 5. State 업데이트 (중복 로직이지만 안전하게 처리)
-    state.schedule.schedules.forEach(schedule => {
-        if (schedule.date === dateStr && schedule.status === '근무') {
-            const currentPos = finalGrid.indexOf(schedule.employee_id);
-            if (currentPos === -1) {
-                // 그리드에서 밀려남 (삭제)
-                if (!schedule.id.toString().startsWith('temp-')) {
-                    unsavedChanges.set(schedule.id, { type: 'delete', data: schedule });
-                }
-            } else if (schedule.grid_position !== currentPos) {
-                schedule.grid_position = currentPos;
-                schedule.sort_order = currentPos;
+    // 6. State 업데이트
+    let changeCount = 0;
+
+    // 6-1. 이동한 아이템들 업데이트
+    // 6-2. 밀려난(영향받은) 아이템들 업데이트
+    // 그냥 모든 스케줄에 대해 finalGrid 상의 위치로 동기화하면 됨.
+
+    // A. 기존 스케줄 위치 업데이트 또는 삭제(밀려남)
+    allSchedules.forEach(schedule => {
+        const newPos = finalGrid.indexOf(schedule.employee_id);
+
+        if (newPos === -1) {
+            // 그리드에서 사라짐 -> 삭제 처리 (또는 휴무?)
+            // 사용자 의도가 "삭제"는 아닐 것이므로, 일단 '휴무' 처리하거나 경고.
+            // 여기서는 로직상 '삭제'로 마킹(unsavedChanges)하여 저장 시 처리
+            if (!schedule.id.toString().startsWith('temp-')) {
+                unsavedChanges.set(schedule.id, { type: 'delete', data: schedule });
+                changeCount++;
+            }
+        } else {
+            if (schedule.grid_position !== newPos) {
+                schedule.grid_position = newPos;
+                schedule.sort_order = newPos;
                 unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                changeCount++;
             }
         }
     });
 
-    // 새 아이템 생성 로직은 생략 (이동만 처리하므로)
+    console.log(`✅ 그룹 이동 완료. 변경된 항목: ${changeCount}`);
 
     renderCalendar();
     updateSaveButtonState();
@@ -2004,6 +2032,9 @@ function handleGlobalKeydown(e) {
         return;
     }
 
+    // Keyboard shortcuts are handled in the main event handler section below
+    console.log(`🎹 Keydown: ${e.key} (Ctrl: ${e.ctrlKey})`);
+
     // Paste (Ctrl+V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         const hoveredDay = document.querySelector('.calendar-day:hover');
@@ -2068,10 +2099,19 @@ function handleGlobalKeydown(e) {
                 renderCalendar();
                 updateSaveButtonState();
 
-                // 시각적 피드백
-                hoveredDay.style.transition = 'background-color 0.2s';
-                hoveredDay.style.backgroundColor = '#dbeafe';
-                setTimeout(() => hoveredDay.style.backgroundColor = '', 300);
+                // ✨ 시각적 피드백: 붙여넣기 성공 시 해당 날짜 깜빡임
+                if (hoveredDay) {
+                    const originalBg = hoveredDay.style.backgroundColor;
+                    hoveredDay.style.transition = 'background-color 0.3s ease';
+                    hoveredDay.style.backgroundColor = 'rgba(59, 130, 246, 0.2)'; // 파란색 틴트
+
+                    setTimeout(() => {
+                        hoveredDay.style.backgroundColor = originalBg;
+                        setTimeout(() => {
+                            hoveredDay.style.transition = '';
+                        }, 300);
+                    }, 400);
+                }
             }
         }
         return;
