@@ -756,6 +756,15 @@
     opacity: 0.3;
 }
 
+/* ✅ 빈 슬롯 선택 스타일 */
+.event-slot.selected {
+    border-color: #2563eb !important;
+    background-color: #dbeafe !important;
+    box-shadow: 0 0 0 2px #3b82f6 !important;
+    border-style: solid !important;
+    z-index: 50 !important;
+}
+
 /* ✅ 사이드바 직원 리스트 */
 .employee-list {
     min-height: 50px;
