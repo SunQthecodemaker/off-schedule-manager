@@ -2220,18 +2220,21 @@ function handleGlobalKeydown(e) {
                 updateSaveButtonState();
 
                 // ✨ 시각적 피드백: 붙여넣기 성공 시 해당 날짜 깜빡임
-                if (hoveredDay) {
-                    const originalBg = hoveredDay.style.backgroundColor;
-                    hoveredDay.style.transition = 'background-color 0.3s ease';
-                    hoveredDay.style.backgroundColor = 'rgba(59, 130, 246, 0.2)'; // 파란색 틴트
+                const targetDayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
+                if (targetDayEl) {
+                    const originalBg = targetDayEl.style.backgroundColor;
+                    targetDayEl.style.transition = 'background-color 0.3s ease';
+                    targetDayEl.style.backgroundColor = 'rgba(59, 130, 246, 0.2)'; // 파란색 틴트
 
                     setTimeout(() => {
-                        hoveredDay.style.backgroundColor = originalBg;
+                        targetDayEl.style.backgroundColor = originalBg;
                         setTimeout(() => {
-                            hoveredDay.style.transition = '';
+                            targetDayEl.style.transition = '';
                         }, 300);
                     }, 400);
                 }
+
+                alert(`✅ ${pastedCount}명을 ${dateStr}에 붙여넣었습니다!`);
             }
         }
         return;
