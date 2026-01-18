@@ -2062,18 +2062,30 @@ function handleGlobalKeydown(e) {
 
     // Paste (Ctrl+V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        // ✨ [Fix] 선택된 빈 슬롯을 우선 타겟으로 사용
+        // ✨ [Fix] 붙여넣기 시점에 선택된 빈 슬롯을 직접 확인
         let targetDate = null;
-        let targetPosition = null; // 사용자가 지정한 위치
+        let targetPosition = null;
 
-        // 1순위: 사용자가 빈 슬롯을 클릭한 경우
-        if (window.lastClickedSlot) {
+        // 1순위: 현재 선택된 빈 슬롯 찾기
+        const selectedSlot = document.querySelector('.event-slot.selected');
+        if (selectedSlot) {
+            const dayEl = selectedSlot.closest('.calendar-day');
+            if (dayEl) {
+                targetDate = dayEl.dataset.date;
+                targetPosition = parseInt(selectedSlot.dataset.position, 10);
+                console.log(`📍 Using selected slot: ${targetDate} at position ${targetPosition}`);
+            }
+        }
+
+        // 2순위: window.lastClickedSlot (이전 방식 호환)
+        if (!targetDate && window.lastClickedSlot) {
             targetDate = window.lastClickedSlot.date;
             targetPosition = window.lastClickedSlot.position;
-            console.log(`📍 Using clicked slot: ${targetDate} at position ${targetPosition}`);
+            console.log(`📍 Using last clicked slot: ${targetDate} at position ${targetPosition}`);
         }
-        // 2순위: 마우스 호버된 날짜
-        else {
+
+        // 3순위: 마우스 호버된 날짜
+        if (!targetDate) {
             const hoveredDay = document.querySelector('.calendar-day:hover');
             if (hoveredDay) {
                 targetDate = hoveredDay.dataset.date;
