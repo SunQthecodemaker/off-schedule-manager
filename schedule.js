@@ -2069,6 +2069,31 @@ function handleGlobalKeydown(e) {
 
                     if (existingOff) {
                         existingOff.status = '근무';
+
+                        // ✨ [Fix] 기존 스케줄이 살아날 때, grid_position이 없거나 24 이상이면 재할당해야 함
+                        const GRID_SIZE = 24;
+                        if (existingOff.grid_position === null || existingOff.grid_position === undefined || existingOff.grid_position >= GRID_SIZE || existingOff.grid_position < 0) {
+                            const occupiedPositions = new Set(
+                                state.schedule.schedules
+                                    .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
+                                    .map(s => s.grid_position)
+                            );
+                            let availablePos = -1;
+                            for (let i = 0; i < GRID_SIZE; i++) {
+                                if (!occupiedPositions.has(i)) {
+                                    availablePos = i;
+                                    break;
+                                }
+                            }
+                            if (availablePos !== -1) {
+                                existingOff.grid_position = availablePos;
+                                existingOff.sort_order = availablePos;
+                                occupiedPositions.add(availablePos);
+                            } else {
+                                console.warn(`[${dateStr}] 위치 할당 실패 (꽉 참): ${existingOff.employee_id}`);
+                            }
+                        }
+
                         unsavedChanges.set(existingOff.id, { type: 'update', data: existingOff });
                         pastedCount++;
                     } else {
