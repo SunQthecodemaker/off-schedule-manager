@@ -2171,7 +2171,7 @@ function handleGlobalKeydown(e) {
                             target.grid_position = availablePos;
                             target.sort_order = availablePos;
                         } else {
-                            alert(`[${dateStr}] 빈 자리가 없어 ${item.name || item.employee_id}님을 배치할 수 없습니다.`);
+                            console.warn(`[${dateStr}] 빈 자리가 없어 ${item.name || item.employee_id}님을 배치할 수 없습니다.`);
                             return; // 저장 안 하고 건너뜀
                         }
                     }
@@ -2220,7 +2220,7 @@ function handleGlobalKeydown(e) {
                         unsavedChanges.set(newSchedule.id, { type: 'create', data: newSchedule });
                         pastedCount++;
                     } else {
-                        alert(`[${dateStr}] 빈 자리가 없어 ${item.name || item.employee_id}님을 배치할 수 없습니다.`);
+                        console.warn(`[${dateStr}] 빈 자리가 없어 ${item.name || item.employee_id}님을 배치할 수 없습니다.`);
                     }
                 }
             });
@@ -2244,7 +2244,7 @@ function handleGlobalKeydown(e) {
                     }, 400);
                 }
 
-                alert(`✅ ${pastedCount}명을 ${dateStr}에 붙여넣었습니다!`);
+                console.log(`✅ ${pastedCount}명을 ${dateStr}에 붙여넣었습니다!`);
             }
         }
         return;
