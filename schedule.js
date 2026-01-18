@@ -2073,26 +2073,42 @@ function handleGlobalKeydown(e) {
                         pastedCount++;
                     } else {
                         // 아예 없으면 신규 생성
-                        const tempId = `paste-${Date.now()}-${item.employee_id}-${Math.random()}`;
+                        // 아예 없으면 신규 생성
+                        // ✨ [Fix] maxOrder 대신 빈 슬롯(0~23)을 찾아 할당
+                        const GRID_SIZE = 24;
+                        const occupiedPositions = new Set(
+                            state.schedule.schedules
+                                .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
+                                .map(s => s.grid_position)
+                        );
 
-                        // 순서 계산
-                        const existingOrders = state.schedule.schedules
-                            .filter(s => s.date === dateStr)
-                            .map(s => s.sort_order)
-                            .filter(o => o !== null && o !== undefined);
-                        const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1;
+                        let availablePos = -1;
+                        for (let i = 0; i < GRID_SIZE; i++) {
+                            if (!occupiedPositions.has(i)) {
+                                availablePos = i;
+                                break;
+                            }
+                        }
 
-                        const newSchedule = {
-                            id: tempId,
-                            date: dateStr,
-                            employee_id: item.employee_id,
-                            status: '근무',
-                            sort_order: maxOrder + 1,
-                            grid_position: maxOrder + 1
-                        };
-                        state.schedule.schedules.push(newSchedule);
-                        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-                        pastedCount++;
+                        if (availablePos !== -1) {
+                            const tempId = `paste-${Date.now()}-${item.employee_id}-${Math.random()}`;
+                            const newSchedule = {
+                                id: tempId,
+                                date: dateStr,
+                                employee_id: item.employee_id,
+                                status: '근무',
+                                sort_order: availablePos,
+                                grid_position: availablePos
+                            };
+                            state.schedule.schedules.push(newSchedule);
+                            unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+                            pastedCount++;
+                            // 다음 반복을 위해 점유 표시
+                            occupiedPositions.add(availablePos);
+                        } else {
+                            console.warn(`[${dateStr}] 그리드가 가득 차서 붙여넣기 실패: ${item.employee_id}`);
+                            // 사용자에게 알림을 줄지 고민 (너무 많이 뜨면 방해됨)
+                        }
                     }
                 }
             });
