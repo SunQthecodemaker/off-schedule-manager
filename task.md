@@ -18,6 +18,7 @@
 - [x] **Drag & Drop UI**: Calendar grid with drag-and-drop support for shifts.
 - [x] **Team/Group Layout**: Organize employees by teams in the sidebar.
 - [x] **Grid Positioning**: Logic to save and restore exact grid positions (`grid_position`).
+- [x] **Fixed Grid Movement**: Implemented 'Swap' logic to prevent shifting during drag-and-drop.
 - [x] **Save Logic**: Batch saving of schedule changes to Supabase.
 - [x] **Conflict Handling**: Visual feedback for existing schedules.
 - [x] **Sort Order Saving**: Ability to save the sidebar sort order.

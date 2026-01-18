@@ -544,6 +544,14 @@
     border-color: #3b82f6;
 }
 
+/* ✨ Sortable Swap Target */
+.sortable-swap-highlight {
+    background-color: #dbeafe !important;
+    border: 2px dashed #f59e0b !important;
+    transform: scale(1.02);
+    transition: all 0.2s;
+}
+
 .team-container {
     margin-bottom: 1rem;
     padding: 1rem;

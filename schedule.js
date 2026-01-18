@@ -1,6 +1,7 @@
 // schedule.js - 수정된 버전
 import { state, db } from './state.js';
 import { _, show, hide } from './utils.js';
+import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
@@ -18,6 +19,8 @@ let dragStartTime = 0;
 // ✨ 다중 선택 및 클립보드 상태
 state.schedule.selectedSchedules = new Set(); // Set<schedule_id>
 let scheduleClipboard = []; // Array of { employee_id, status }
+
+// ✨ Sortable: Using complete ESM bundle (Plugins included)
 
 // =========================================================================================
 // ⚡ Undo / Redo System
@@ -709,7 +712,11 @@ function initializeDayDragDrop(dayEl, dateStr) {
         delayOnTouchOnly: false,
         forceFallback: false,
         fallbackTolerance: 5,
+        forceFallback: false,
+        fallbackTolerance: 5,
         emptyInsertThreshold: 30,
+        swap: true, // ✨ Swap 모드 활성화
+        swapClass: 'sortable-swap-highlight', // 교환 대상 강조 스타일
 
         onStart(evt) {
             isDragging = true;
@@ -764,23 +771,10 @@ function initializeDayDragDrop(dayEl, dateStr) {
             console.log('📅 [onUpdate] 같은 날짜 내 이동:', oldIndex, '→', newIndex);
 
             if (oldIndex !== newIndex) {
-                // ✅ DOM 순서가 바뀌었으므로 모든 슬롯의 data-position 재설정
-                const eventContainer = evt.to;
-                const allSlots = eventContainer.querySelectorAll('.event-card, .event-slot');
-                allSlots.forEach((slot, idx) => {
-                    slot.dataset.position = idx;
-                });
-
-                // ✨ Group Move Support: Call the handler to update state and other items
-                const item = evt.item;
-                const empId = parseInt(item.dataset.employeeId, 10);
-                if (!isNaN(empId)) {
-                    handleSameDateMove(dateStr, empId, oldIndex, newIndex);
-                } else {
-                    // Fallback for non-employees (spacers?)
-                    updateScheduleSortOrders(dateStr);
-                    updateSaveButtonState();
-                }
+                // ✨ [Sync] 단순히 현재 화면 순서를 그대로 저장 (Swap이든 Insert든 최종 결과만 반영)
+                console.log('📅 [onUpdate] 순서 변경 감지 -> 동기화');
+                updateScheduleSortOrders(dateStr);
+                updateSaveButtonState();
             }
         },
 
