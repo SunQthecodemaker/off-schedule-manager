@@ -1181,8 +1181,8 @@ function handleCalendarClick(e) {
         return;
     }
 
-    // 이벤트 카드 클릭 (드래그 아닐 때만)
-    const card = e.target.closest('.event-card');
+    // ✨ [Fix] 이벤트 카드 또는 빈 슬롯 클릭 (드래그 아닐 때만)
+    const card = e.target.closest('.event-card, .event-slot');
     if (card && !isDragging) {
         handleEventCardClick(e);
         return;
