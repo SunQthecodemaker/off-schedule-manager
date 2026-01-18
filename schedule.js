@@ -574,7 +574,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     // movedEmployeeId는 직원 ID임. 스케줄 ID를 찾아야 함.
     const movingSchedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === movedEmployeeId && s.status === '근무');
 
-    if (movingSchedule && state.schedule.selectedSchedules.has(movingSchedule.id) && state.schedule.selectedSchedules.size > 1) {
+    if (movingSchedule && state.schedule.selectedSchedules.has(String(movingSchedule.id)) && state.schedule.selectedSchedules.size > 1) {
         handleGroupSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex);
         return;
     }
@@ -1255,7 +1255,8 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
     });
 
     // 3. 이동 대상(선택된) 직원 및 피벗 식별
-    const selectedIds = new Set(state.schedule.selectedSchedules);
+    // ✨ [Fix] selectedSchedules has string IDs (from dataset), so we must ensure comparison handles types
+    const selectedIds = new Set(Array.from(state.schedule.selectedSchedules).map(id => String(id)));
     const movingScheduleIds = new Set();
     const movingItems = [];
 
@@ -1265,7 +1266,8 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
 
     // 이동할 아이템 추출
     allSchedules.forEach(s => {
-        if (selectedIds.has(s.id) || s.employee_id === pivotEmpId) {
+        // ✨ [Fix] ID comparison: String(s.id) to match selectedIds
+        if (selectedIds.has(String(s.id)) || s.employee_id === pivotEmpId) {
             movingScheduleIds.add(s.id);
             movingItems.push({
                 empId: s.employee_id,
@@ -1979,7 +1981,7 @@ function handleGlobalKeydown(e) {
         if (state.schedule.selectedSchedules.size > 0) {
             scheduleClipboard = [];
             state.schedule.selectedSchedules.forEach(scheduleId => {
-                const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
                 if (schedule) {
                     scheduleClipboard.push({
                         employee_id: schedule.employee_id,
@@ -2006,7 +2008,7 @@ function handleGlobalKeydown(e) {
 
             scheduleClipboard = [];
             state.schedule.selectedSchedules.forEach(scheduleId => {
-                const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
                 if (schedule) {
                     // 복사
                     scheduleClipboard.push({
@@ -2125,7 +2127,7 @@ function handleGlobalKeydown(e) {
 
                 let deletedCount = 0;
                 state.schedule.selectedSchedules.forEach(scheduleId => {
-                    const schedule = state.schedule.schedules.find(s => s.id === scheduleId);
+                    const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
                     if (schedule) {
                         schedule.status = '휴무';
                         unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
