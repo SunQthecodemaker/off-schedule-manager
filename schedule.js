@@ -2141,11 +2141,19 @@ function handleGlobalKeydown(e) {
                                 .map(s => s.grid_position)
                         );
                         let availablePos = -1;
-                        for (let i = 0; i < GRID_SIZE; i++) {
-                            if (!occupiedPositions.has(i)) {
-                                availablePos = i;
-                                break;
+
+                        // ✨ [Fix] 수리 시에도 사용자가 지정한 위치 우선 사용
+                        if (targetPosition !== null && !occupiedPositions.has(targetPosition)) {
+                            availablePos = targetPosition;
+                            console.log(`✅ Repair using target position: ${availablePos}`);
+                        } else {
+                            for (let i = 0; i < GRID_SIZE; i++) {
+                                if (!occupiedPositions.has(i)) {
+                                    availablePos = i;
+                                    break;
+                                }
                             }
+                            console.log(`🔍 Repair auto-found position: ${availablePos}`);
                         }
 
                         if (availablePos !== -1) {
@@ -2180,12 +2188,20 @@ function handleGlobalKeydown(e) {
                                     .map(s => s.grid_position)
                             );
                             let availablePos = -1;
-                            for (let i = 0; i < GRID_SIZE; i++) {
-                                if (!occupiedPositions.has(i)) {
-                                    availablePos = i;
-                                    break;
+
+                            // ✨ [Fix] 휴무 -> 근무 전환 시에도 사용자 지정 위치 우선
+                            if (targetPosition !== null && !occupiedPositions.has(targetPosition)) {
+                                availablePos = targetPosition;
+                                console.log(`✅ Reactivate using target position: ${availablePos}`);
+                            } else {
+                                for (let i = 0; i < GRID_SIZE; i++) {
+                                    if (!occupiedPositions.has(i)) {
+                                        availablePos = i;
+                                        break;
+                                    }
                                 }
                             }
+
                             if (availablePos !== -1) {
                                 existingOff.grid_position = availablePos;
                                 existingOff.sort_order = availablePos;
