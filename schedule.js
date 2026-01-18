@@ -1199,38 +1199,61 @@ function handleCalendarDblClick(e) {
 
 // ✨ 클릭 핸들러: 선택(Selection) 로직
 function handleEventCardClick(e) {
-    const card = e.target.closest('.event-card');
+    // ✨ [Fix] 빈 슬롯도 선택 가능하도록 변경 (붙여넣기 타겟 지정을 위해)
+    const card = e.target.closest('.event-card, .event-slot');
     if (!card) return;
 
     const scheduleId = card.dataset.scheduleId;
-    console.log(`👆 Card Click: ${scheduleId} (Selected before: ${state.schedule.selectedSchedules.has(scheduleId)})`);
+    console.log(`👆 Card Click: ${scheduleId} (Selected before: ${scheduleId ? state.schedule.selectedSchedules.has(scheduleId) : 'N/A'})`);
 
-    if (!scheduleId) return; // 빈 슬롯 등 ID 없는 경우
+    // if (!scheduleId) return; // ❌ 빈 슬롯(ID 없음)도 선택되어야 함
 
     // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
+    // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
     if (e.ctrlKey || e.metaKey) {
-        if (state.schedule.selectedSchedules.has(scheduleId)) {
-            state.schedule.selectedSchedules.delete(scheduleId);
-            card.classList.remove('selected');
+        if (scheduleId) {
+            if (state.schedule.selectedSchedules.has(scheduleId)) {
+                state.schedule.selectedSchedules.delete(scheduleId);
+                card.classList.remove('selected');
+            } else {
+                state.schedule.selectedSchedules.add(scheduleId);
+                card.classList.add('selected');
+            }
         } else {
-            state.schedule.selectedSchedules.add(scheduleId);
-            card.classList.add('selected');
+            // 빈 슬롯 토글
+            card.classList.toggle('selected');
         }
     }
     // 일반 클릭: 기존 선택 해제하고 단일 선택
     else {
         // ✨ [개선] 이미 선택된 항목을 다시 클릭하면 선택 해제 (토글 방식)
-        if (state.schedule.selectedSchedules.has(scheduleId) && state.schedule.selectedSchedules.size === 1) {
+        if (scheduleId && state.schedule.selectedSchedules.has(scheduleId) && state.schedule.selectedSchedules.size === 1) {
             clearSelection();
             card.classList.remove('selected');
             return;
         }
 
         clearSelection();
-        state.schedule.selectedSchedules.add(scheduleId);
+        // 빈 슬롯도 포함하여 초기화
+        document.querySelectorAll('.event-slot.selected').forEach(el => el.classList.remove('selected'));
+
+        if (scheduleId) {
+            state.schedule.selectedSchedules.add(scheduleId);
+        }
         // 다시 렌더링하지 않고 DOM만 업데이트 (성능 최적화)
         document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
         card.classList.add('selected');
+
+        // ✨ [Fix] 붙여넣기 타겟 위치 저장 (빈 슬롯 클릭 시)
+        if (card.classList.contains('event-slot')) {
+            window.lastClickedSlot = {
+                date: card.closest('.calendar-day').dataset.date,
+                position: parseInt(card.dataset.position, 10)
+            };
+            console.log('📍 Target Slot Set:', window.lastClickedSlot);
+        } else {
+            window.lastClickedSlot = null;
+        }
     }
 
     console.log('Selected count:', state.schedule.selectedSchedules.size);
@@ -2039,16 +2062,23 @@ function handleGlobalKeydown(e) {
 
     // Paste (Ctrl+V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        const hoveredDay = document.querySelector('.calendar-day:hover');
-
+        // ✨ [Fix] 선택된 빈 슬롯을 우선 타겟으로 사용
         let targetDate = null;
-        if (hoveredDay) {
-            targetDate = hoveredDay.dataset.date;
-        } else if (state.schedule.selectedSchedules.size > 0) {
-            // Fallback: Use the date of the first selected item IF it differs from clipboard? 
-            // Actually user might want to paste to where they are looking.
-            // If no hover, maybe they just clicked a date header?
-            // Let's rely on hover for now, but ensure it captures.
+        let targetPosition = null; // 사용자가 지정한 위치
+
+        // 1순위: 사용자가 빈 슬롯을 클릭한 경우
+        if (window.lastClickedSlot) {
+            targetDate = window.lastClickedSlot.date;
+            targetPosition = window.lastClickedSlot.position;
+            console.log(`📍 Using clicked slot: ${targetDate} at position ${targetPosition}`);
+        }
+        // 2순위: 마우스 호버된 날짜
+        else {
+            const hoveredDay = document.querySelector('.calendar-day:hover');
+            if (hoveredDay) {
+                targetDate = hoveredDay.dataset.date;
+                console.log(`🖱️ Using hovered date: ${targetDate}`);
+            }
         }
 
         if (targetDate && scheduleClipboard.length > 0) {
@@ -2056,8 +2086,8 @@ function handleGlobalKeydown(e) {
             const dateStr = targetDate;
             let pastedCount = 0;
 
+            alert(`🔍 Debug: 붙여넣기 시도\n날짜: ${dateStr}\n복사된 항목: ${scheduleClipboard.length}개\n타겟 위치: ${targetPosition !== null ? targetPosition + '번' : '자동'}`);
             console.log(`Pasting to ${dateStr}...`);
-            // alert(`Debug: Pasting to ${dateStr}, Items: ${scheduleClipboard.length}`); // 🔍 임시 디버깅용
 
             scheduleClipboard.forEach(item => {
                 // 이미 해당 날짜에 근무 중인지 확인 (ID 타입 통일)
@@ -2136,8 +2166,7 @@ function handleGlobalKeydown(e) {
                         pastedCount++;
                     } else {
                         // 아예 없으면 신규 생성
-                        // 아예 없으면 신규 생성
-                        // ✨ [Fix] maxOrder 대신 빈 슬롯(0~23)을 찾아 할당
+                        // ✨ [Fix] targetPosition이 있으면 우선 사용, 없으면 빈 슬롯(0~23)을 찾아 할당
                         const GRID_SIZE = 24;
                         const occupiedPositions = new Set(
                             state.schedule.schedules
@@ -2146,11 +2175,20 @@ function handleGlobalKeydown(e) {
                         );
 
                         let availablePos = -1;
-                        for (let i = 0; i < GRID_SIZE; i++) {
-                            if (!occupiedPositions.has(i)) {
-                                availablePos = i;
-                                break;
+
+                        // 사용자가 지정한 위치가 있고, 그 위치가 비어 있으면 사용
+                        if (targetPosition !== null && !occupiedPositions.has(targetPosition)) {
+                            availablePos = targetPosition;
+                            console.log(`✅ Using target position: ${availablePos}`);
+                        } else {
+                            // 아니면 첫 번째 빈 자리 찾기
+                            for (let i = 0; i < GRID_SIZE; i++) {
+                                if (!occupiedPositions.has(i)) {
+                                    availablePos = i;
+                                    break;
+                                }
                             }
+                            console.log(`🔍 Auto-found position: ${availablePos}`);
                         }
 
                         if (availablePos !== -1) {
@@ -2166,8 +2204,9 @@ function handleGlobalKeydown(e) {
                             state.schedule.schedules.push(newSchedule);
                             unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
                             pastedCount++;
-                            // 다음 반복을 위해 점유 표시
+                            // 다음 반복을 위해 점유 표시 + targetPosition 초기화
                             occupiedPositions.add(availablePos);
+                            targetPosition = null; // 두 번째 항목부터는 자동 배치
                         } else {
                             console.warn(`[${dateStr}] 그리드가 가득 차서 붙여넣기 실패: ${item.employee_id}`);
                             alert(`[${dateStr}] 빈 자리가 없어 ${item.employee_id}번 직원을 추가할 수 없습니다.`);
