@@ -1230,12 +1230,17 @@ function handleEventCardClick(e) {
         if (scheduleId && state.schedule.selectedSchedules.has(scheduleId) && state.schedule.selectedSchedules.size === 1) {
             clearSelection();
             card.classList.remove('selected');
+            window.selectedEmptySlot = null; // 빈 슬롯 선택도 초기화
             return;
         }
 
         clearSelection();
-        // 빈 슬롯도 포함하여 초기화
-        document.querySelectorAll('.event-slot.selected').forEach(el => el.classList.remove('selected'));
+
+        // ✨ [Fix] 이전에 선택된 빈 슬롯이 있으면 제거
+        if (window.selectedEmptySlot) {
+            window.selectedEmptySlot.classList.remove('selected');
+            window.selectedEmptySlot = null;
+        }
 
         if (scheduleId) {
             state.schedule.selectedSchedules.add(scheduleId);
@@ -1244,14 +1249,16 @@ function handleEventCardClick(e) {
         document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
         card.classList.add('selected');
 
-        // ✨ [Fix] 붙여넣기 타겟 위치 저장 (빈 슬롯 클릭 시)
+        // ✨ [Fix] 빈 슬롯 클릭 시 전역 변수에 저장하여 선택 유지
         if (card.classList.contains('event-slot')) {
+            window.selectedEmptySlot = card; // DOM 요소 자체를 저장
             window.lastClickedSlot = {
                 date: card.closest('.calendar-day').dataset.date,
                 position: parseInt(card.dataset.position, 10)
             };
-            console.log('📍 Target Slot Set:', window.lastClickedSlot);
+            console.log('📍 Empty Slot Selected:', window.lastClickedSlot);
         } else {
+            window.selectedEmptySlot = null;
             window.lastClickedSlot = null;
         }
     }
