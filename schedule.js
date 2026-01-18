@@ -769,9 +769,16 @@ function initializeDayDragDrop(dayEl, dateStr) {
                     slot.dataset.position = idx;
                 });
 
-                // ✅ 위치가 바뀌면 전체 position 재계산
-                updateScheduleSortOrders(dateStr);
-                updateSaveButtonState();
+                // ✨ Group Move Support: Call the handler to update state and other items
+                const item = evt.item;
+                const empId = parseInt(item.dataset.employeeId, 10);
+                if (!isNaN(empId)) {
+                    handleSameDateMove(dateStr, empId, oldIndex, newIndex);
+                } else {
+                    // Fallback for non-employees (spacers?)
+                    updateScheduleSortOrders(dateStr);
+                    updateSaveButtonState();
+                }
             }
         },
 
@@ -2000,10 +2007,20 @@ function handleGlobalKeydown(e) {
     // Paste (Ctrl+V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         const hoveredDay = document.querySelector('.calendar-day:hover');
-        if (hoveredDay && scheduleClipboard.length > 0) {
-            pushUndoState('Paste Schedules'); // Undo 저장
 
-            const dateStr = hoveredDay.dataset.date;
+        let targetDate = null;
+        if (hoveredDay) {
+            targetDate = hoveredDay.dataset.date;
+        } else if (state.schedule.selectedSchedules.size > 0) {
+            // Fallback: Use the date of the first selected item IF it differs from clipboard? 
+            // Actually user might want to paste to where they are looking.
+            // If no hover, maybe they just clicked a date header?
+            // Let's rely on hover for now, but ensure it captures.
+        }
+
+        if (targetDate && scheduleClipboard.length > 0) {
+            pushUndoState('Paste Schedules'); // Undo 저장
+            const dateStr = targetDate;
             let pastedCount = 0;
 
             console.log(`Pasting to ${dateStr}...`);
