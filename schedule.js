@@ -1759,13 +1759,13 @@ async function renderScheduleSidebar() {
         filteredEmployees.map(emp => [emp.id, emp])
     ).values());
 
-    // ✨ 정규 직원과 임시 직원 분리
-    // [Fix] 임시 직원은 부서 필터와 상관없이 항상 표시되어야 함 (state.management.employees 원본 사용)
-    const regularEmployees = uniqueEmployees.filter(e => !e.is_temp);
+    // ✨ 정규 직원과 임시 직원 분리 (Legacy 데이터 호환: 이메일 체크 추가)
+    const isTemp = (e) => e.is_temp || (e.email && e.email.startsWith('temp-'));
+
+    const regularEmployees = uniqueEmployees.filter(e => !isTemp(e));
 
     const allEmployees = state.management.employees || [];
-    const tempEmployees = allEmployees.filter(e => e.is_temp);
-    console.log(`🧪 Sidebar Render: All=${allEmployees.length}, Temp=${tempEmployees.length}, FilterActive=${state.schedule.activeDepartmentFilters.size > 0}`);
+    const tempEmployees = allEmployees.filter(e => isTemp(e));
 
     // ✅ 저장된 순서가 있으면 그 순서대로 정렬 (정규 직원만)
     let orderedEmployees = [];
@@ -1924,11 +1924,6 @@ async function handleAddTempStaff() {
 
     // ✨ 진료실(Medical Team) 부서 찾기
     const medicalDept = state.management.departments.find(d => d.name === '진료실');
-    console.log('🏥 찾은 진료실 부서:', medicalDept);
-
-    if (!medicalDept) {
-        alert("경고: '진료실' 부서를 찾을 수 없습니다. 임시 직원의 부서가 자동으로 할당되지 않습니다.");
-    }
     const medicalDeptId = medicalDept ? medicalDept.id : null;
 
     try {
