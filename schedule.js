@@ -779,7 +779,6 @@ function initializeDayDragDrop(dayEl, dateStr) {
         },
 
         onAdd(evt) {
-            alert('DEBUG: 드래그 앤 드롭 감지됨 (onAdd)');
             console.log('🎯 Calendar onAdd triggered! Date:', dateStr);
             const employeeEl = evt.item;
 
@@ -1734,14 +1733,17 @@ async function renderScheduleSidebar() {
 
     const filteredEmployees = getFilteredEmployees();
 
-    // ✅ 중복 제거: 각 직원을 한 번씩만 표시
+    // ✅ 중복 제거: 각 직원을 한 번씩만 표시 (정규 직원용)
     const uniqueEmployees = Array.from(new Map(
         filteredEmployees.map(emp => [emp.id, emp])
     ).values());
 
     // ✨ 정규 직원과 임시 직원 분리
+    // [Fix] 임시 직원은 부서 필터와 상관없이 항상 표시되어야 함 (state.management.employees 원본 사용)
     const regularEmployees = uniqueEmployees.filter(e => !e.is_temp);
-    const tempEmployees = uniqueEmployees.filter(e => e.is_temp);
+
+    const allEmployees = state.management.employees || [];
+    const tempEmployees = allEmployees.filter(e => e.is_temp);
 
     // ✅ 저장된 순서가 있으면 그 순서대로 정렬 (정규 직원만)
     let orderedEmployees = [];
