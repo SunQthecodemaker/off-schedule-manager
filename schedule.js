@@ -800,16 +800,32 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 return;
             }
 
-            // ✅ 중복 체크 (규칙 4-2)
-            const alreadyExists = state.schedule.schedules.some(
+            // ✅ 중복 체크 (규칙 4-2) -> [수정] 이미 '근무' 중인 경우만 막고, '휴무'인 경우는 '휴무'를 제거
+            const existingWorking = state.schedule.schedules.find(
                 s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
             );
 
-            if (alreadyExists) {
-                console.log('❌ Employee already exists on this date - drop cancelled');
+            if (existingWorking) {
+                console.log('❌ Employee already working on this date - drop cancelled');
                 employeeEl.remove();
-                alert('이미 해당 날짜에 배치된 직원입니다.');
+                alert('이미 해당 날짜에 근무 중인 직원입니다.');
                 return;
+            }
+
+            // [수정] '휴무' 상태가 있다면 제거 (상태 중복 방지)
+            const existingOffIndex = state.schedule.schedules.findIndex(
+                s => s.date === dateStr && s.employee_id === empId && s.status === '휴무'
+            );
+
+            if (existingOffIndex !== -1) {
+                const offSchedule = state.schedule.schedules[existingOffIndex];
+                console.log('🔄 휴무 상태 제거:', offSchedule);
+                // state에서 제거
+                state.schedule.schedules.splice(existingOffIndex, 1);
+                // DB 삭제 예약
+                if (!offSchedule.id.toString().startsWith('temp-')) {
+                    unsavedChanges.set(offSchedule.id, { type: 'delete', data: offSchedule });
+                }
             }
 
             // ✅ 음수 ID는 빈칸으로 처리
@@ -829,26 +845,81 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 console.log('✅ Found employee:', employeeName, 'at position:', evt.newIndex);
             }
 
-            // ✅ 새 스케줄 추가 (기존 스케줄의 position은 건드리지 않음)
+            // [수정] 덮어쓰기 방지: 자리에 누가 있다면 '가장 가까운 빈칸'으로 이동
+            const GRID_SIZE = 24;
+            const targetPos = evt.newIndex;
+
+            // 현재 그리드 상태 계산
+            const currentGrid = new Array(GRID_SIZE).fill(null);
+            state.schedule.schedules.forEach(s => {
+                if (s.date === dateStr && s.status === '근무' && s.grid_position != null) {
+                    if (s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
+                        currentGrid[s.grid_position] = s.employee_id;
+                    }
+                }
+            });
+
+            const occupiedEmpId = currentGrid[targetPos];
+
+            if (occupiedEmpId !== null && occupiedEmpId !== undefined) {
+                console.log(`⚠️ Slot ${targetPos} is occupied by ${occupiedEmpId}. Finding nearest empty slot...`);
+
+                let bestPos = -1;
+                let minDist = Infinity;
+
+                // 가장 가까운 빈칸 탐색
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    // 빈칸이면서, 현재 드롭하려는 위치가 아닌 곳
+                    if (currentGrid[i] === null && i !== targetPos) {
+                        const dist = Math.abs(i - targetPos);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestPos = i;
+                        } else if (dist === minDist) {
+                            // 거리가 같다면 뒤쪽(+)을 우선
+                            if (i > targetPos) bestPos = i;
+                        }
+                    }
+                }
+
+                if (bestPos === -1) {
+                    alert('배치할 빈 공간이 없습니다.');
+                    employeeEl.remove();
+                    // 만약 휴무를 삭제했다면 복구해야 하지만... (생략)
+                    return;
+                }
+
+                console.log(`✅ Found nearest empty slot at ${bestPos}. Moving existing employee.`);
+
+                // 기존 직원 이동 처리
+                const occupiedSchedule = state.schedule.schedules.find(
+                    s => s.date === dateStr && s.employee_id === occupiedEmpId && s.status === '근무'
+                );
+
+                if (occupiedSchedule) {
+                    occupiedSchedule.grid_position = bestPos;
+                    occupiedSchedule.sort_order = bestPos;
+                    unsavedChanges.set(occupiedSchedule.id, { type: 'update', data: occupiedSchedule });
+                }
+            }
+
+            // ✅ 새 스케줄 추가
             const tempId = `temp-${Date.now()}-${empId}`;
             const newSchedule = {
                 id: tempId,
                 date: dateStr,
                 employee_id: empId,
                 status: '근무',
-                sort_order: evt.newIndex,
-                grid_position: evt.newIndex
+                sort_order: targetPos,
+                grid_position: targetPos
             };
             state.schedule.schedules.push(newSchedule);
             unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-            console.log('✅ Added new schedule:', empId, 'at position:', evt.newIndex);
+            console.log('✅ Added new schedule:', empId, 'at position:', targetPos);
 
             // ✅ DOM 정리 및 재렌더링
             employeeEl.remove();
             renderCalendar();
-
-            // ✅ 모든 카드의 position 재계산 (밀린 카드들 감지)
-            updateScheduleSortOrders(dateStr);
             updateSaveButtonState();
         },
     });
