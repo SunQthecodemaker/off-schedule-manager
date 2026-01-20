@@ -1921,6 +1921,10 @@ function initializeSortableAndDraggable() {
         const name = prompt("임시 직원의 이름을 입력하세요 (예: 알바1, 임시 김의사):");
         if (!name) return;
 
+        // ✨ 진료실(Medical Team) 부서 찾기
+        const medicalDept = state.management.departments.find(d => d.name === '진료실');
+        const medicalDeptId = medicalDept ? medicalDept.id : null;
+
         try {
             // 임시 직원 insert
             // 이메일이나 비밀번호는 더미 데이터로 채움
@@ -1930,7 +1934,7 @@ function initializeSortableAndDraggable() {
                 entryDate: dayjs().format('YYYY-MM-DD'),
                 email: `temp-${dummyId}@simulation.local`,
                 password: 'temp-password',
-                department_id: null, // 부서 없음
+                department_id: medicalDeptId, // ✅ 진료실 자동 할당
                 is_temp: true, // ✨ 임시 직원 플래그
                 regular_holiday_rules: []
             });
@@ -2836,3 +2840,4 @@ function initializeSortableAndDraggable() {
             importBtn.textContent = '📅 지난달 불러오기';
         }
     }
+}
