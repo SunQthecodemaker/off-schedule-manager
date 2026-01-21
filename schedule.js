@@ -2125,14 +2125,17 @@ function handleMenuRegisterClick() {
 
 // ✨ Named Handler for Calendar Grid Double Click (to avoid stacking)
 function handleCalendarGridDblClick(e) {
+    console.log('🖱️ Double Click Detected on Grid:', e.target);
     // 1. 카드 더블클릭 우선 처리
     if (e.target.closest('.event-card')) {
+        console.log('   -> Card double click identified');
         handleCalendarDblClick(e);
         return; // ✨ 카드를 클릭했으면 헤더 토글 방지
     }
 
     // 2. 날짜 칸(헤더 포함) 더블클릭
     if (e.target.closest('.calendar-day')) {
+        console.log('   -> Day header double click identified');
         // 날짜 클릭은 기존 핸들러 (헤더 토글 등)
         handleDateHeaderDblClick(e);
     }
@@ -2140,24 +2143,28 @@ function handleCalendarGridDblClick(e) {
 
 // ✨ 더블클릭 및 키보드 이벤트 연결을 위한 초기화
 function initializeCalendarEvents() {
+    console.log('🔌 initializing Calendar Events...');
     const calendarGrid = document.querySelector('#pure-calendar');
     if (calendarGrid) {
         // ✨ Remove anonymous listeners is impossible, so we use named handler now.
-        // We remove the old one first (if it existed as named, but previously it wasn't. 
-        // This fix prevents future stacking).
         calendarGrid.removeEventListener('dblclick', handleCalendarGridDblClick);
         calendarGrid.addEventListener('dblclick', handleCalendarGridDblClick);
+        console.log('   -> dblclick listener attached to grid');
 
         // ✨ Context Menu Logic
         calendarGrid.removeEventListener('contextmenu', handleContextMenu);
         calendarGrid.addEventListener('contextmenu', handleContextMenu);
+        console.log('   -> contextmenu listener attached to grid');
+    } else {
+        console.error('❌ #pure-calendar NOT FOUND during initialization');
     }
 
-    // ✨ Global Context Menu Handlers (Ensure we bind these only once or allow re-binding safely)
+    // ✨ Global Context Menu Handlers
     document.removeEventListener('click', handleGlobalClickForMenu);
     document.addEventListener('click', handleGlobalClickForMenu);
 
     const registerBtn = document.getElementById('ctx-register-leave');
+    // ...
     const closeBtn = document.getElementById('ctx-close-menu');
     const contextMenu = document.getElementById('custom-context-menu');
 
