@@ -3036,3 +3036,6 @@ function removeContextMenu() {
     }
 }
 
+// ✨ Expose for manual updates from other modules
+window.loadAndRenderScheduleData = loadAndRenderScheduleData;
+
