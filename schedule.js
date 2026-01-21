@@ -2123,26 +2123,30 @@ function handleMenuRegisterClick() {
     contextMenu.classList.add('hidden');
 }
 
+// ✨ Named Handler for Calendar Grid Double Click (to avoid stacking)
+function handleCalendarGridDblClick(e) {
+    // 1. 카드 더블클릭 우선 처리
+    if (e.target.closest('.event-card')) {
+        handleCalendarDblClick(e);
+        return; // ✨ 카드를 클릭했으면 헤더 토글 방지
+    }
+
+    // 2. 날짜 칸(헤더 포함) 더블클릭
+    if (e.target.closest('.calendar-day')) {
+        // 날짜 클릭은 기존 핸들러 (헤더 토글 등)
+        handleDateHeaderDblClick(e);
+    }
+}
+
 // ✨ 더블클릭 및 키보드 이벤트 연결을 위한 초기화
 function initializeCalendarEvents() {
     const calendarGrid = document.querySelector('#pure-calendar');
     if (calendarGrid) {
-        calendarGrid.removeEventListener('dblclick', handleDateHeaderDblClick);
-        calendarGrid.addEventListener('dblclick', (e) => {
-            // 헤더 더블클릭과 카드 더블클릭 구분
-
-            // 1. 카드 더블클릭 우선 처리
-            if (e.target.closest('.event-card')) {
-                handleCalendarDblClick(e);
-                return; // ✨ 카드를 클릭했으면 헤더 토글 방지
-            }
-
-            // 2. 날짜 칸(헤더 포함) 더블클릭
-            if (e.target.closest('.calendar-day')) {
-                // 날짜 클릭은 기존 핸들러 (헤더 토글 등)
-                handleDateHeaderDblClick(e);
-            }
-        });
+        // ✨ Remove anonymous listeners is impossible, so we use named handler now.
+        // We remove the old one first (if it existed as named, but previously it wasn't. 
+        // This fix prevents future stacking).
+        calendarGrid.removeEventListener('dblclick', handleCalendarGridDblClick);
+        calendarGrid.addEventListener('dblclick', handleCalendarGridDblClick);
 
         // ✨ Context Menu Logic
         calendarGrid.removeEventListener('contextmenu', handleContextMenu);
