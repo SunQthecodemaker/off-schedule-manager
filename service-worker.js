@@ -1,18 +1,33 @@
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open('leave-app-v2').then(cache => {
-      return cache.addAll([
-        '/',
-        '/index.html'
-      ]);
+self.addEventListener('install', (e) => {
+  // Force new service worker to active immediately
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (e) => {
+  // Delete all old caches
+  e.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          console.log('Service Worker: Clearing Old Cache', cacheName);
+          return caches.delete(cacheName);
+        })
+      );
+    }).then(() => {
+      return self.clients.claim();
     })
   );
 });
 
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      return response || fetch(event.request);
-    })
+self.addEventListener('fetch', (e) => {
+  // Network-first strategy: always try network, fallback to cache only if offline
+  e.respondWith(
+    fetch(e.request)
+      .then(response => {
+        return response;
+      })
+      .catch(() => {
+        return caches.match(e.request);
+      })
   );
 });

@@ -6,6 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>연차 및 스케줄 관리 시스템</title>
     <script>
+        // ✨ Force Unregister Service Workers to clear cache issues
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                for (let registration of registrations) {
+                    console.log('Unregistering Service Worker:', registration);
+                    registration.unregister();
+                }
+            });
+        }
+
         window.onerror = function (message, source, lineno, colno, error) {
             alert('시스템 오류 발생:\n' + message + '\n' + source + ':' + lineno);
         };
