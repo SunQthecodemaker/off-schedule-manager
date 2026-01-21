@@ -23,7 +23,7 @@
 - [x] **Conflict Handling**: Visual feedback for existing schedules.
 - [x] **Sort Order Saving**: Ability to save the sidebar sort order.
 - [x] **Right-Click Leave Registration**: Context menu for quick leave registration.
-- [ ] **Right-Click Leave Cancellation**: Cancel/Reject leaves contextually.
+- [x] **Right-Click Leave Cancellation**: Cancel/Reject leaves contextually.
 
 ### 3. Employee Portal
 - [x] **Authentication**: Separate login flows for Employees and Admins.
@@ -60,3 +60,4 @@
 - **2025-12-12**: Refined Employee Portal UI (Department filters, Grid layout).
 - **2025-12-11**: Implemented "Confirm Schedule" button & Mobile view improvements.
 - **2025-12-08**: Added "Retire" button and Password Reset functionality.
+- **2026-01-21**: Implemented Right-Click Context Menu for Leave Registration/Cancellation. Fixed persistent Service Worker caching issue and removed duplicate legacy code causing "Ghost Menu".
