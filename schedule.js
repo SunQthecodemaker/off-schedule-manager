@@ -2117,6 +2117,11 @@ function handleContextMenu(e) {
             registerBtn.style.display = 'none';
             cancelBtn.style.display = 'block';
 
+            // ✨ VISUAL DEBUG: Prove we control the menu
+            contextMenu.style.border = "5px solid red";
+            cancelBtn.style.backgroundColor = "yellow";
+            cancelBtn.textContent = "🗑️ JS CANCEL (VERIFIED)";
+
             // Backup with classes just in case
             registerBtn.classList.add('hidden');
             cancelBtn.classList.remove('hidden');
