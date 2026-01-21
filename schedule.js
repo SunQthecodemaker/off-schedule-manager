@@ -2096,8 +2096,8 @@ function handleContextMenu(e) {
     contextMenu.dataset.date = date;
 
     // ✨ 상황에 따라 메뉴 토글
-    const registerBtn = document.getElementById('ctx-register-leave');
-    const cancelBtn = document.getElementById('ctx-cancel-leave');
+    const registerBtn = document.getElementById('ctx-register-leave-v2');
+    const cancelBtn = document.getElementById('ctx-cancel-leave-v2');
 
     console.log('🖱️ Context Menu Triggered. Type:', cardType, 'ID:', employeeId);
 
@@ -2218,8 +2218,8 @@ function initializeCalendarEvents() {
     document.removeEventListener('click', handleGlobalClickForMenu);
     document.addEventListener('click', handleGlobalClickForMenu);
 
-    const registerBtn = document.getElementById('ctx-register-leave');
-    const cancelBtn = document.getElementById('ctx-cancel-leave'); // New
+    const registerBtn = document.getElementById('ctx-register-leave-v2');
+    const cancelBtn = document.getElementById('ctx-cancel-leave-v2'); // New
     const closeBtn = document.getElementById('ctx-close-menu');
     const contextMenu = document.getElementById('custom-context-menu');
 
