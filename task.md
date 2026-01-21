@@ -23,6 +23,7 @@
 - [x] **Conflict Handling**: Visual feedback for existing schedules.
 - [x] **Sort Order Saving**: Ability to save the sidebar sort order.
 - [x] **Right-Click Leave Registration**: Context menu for quick leave registration.
+- [ ] **Right-Click Leave Cancellation**: Cancel/Reject leaves contextually.
 
 ### 3. Employee Portal
 - [x] **Authentication**: Separate login flows for Employees and Admins.

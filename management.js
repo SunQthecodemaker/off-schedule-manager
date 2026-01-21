@@ -1987,126 +1987,78 @@ window.viewLeaveApplication = function (requestId) {
     _('#ok-leave-app-btn').addEventListener('click', () => _('#view-leave-app-modal').remove());
     _('#print-leave-app-btn').addEventListener('click', () => window.print());
 };
+// ✨ 연차 취소 로직 (우클릭 메뉴용)
+export async function cancelManualLeave(employeeId, date) {
+    const empIdInt = parseInt(employeeId, 10);
 
-export async function registerManualLeave(employeeId, employeeName = null, defaultDate = null) {
-    if (!employeeId) {
-        alert('직원 정보를 찾을 수 없습니다.');
+    // 해당 날짜 유효한 연차 찾기
+    const targetLeave = state.management.leaveRequests.find(req =>
+        req.employee_id === empIdInt &&
+        (req.status === 'approved' || req.status === 'pending') &&
+        req.dates.includes(date)
+    );
+
+    if (!targetLeave) {
+        alert('취소할 연차 정보를 찾을 수 없습니다.');
         return;
     }
 
-    // 이름이 없는 경우 찾기
-    let name = employeeName;
-    if (!name) {
-        const employee = state.management.employees.find(e => e.id == employeeId);
-        if (employee) name = employee.name;
-    }
+    const empName = targetLeave.employee_name || '직원';
+    const isManual = targetLeave.reason === '관리자 수동 등록';
 
-    // 날짜 입력 받기
-    const dateValue = defaultDate || dayjs().format('YYYY-MM-DD');
-    const inputDate = prompt(`[${name}] 직원의 연차를 수동으로 등록하시겠습니까?\n등록할 날짜를 입력해주세요(YYYY-MM-DD):`, dateValue);
+    if (isManual) {
+        // 1. 관리자 수동 등록 건 -> 삭제
+        if (!confirm(`${empName}님의 ${date} 연차(관리자 등록)를 삭제하시겠습니까?\n(기록이 완전히 삭제됩니다)`)) return;
 
-    if (inputDate === null) return;
-
-    // 날짜 유효성 검사
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
-        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD)');
-        return;
-    }
-
-    if (confirm(`${name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
         try {
-            // 1. Leave Request 생성
-            // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
-            const empIdInt = parseInt(employeeId, 10);
-            const dateStr = inputDate;
-
-            // ✨ 중복 체크: 이미 해당 날짜에 승인된(또는 대기중인) 연차가 있는지 확인
-            const activeRequests = state.management.leaveRequests.filter(req =>
-                req.employee_id === empIdInt &&
-                (req.status === 'approved' || req.status === 'pending') &&
-                req.dates.includes(dateStr)
-            );
-
-            if (activeRequests.length > 0) {
-                alert('이미 해당 날짜에 등록된 연차가 있습니다.');
-                return;
-            }
-
-            // 새 연차 요청 생성
-            const newRequest = {
-                employee_id: empIdInt,
-                employee_name: name,
-                dates: [dateStr],
-                reason: '관리자 수동 등록',
-                status: 'approved',
-                final_manager_id: state.currentUser.id,
-                final_manager_status: 'approved',
-                created_at: new Date().toISOString()
-            };
-
-            const { error } = await db.from('leave_requests').insert(newRequest);
-
+            const { error } = await db.from('leave_requests').delete().eq('id', targetLeave.id);
             if (error) throw error;
 
-            // 2. Schedule 상태 업데이트 (근무 -> 휴무)
-            // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
-            const targetEmpId = parseInt(employeeId, 10);
+            // 스케줄 상태 복구 (휴무 -> 근무) 로직은 필요하다면 추가. 
+            // 현재는 그냥 연차만 지우면 스케줄러가 알아서 '휴무' 상태인 스케줄을 렌더링하거나(만약 남아있다면),
+            // 다음 리로드 때 '휴무' 스케줄만 남고 '연차' 표시는 사라짐. 
+            // 사용자는 '근무'로 돌아오길 원할 수 있음.
+            // 하지만 근무 스케줄이 삭제되었다면(이전 로직에서 휴무로 덮어쓰거나 삭제했다면) 복구가 애매함.
+            // 일단 연차 기록 삭제 후 리로드.
 
-            console.log(`🔎 스케줄 업데이트 시도: Date=${inputDate}, EmpId=${targetEmpId}`);
-
-            // 해당 날짜에 이미 스케줄이 있는지 확인
-            const { data: existingSchedules, error: scheduleError } = await db.from('schedules')
-                .select('*')
-                .eq('date', inputDate)
-                .eq('employee_id', targetEmpId);
-
-            if (scheduleError) {
-                console.error("❌ 스케줄 조회 실패:", scheduleError);
-            } else {
-                console.log(`✅ 조회된 스케줄:`, existingSchedules);
-
-                if (existingSchedules && existingSchedules.length > 0) {
-                    // 기존 스케줄이 있으면 '휴무'로 업데이트
-                    const idsToUpdate = existingSchedules.map(s => s.id);
-                    const { error: updateError } = await db.from('schedules')
-                        .update({ status: '휴무' })
-                        .in('id', idsToUpdate);
-
-                    if (updateError) console.error("❌ 스케줄 업데이트 실패:", updateError);
-                    else console.log("✅ 스케줄 상태 '휴무'로 변경 완료");
-                } else {
-                    // 스케줄이 없으면 새로 '휴무' 스케줄 생성
-                    console.log("ℹ️ 기존 스케줄 없음, 신규 휴무 스케줄 생성");
-                    await db.from('schedules').insert({
-                        date: inputDate,
-                        employee_id: targetEmpId,
-                        status: '휴무',
-                        grid_position: 99,
-                        created_at: new Date().toISOString()
-                    });
-                }
-            }
-
-            alert('수동 등록이 완료되었습니다.');
-
-            // 데이터 갱신
-            await window.loadAndRenderManagement();
-
-            // 스케줄 화면 갱신
-            if (typeof window.loadAndRenderScheduleData === 'function' && state.schedule) {
-                // 현재 보고 있는 날짜가 등록한 날짜와 같다면 리로드 (또는 무조건 리로드)
-                // 만약 사용자가 다른 날짜를 보고 있었다면? 
-                // 보통 달력에서 우클릭했으므로 그 날짜가 포함된 달(Month)이나 주(Week)일 것임.
-                // 여기서는 안전하게 현재 보고 있는 날짜(currentDate) 기준으로 리로드
-                console.log("🔄 스케줄 화면 리로드 요청");
-                await window.loadAndRenderScheduleData(state.schedule.currentDate);
-            }
-
+            alert('연차가 삭제되었습니다.');
         } catch (err) {
-            console.error(err);
-            alert('등록 중 오류가 발생했습니다: ' + err.message);
+            console.error('연차 삭제 실패:', err);
+            alert('연차 삭제 중 오류가 발생했습니다.');
+            return;
+        }
+
+    } else {
+        // 2. 직원 신청 건 -> 반려 처리
+        if (!confirm(`${empName}님이 신청한 연차입니다.\n정말로 '반려(취소)' 처리하시겠습니까?\n(기록은 'rejected' 상태로 남습니다)`)) return;
+
+        try {
+            const { error } = await db.from('leave_requests').update({
+                status: 'rejected',
+                final_manager_status: 'rejected',
+                final_manager_id: state.currentUser.id,
+                rejection_reason: '스케줄 관리 화면에서 관리자 취소'
+            }).eq('id', targetLeave.id);
+
+            if (error) throw error;
+            alert('연차가 반려 처리되었습니다.');
+        } catch (err) {
+            console.error('연차 반려 실패:', err);
+            alert('연차 반려 중 오류가 발생했습니다.');
+            return;
         }
     }
+
+    // 공통: 스케줄 화면 갱신
+    await loadAndRenderManagement(); // 연차 현황 갱신
+    if (window.loadAndRenderScheduleData) {
+        window.loadAndRenderScheduleData(state.schedule.currentDate); // 스케줄 갱신
+    }
+}
+console.error(err);
+alert('등록 중 오류가 발생했습니다: ' + err.message);
+    }
+}
 }
 
 async function handleLeaveBoxDblClick(e) {

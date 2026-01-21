@@ -72,16 +72,19 @@
 
     <!-- ✨ Right-Click Context Menu -->
     <div id="custom-context-menu"
-        class="hidden absolute z-50 bg-white border border-gray-200 shadow-lg rounded-md py-1 min-w-[120px]">
-        <button id="ctx-register-leave"
-            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-            📅 연차 등록하기
-        </button>
+        class="hidden absolute bg-white shadow-lg rounded-lg border border-gray-200 py-1 z-50 text-sm min-w-[150px]">
+        <div id="ctx-register-leave"
+            class="px-4 py-2 hover:bg-blue-50 cursor-pointer text-gray-700 font-medium transition-colors hover:text-blue-600">
+            ✨ 연차 등록하기
+        </div>
+        <div id="ctx-cancel-leave"
+            class="hidden px-4 py-2 hover:bg-red-50 cursor-pointer text-gray-700 font-medium transition-colors hover:text-red-600">
+            🗑️ 연차 취소하기
+        </div>
         <div class="border-t border-gray-100 my-1"></div>
-        <button id="ctx-close-menu"
-            class="w-full text-left px-4 py-2 text-sm text-gray-400 hover:bg-gray-50 flex items-center gap-2">
-            ❌ 닫기
-        </button>
+        <div id="ctx-close-menu" class="px-4 py-2 hover:bg-gray-50 cursor-pointer text-gray-500">
+            닫기
+        </div>
     </div>
 
     <div id="reorder-modal" class="modal-overlay hidden">

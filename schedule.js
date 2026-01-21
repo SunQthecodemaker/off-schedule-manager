@@ -2087,12 +2087,33 @@ function handleContextMenu(e) {
     const employeeId = card.dataset.employeeId;
     const dayEl = card.closest('.calendar-day');
     const date = dayEl ? dayEl.dataset.date : null;
+    const cardType = card.dataset.type; // 'working', 'leave', 'humu', etc.
 
     if (!employeeId || !date) return;
 
     // 메뉴 데이터 설정
     contextMenu.dataset.employeeId = employeeId;
     contextMenu.dataset.date = date;
+
+    // ✨ 상황에 따라 메뉴 토글
+    const registerBtn = document.getElementById('ctx-register-leave');
+    const cancelBtn = document.getElementById('ctx-cancel-leave');
+
+    if (registerBtn && cancelBtn) {
+        if (cardType === 'working' || !cardType) {
+            // 근무자 -> 연차 등록 가능
+            registerBtn.classList.remove('hidden');
+            cancelBtn.classList.add('hidden');
+        } else if (cardType === 'leave' || cardType === '휴무') {
+            // 휴무/연차자 -> 연차 취소(삭제) 가능
+            registerBtn.classList.add('hidden');
+            cancelBtn.classList.remove('hidden');
+        } else {
+            // 그 외 (예: 빈칸) -> 일단 닫기 or 근무자 취급
+            registerBtn.classList.remove('hidden');
+            cancelBtn.classList.add('hidden');
+        }
+    }
 
     // 메뉴 위치 설정 (마우스 커서 기준)
     const x = e.clientX;
@@ -2121,6 +2142,19 @@ function handleMenuRegisterClick() {
     if (employeeId && date) {
         // Call imported management function
         registerManualLeave(employeeId, null, date);
+    }
+    contextMenu.classList.add('hidden');
+}
+
+// ✨ Cancel Menu Item Click Handler
+function handleMenuCancelClick() {
+    const contextMenu = document.getElementById('custom-context-menu');
+    const employeeId = contextMenu.dataset.employeeId;
+    const date = contextMenu.dataset.date;
+
+    if (employeeId && date) {
+        // Call imported management function
+        cancelManualLeave(employeeId, date);
     }
     contextMenu.classList.add('hidden');
 }
@@ -2166,13 +2200,16 @@ function initializeCalendarEvents() {
     document.addEventListener('click', handleGlobalClickForMenu);
 
     const registerBtn = document.getElementById('ctx-register-leave');
-    // ...
+    const cancelBtn = document.getElementById('ctx-cancel-leave'); // New
     const closeBtn = document.getElementById('ctx-close-menu');
     const contextMenu = document.getElementById('custom-context-menu');
 
     if (registerBtn) {
         // remove existing listener to avoid duplicates if possible, or just overwrite onclick
         registerBtn.onclick = handleMenuRegisterClick;
+    }
+    if (cancelBtn) {
+        cancelBtn.onclick = handleMenuCancelClick; // New binding
     }
     if (closeBtn && contextMenu) {
         closeBtn.onclick = () => contextMenu.classList.add('hidden');
