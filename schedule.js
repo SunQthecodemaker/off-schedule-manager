@@ -2113,7 +2113,8 @@ function handleContextMenu(e) {
 
         if (isLeave || isOff) {
             // 휴무/연차자 -> 연차 취소(삭제) 가능
-            console.log('   -> Show Cancel Option');
+            alert(`DEBUG: Mode=CANCEL (isLeave=${isLeave}, isOff=${isOff})`);
+
             // Force display toggle using style, bypassing class issues
             registerBtn.style.display = 'none';
             cancelBtn.style.display = 'block';
@@ -2123,6 +2124,8 @@ function handleContextMenu(e) {
             cancelBtn.classList.remove('hidden');
         } else {
             // 근무자 or 기타 -> 연차 등록 가능
+            alert(`DEBUG: Mode=REGISTER (isLeave=${isLeave}, isOff=${isOff})`);
+
             console.log('   -> Show Register Option');
             registerBtn.style.display = 'block';
             cancelBtn.style.display = 'none';
@@ -2131,6 +2134,7 @@ function handleContextMenu(e) {
             cancelBtn.classList.add('hidden');
         }
     } else {
+        alert('DEBUG: BUTTONS NOT FOUND! (Check IDs)');
         console.error('❌ Context menu buttons not found in DOM');
     }
 
