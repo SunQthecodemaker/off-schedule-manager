@@ -2071,7 +2071,7 @@ function handleDateHeaderDblClick(e) {
 
 // ✨ Context Menu Handler
 function handleContextMenu(e) {
-    const contextMenu = document.getElementById('custom-context-menu');
+    const contextMenu = document.getElementById('custom-context-menu-v2');
     if (!contextMenu) return;
 
     // .event-card 체크 (달력 내)
@@ -2113,8 +2113,6 @@ function handleContextMenu(e) {
 
         if (isLeave || isOff) {
             // 휴무/연차자 -> 연차 취소(삭제) 가능
-            alert(`DEBUG: Mode=CANCEL (isLeave=${isLeave}, isOff=${isOff})`);
-
             // Force display toggle using style, bypassing class issues
             registerBtn.style.display = 'none';
             cancelBtn.style.display = 'block';
@@ -2124,8 +2122,6 @@ function handleContextMenu(e) {
             cancelBtn.classList.remove('hidden');
         } else {
             // 근무자 or 기타 -> 연차 등록 가능
-            alert(`DEBUG: Mode=REGISTER (isLeave=${isLeave}, isOff=${isOff})`);
-
             console.log('   -> Show Register Option');
             registerBtn.style.display = 'block';
             cancelBtn.style.display = 'none';
@@ -2134,7 +2130,6 @@ function handleContextMenu(e) {
             cancelBtn.classList.add('hidden');
         }
     } else {
-        alert('DEBUG: BUTTONS NOT FOUND! (Check IDs)');
         console.error('❌ Context menu buttons not found in DOM');
     }
 
@@ -2150,7 +2145,7 @@ function handleContextMenu(e) {
 
 // ✨ Global Click Handler for Context Menu (Outside Click)
 function handleGlobalClickForMenu(e) {
-    const contextMenu = document.getElementById('custom-context-menu');
+    const contextMenu = document.getElementById('custom-context-menu-v2');
     if (contextMenu && !contextMenu.contains(e.target)) {
         contextMenu.classList.add('hidden');
     }
@@ -2158,7 +2153,7 @@ function handleGlobalClickForMenu(e) {
 
 // ✨ Register Menu Item Click Handler
 function handleMenuRegisterClick() {
-    const contextMenu = document.getElementById('custom-context-menu');
+    const contextMenu = document.getElementById('custom-context-menu-v2');
     const employeeId = contextMenu.dataset.employeeId;
     const date = contextMenu.dataset.date;
 
@@ -2171,7 +2166,7 @@ function handleMenuRegisterClick() {
 
 // ✨ Cancel Menu Item Click Handler
 function handleMenuCancelClick() {
-    const contextMenu = document.getElementById('custom-context-menu');
+    const contextMenu = document.getElementById('custom-context-menu-v2');
     const employeeId = contextMenu.dataset.employeeId;
     const date = contextMenu.dataset.date;
 
@@ -2225,7 +2220,7 @@ function initializeCalendarEvents() {
     const registerBtn = document.getElementById('ctx-register-leave-v2');
     const cancelBtn = document.getElementById('ctx-cancel-leave-v2'); // New
     const closeBtn = document.getElementById('ctx-close-menu');
-    const contextMenu = document.getElementById('custom-context-menu');
+    const contextMenu = document.getElementById('custom-context-menu-v2');
 
     if (registerBtn) {
         // remove existing listener to avoid duplicates if possible, or just overwrite onclick
