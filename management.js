@@ -2016,16 +2016,35 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
     if (confirm(`${name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
         try {
             // 1. Leave Request 생성
-            const { error } = await db.from('leave_requests').insert({
-                employee_id: employeeId,
+            // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
+            const empIdInt = parseInt(employeeId, 10);
+            const dateStr = inputDate;
+
+            // ✨ 중복 체크: 이미 해당 날짜에 승인된(또는 대기중인) 연차가 있는지 확인
+            const activeRequests = state.management.leaveRequests.filter(req =>
+                req.employee_id === empIdInt &&
+                (req.status === 'approved' || req.status === 'pending') &&
+                req.dates.includes(dateStr)
+            );
+
+            if (activeRequests.length > 0) {
+                alert('이미 해당 날짜에 등록된 연차가 있습니다.');
+                return;
+            }
+
+            // 새 연차 요청 생성
+            const newRequest = {
+                employee_id: empIdInt,
                 employee_name: name,
-                dates: [inputDate],
+                dates: [dateStr],
                 reason: '관리자 수동 등록',
                 status: 'approved',
                 final_manager_id: state.currentUser.id,
                 final_manager_status: 'approved',
-                final_approved_at: new Date().toISOString()
-            });
+                created_at: new Date().toISOString()
+            };
+
+            const { error } = await db.from('leave_requests').insert(newRequest);
 
             if (error) throw error;
 

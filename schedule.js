@@ -959,28 +959,30 @@ function getWorkingEmployeesOnDate(dateStr) {
 function getOffEmployeesOnDate(dateStr) {
     const offEmps = [];
 
-    // ✅ 1. DB/State에 '휴무' 상태로 저장된 직원
-    state.schedule.schedules.forEach(schedule => {
-        if (schedule.date === dateStr && schedule.status === '휴무') {
-            const emp = state.management.employees.find(e => e.id === schedule.employee_id);
+    // ✅ 1. 승인된 연차 먼저 확인 (Leave -> Green)
+    // DB에 스케줄이 '휴무'로 되어있더라도, 연차 기록이 있으면 '연차'로 표시해야 함
+    const leaveEmployees = new Set();
+    state.management.leaveRequests.forEach(req => {
+        // status 확인: 'approved' OR 'final_manager_status' === 'approved'
+        // 수동 등록된 건도 'approved'로 간주
+        if ((req.status === 'approved' || req.final_manager_status === 'approved') && req.dates?.includes(dateStr)) {
+            const emp = state.management.employees.find(e => e.id === req.employee_id);
             if (emp) {
-                // 중복 방지
-                if (!offEmps.some(item => item.employee.id === emp.id)) {
-                    offEmps.push({ employee: emp, schedule: schedule, type: '휴무' });
-                }
+                offEmps.push({ employee: emp, schedule: null, type: 'leave' });
+                leaveEmployees.add(emp.id);
             }
         }
     });
 
-    // ✅ 2. 승인된 연차 (DB에 스케줄 없어도 표시)
-    state.management.leaveRequests.forEach(req => {
-        // status 확인: 'approved' OR 'final_manager_status' === 'approved'
-        if ((req.status === 'approved' || req.final_manager_status === 'approved') && req.dates?.includes(dateStr)) {
-            const emp = state.management.employees.find(e => e.id === req.employee_id);
-            // 이미 추가된 경우 제외 (스케줄 상 휴무로 되어있을 수 있음)
-            const alreadyAdded = offEmps.some(item => item.employee.id === req.employee_id);
-            if (emp && !alreadyAdded) {
-                offEmps.push({ employee: emp, schedule: null, type: 'leave' });
+    // ✅ 2. DB/State에 '휴무' 상태로 저장된 직원 (나머지 휴무자)
+    state.schedule.schedules.forEach(schedule => {
+        if (schedule.date === dateStr && schedule.status === '휴무') {
+            const emp = state.management.employees.find(e => e.id === schedule.employee_id);
+            if (emp) {
+                // 이미 연차로 등록된 직원은 중복 표시 방지
+                if (!leaveEmployees.has(emp.id) && !offEmps.some(item => item.employee.id === emp.id)) {
+                    offEmps.push({ employee: emp, schedule: schedule, type: '휴무' });
+                }
             }
         }
     });
@@ -2147,9 +2149,9 @@ function initializeCalendarEvents() {
     const calendarGrid = document.querySelector('#pure-calendar');
     if (calendarGrid) {
         // ✨ Remove anonymous listeners is impossible, so we use named handler now.
-        calendarGrid.removeEventListener('dblclick', handleCalendarGridDblClick);
-        calendarGrid.addEventListener('dblclick', handleCalendarGridDblClick);
-        console.log('   -> dblclick listener attached to grid');
+        // ✨ Capture double-click in capture phase to ensure it's not blocked by children
+        calendarGrid.addEventListener('dblclick', handleCalendarGridDblClick, { capture: true });
+        console.log('   -> dblclick listener attached to grid (CAPTURE mode)');
 
         // ✨ Context Menu Logic
         calendarGrid.removeEventListener('contextmenu', handleContextMenu);
