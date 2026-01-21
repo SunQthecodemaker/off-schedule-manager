@@ -2099,20 +2099,27 @@ function handleContextMenu(e) {
     const registerBtn = document.getElementById('ctx-register-leave');
     const cancelBtn = document.getElementById('ctx-cancel-leave');
 
+    console.log('🖱️ Context Menu Triggered. Type:', cardType, 'ID:', employeeId);
+
     if (registerBtn && cancelBtn) {
-        if (cardType === 'working' || !cardType) {
-            // 근무자 -> 연차 등록 가능
-            registerBtn.classList.remove('hidden');
-            cancelBtn.classList.add('hidden');
-        } else if (cardType === 'leave' || cardType === '휴무') {
+        // Class-based fallback logic
+        const isLeave = card.classList.contains('event-leave') || cardType === 'leave';
+        const isOff = card.classList.contains('event-off') || cardType === '휴무';
+        const isWorking = card.classList.contains('event-working') || cardType === 'working';
+
+        if (isLeave || isOff) {
             // 휴무/연차자 -> 연차 취소(삭제) 가능
+            console.log('   -> Show Cancel Option');
             registerBtn.classList.add('hidden');
             cancelBtn.classList.remove('hidden');
         } else {
-            // 그 외 (예: 빈칸) -> 일단 닫기 or 근무자 취급
+            // 근무자 or 기타 -> 연차 등록 가능
+            console.log('   -> Show Register Option');
             registerBtn.classList.remove('hidden');
             cancelBtn.classList.add('hidden');
         }
+    } else {
+        console.error('❌ Context menu buttons not found in DOM');
     }
 
     // 메뉴 위치 설정 (마우스 커서 기준)
