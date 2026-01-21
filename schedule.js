@@ -1235,6 +1235,9 @@ function renderCalendar() {
     container.removeEventListener('click', handleCalendarClick);
     container.addEventListener('click', handleCalendarClick);
 
+    // ✨ 추가 이벤트 리스너 연결 (더블클릭, 컨텍스트 메뉴, 키보드)
+    initializeCalendarEvents();
+
     console.log('Calendar rendered successfully');
 }
 
@@ -2127,13 +2130,17 @@ function initializeCalendarEvents() {
         calendarGrid.removeEventListener('dblclick', handleDateHeaderDblClick);
         calendarGrid.addEventListener('dblclick', (e) => {
             // 헤더 더블클릭과 카드 더블클릭 구분
+
+            // 1. 카드 더블클릭 우선 처리
+            if (e.target.closest('.event-card')) {
+                handleCalendarDblClick(e);
+                return; // ✨ 카드를 클릭했으면 헤더 토글 방지
+            }
+
+            // 2. 날짜 칸(헤더 포함) 더블클릭
             if (e.target.closest('.calendar-day')) {
                 // 날짜 클릭은 기존 핸들러 (헤더 토글 등)
                 handleDateHeaderDblClick(e);
-            }
-            // 카드 더블클릭
-            if (e.target.closest('.event-card')) {
-                handleCalendarDblClick(e);
             }
         });
 
