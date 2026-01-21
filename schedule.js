@@ -2113,21 +2113,18 @@ function handleContextMenu(e) {
 
         if (isLeave || isOff) {
             // 휴무/연차자 -> 연차 취소(삭제) 가능
-            // Force display toggle using style, bypassing class issues
             registerBtn.style.display = 'none';
             cancelBtn.style.display = 'block';
 
-            // ✨ VISUAL DEBUG: Prove we control the menu
-            contextMenu.style.border = "5px solid red";
-            cancelBtn.style.backgroundColor = "yellow";
-            cancelBtn.textContent = "🗑️ JS CANCEL (VERIFIED)";
+            // Clean styling
+            cancelBtn.textContent = "🗑️ 연차 취소하기";
+            contextMenu.style.border = ""; // Reset border
+            cancelBtn.style.backgroundColor = ""; // Reset background
 
-            // Backup with classes just in case
             registerBtn.classList.add('hidden');
             cancelBtn.classList.remove('hidden');
         } else {
             // 근무자 or 기타 -> 연차 등록 가능
-            console.log('   -> Show Register Option');
             registerBtn.style.display = 'block';
             cancelBtn.style.display = 'none';
 
