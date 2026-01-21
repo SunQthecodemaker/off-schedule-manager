@@ -2102,7 +2102,8 @@ function handleContextMenu(e) {
     console.log('🖱️ Context Menu Triggered. Type:', cardType, 'ID:', employeeId);
 
     // ✨ DEBUG: Alert to confirm code update and show data
-    alert(`DEBUG: Card Type=${cardType}, Classes=${card.className}`);
+    // ✨ DEBUG: Alert removed
+    // alert(`DEBUG: Card Type=${cardType}, Classes=${card.className}`);
 
     if (registerBtn && cancelBtn) {
         // Class-based fallback logic
@@ -2113,11 +2114,19 @@ function handleContextMenu(e) {
         if (isLeave || isOff) {
             // 휴무/연차자 -> 연차 취소(삭제) 가능
             console.log('   -> Show Cancel Option');
+            // Force display toggle using style, bypassing class issues
+            registerBtn.style.display = 'none';
+            cancelBtn.style.display = 'block';
+
+            // Backup with classes just in case
             registerBtn.classList.add('hidden');
             cancelBtn.classList.remove('hidden');
         } else {
             // 근무자 or 기타 -> 연차 등록 가능
             console.log('   -> Show Register Option');
+            registerBtn.style.display = 'block';
+            cancelBtn.style.display = 'none';
+
             registerBtn.classList.remove('hidden');
             cancelBtn.classList.add('hidden');
         }
