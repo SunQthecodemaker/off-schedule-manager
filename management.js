@@ -2030,32 +2030,42 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
             if (error) throw error;
 
             // 2. Schedule 상태 업데이트 (근무 -> 휴무)
+            // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
+            const targetEmpId = parseInt(employeeId, 10);
+
+            console.log(`🔎 스케줄 업데이트 시도: Date=${inputDate}, EmpId=${targetEmpId}`);
+
             // 해당 날짜에 이미 스케줄이 있는지 확인
             const { data: existingSchedules, error: scheduleError } = await db.from('schedules')
                 .select('*')
                 .eq('date', inputDate)
-                .eq('employee_id', employeeId);
+                .eq('employee_id', targetEmpId);
 
             if (scheduleError) {
-                console.error("스케줄 조회 실패:", scheduleError);
-                // 스케줄 업데이트 실패가 연차 등록 실패로 이어지진 않게 함 (선택적)
-            } else if (existingSchedules && existingSchedules.length > 0) {
-                // 기존 스케줄이 있으면 '휴무'로 업데이트
-                for (const schedule of existingSchedules) {
-                    await db.from('schedules')
-                        .update({ status: '휴무' })
-                        .eq('id', schedule.id);
-                }
+                console.error("❌ 스케줄 조회 실패:", scheduleError);
             } else {
-                // 스케줄이 없으면 새로 '휴무' 스케줄 생성 (옵션: 휴무자 목록에 표시하기 위함)
-                // grid_position은 null 또는 적절한 값으로
-                await db.from('schedules').insert({
-                    date: inputDate,
-                    employee_id: employeeId,
-                    status: '휴무',
-                    grid_position: 99, // 화면 밖 또는 별도 처리
-                    created_at: new Date().toISOString()
-                });
+                console.log(`✅ 조회된 스케줄:`, existingSchedules);
+
+                if (existingSchedules && existingSchedules.length > 0) {
+                    // 기존 스케줄이 있으면 '휴무'로 업데이트
+                    const idsToUpdate = existingSchedules.map(s => s.id);
+                    const { error: updateError } = await db.from('schedules')
+                        .update({ status: '휴무' })
+                        .in('id', idsToUpdate);
+
+                    if (updateError) console.error("❌ 스케줄 업데이트 실패:", updateError);
+                    else console.log("✅ 스케줄 상태 '휴무'로 변경 완료");
+                } else {
+                    // 스케줄이 없으면 새로 '휴무' 스케줄 생성
+                    console.log("ℹ️ 기존 스케줄 없음, 신규 휴무 스케줄 생성");
+                    await db.from('schedules').insert({
+                        date: inputDate,
+                        employee_id: targetEmpId,
+                        status: '휴무',
+                        grid_position: 99,
+                        created_at: new Date().toISOString()
+                    });
+                }
             }
 
             alert('수동 등록이 완료되었습니다.');
@@ -2063,8 +2073,13 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
             // 데이터 갱신
             await window.loadAndRenderManagement();
 
-            // 스케줄 화면도 갱신되면 좋음 (현재 화면이 스케줄이라면)
-            if (typeof window.loadAndRenderScheduleData === 'function' && state.schedule && state.schedule.currentDate) {
+            // 스케줄 화면 갱신
+            if (typeof window.loadAndRenderScheduleData === 'function' && state.schedule) {
+                // 현재 보고 있는 날짜가 등록한 날짜와 같다면 리로드 (또는 무조건 리로드)
+                // 만약 사용자가 다른 날짜를 보고 있었다면? 
+                // 보통 달력에서 우클릭했으므로 그 날짜가 포함된 달(Month)이나 주(Week)일 것임.
+                // 여기서는 안전하게 현재 보고 있는 날짜(currentDate) 기준으로 리로드
+                console.log("🔄 스케줄 화면 리로드 요청");
                 await window.loadAndRenderScheduleData(state.schedule.currentDate);
             }
 
