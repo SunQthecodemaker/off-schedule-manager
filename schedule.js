@@ -2101,6 +2101,9 @@ function handleContextMenu(e) {
 
     console.log('🖱️ Context Menu Triggered. Type:', cardType, 'ID:', employeeId);
 
+    // ✨ DEBUG: Alert to confirm code update and show data
+    // alert(`DEBUG: Card Type=${cardType}, Classes=${card.className}`);
+
     if (registerBtn && cancelBtn) {
         // Class-based fallback logic
         const isLeave = card.classList.contains('event-leave') || cardType === 'leave';
