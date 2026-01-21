@@ -1,7 +1,7 @@
 import { state, db } from './state.js';
 import { _, show, hide } from './utils.js';
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js';
+import { registerManualLeave, cancelManualLeave } from './management.js';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };

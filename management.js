@@ -2055,10 +2055,119 @@ export async function cancelManualLeave(employeeId, date) {
         window.loadAndRenderScheduleData(state.schedule.currentDate); // 스케줄 갱신
     }
 }
-console.error(err);
-alert('등록 중 오류가 발생했습니다: ' + err.message);
+// ✨ 수동 연차 등록 로직 (우클릭 메뉴용)
+export async function registerManualLeave(employeeId, employeeName = null, defaultDate = null) {
+    if (!employeeId) {
+        alert('직원 정보를 찾을 수 없습니다.');
+        return;
     }
-}
+
+    // 이름이 없는 경우 찾기
+    let name = employeeName;
+    if (!name) {
+        const employee = state.management.employees.find(e => e.id == employeeId);
+        if (employee) name = employee.name;
+    }
+
+    // 날짜 입력 받기
+    const dateValue = defaultDate || dayjs().format('YYYY-MM-DD');
+    const inputDate = prompt(`[${name}] 직원의 연차를 수동으로 등록하시겠습니까?\n등록할 날짜를 입력해주세요(YYYY-MM-DD):`, dateValue);
+
+    if (inputDate === null) return;
+
+    // 날짜 유효성 검사
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
+        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD)');
+        return;
+    }
+
+    if (confirm(`${name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
+        try {
+            // 1. Leave Request 생성
+            // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
+            const empIdInt = parseInt(employeeId, 10);
+            const dateStr = inputDate;
+
+            // ✨ 중복 체크: 이미 해당 날짜에 승인된(또는 대기중인) 연차가 있는지 확인
+            const activeRequests = state.management.leaveRequests.filter(req =>
+                req.employee_id === empIdInt &&
+                (req.status === 'approved' || req.status === 'pending') &&
+                req.dates.includes(dateStr)
+            );
+
+            if (activeRequests.length > 0) {
+                alert('이미 해당 날짜에 등록된 연차가 있습니다.');
+                return;
+            }
+
+            // 새 연차 요청 생성
+            const newRequest = {
+                employee_id: empIdInt,
+                employee_name: name,
+                dates: [dateStr],
+                reason: '관리자 수동 등록',
+                status: 'approved',
+                final_manager_id: state.currentUser.id,
+                final_manager_status: 'approved',
+                created_at: new Date().toISOString()
+            };
+
+            const { error } = await db.from('leave_requests').insert(newRequest);
+
+            if (error) throw error;
+
+            // 2. Schedule 상태 업데이트 (근무 -> 휴무)
+            // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
+            const targetEmpId = parseInt(employeeId, 10);
+
+            console.log(`🔎 스케줄 업데이트 시도: Date=${inputDate}, EmpId=${targetEmpId}`);
+
+            // 해당 날짜에 이미 스케줄이 있는지 확인
+            const { data: existingSchedules, error: scheduleError } = await db.from('schedules')
+                .select('*')
+                .eq('date', inputDate)
+                .eq('employee_id', targetEmpId);
+
+            if (scheduleError) {
+                console.error("❌ 스케줄 조회 실패:", scheduleError);
+            } else {
+                console.log(`✅ 조회된 스케줄:`, existingSchedules);
+
+                if (existingSchedules && existingSchedules.length > 0) {
+                    // 기존 스케줄이 있으면 '휴무'로 업데이트
+                    const idsToUpdate = existingSchedules.map(s => s.id);
+                    const { error: updateError } = await db.from('schedules')
+                        .update({ status: '휴무' })
+                        .in('id', idsToUpdate);
+
+                    if (updateError) console.error("❌ 스케줄 업데이트 실패:", updateError);
+                    else console.log("✅ 스케줄 상태 '휴무'로 변경 완료");
+                } else {
+                    // 스케줄이 없으면 새로 '휴무' 스케줄 생성
+                    console.log("ℹ️ 기존 스케줄 없음, 신규 휴무 스케줄 생성");
+                    await db.from('schedules').insert({
+                        date: inputDate,
+                        employee_id: targetEmpId,
+                        status: '휴무',
+                        grid_position: 99,
+                        created_at: new Date().toISOString()
+                    });
+                }
+            }
+
+            alert('수동 등록이 완료되었습니다.');
+
+            // 데이터 갱신
+            await window.loadAndRenderManagement();
+            if (window.loadAndRenderScheduleData) {
+                window.loadAndRenderScheduleData(state.schedule.currentDate);
+            }
+
+        } catch (err) {
+            console.error('수동 등록 실패:', err);
+            alert('등록 중 오류가 발생했습니다: ' + err.message);
+        }
+    }
 }
 
 async function handleLeaveBoxDblClick(e) {
