@@ -1211,3 +1211,31 @@
         font-size: 10px;
     }
 }
+
+/* ✨ Custom Context Menu */
+#custom-context-menu {
+    position: fixed;
+    /* Fixed positioning to handle scroll correctly */
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    animation: fadeIn 0.1s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+#custom-context-menu button {
+    transition: background-color 0.1s;
+}
+
+#custom-context-menu button:active {
+    background-color: #e5e7eb;
+}

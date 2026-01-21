@@ -1,7 +1,7 @@
-// schedule.js - 수정된 버전
 import { state, db } from './state.js';
 import { _, show, hide } from './utils.js';
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
+import { registerManualLeave } from './management.js';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
@@ -2064,6 +2064,62 @@ function handleDateHeaderDblClick(e) {
     }
 }
 
+// ✨ Context Menu Handler
+function handleContextMenu(e) {
+    const contextMenu = document.getElementById('custom-context-menu');
+    if (!contextMenu) return;
+
+    // .event-card 체크 (달력 내)
+    const card = e.target.closest('.event-card');
+    if (!card) {
+        // 카드가 아니면 메뉴 닫기
+        contextMenu.classList.add('hidden');
+        return;
+    }
+
+    e.preventDefault(); // 기본 브라우저 메뉴 차단
+
+    const employeeId = card.dataset.employeeId;
+    const dayEl = card.closest('.calendar-day');
+    const date = dayEl ? dayEl.dataset.date : null;
+
+    if (!employeeId || !date) return;
+
+    // 메뉴 데이터 설정
+    contextMenu.dataset.employeeId = employeeId;
+    contextMenu.dataset.date = date;
+
+    // 메뉴 위치 설정 (마우스 커서 기준)
+    const x = e.clientX;
+    const y = e.clientY;
+
+    // 화면 밖으로 나가지 않도록 간단한 보정 (필요시 추가)
+    contextMenu.style.left = `${x}px`;
+    contextMenu.style.top = `${y}px`;
+    contextMenu.classList.remove('hidden');
+}
+
+// ✨ Global Click Handler for Context Menu (Outside Click)
+function handleGlobalClickForMenu(e) {
+    const contextMenu = document.getElementById('custom-context-menu');
+    if (contextMenu && !contextMenu.contains(e.target)) {
+        contextMenu.classList.add('hidden');
+    }
+}
+
+// ✨ Register Menu Item Click Handler
+function handleMenuRegisterClick() {
+    const contextMenu = document.getElementById('custom-context-menu');
+    const employeeId = contextMenu.dataset.employeeId;
+    const date = contextMenu.dataset.date;
+
+    if (employeeId && date) {
+        // Call imported management function
+        registerManualLeave(employeeId, null, date);
+    }
+    contextMenu.classList.add('hidden');
+}
+
 // ✨ 더블클릭 및 키보드 이벤트 연결을 위한 초기화
 function initializeCalendarEvents() {
     const calendarGrid = document.querySelector('#pure-calendar');
@@ -2080,6 +2136,26 @@ function initializeCalendarEvents() {
                 handleCalendarDblClick(e);
             }
         });
+
+        // ✨ Context Menu Logic
+        calendarGrid.removeEventListener('contextmenu', handleContextMenu);
+        calendarGrid.addEventListener('contextmenu', handleContextMenu);
+    }
+
+    // ✨ Global Context Menu Handlers (Ensure we bind these only once or allow re-binding safely)
+    document.removeEventListener('click', handleGlobalClickForMenu);
+    document.addEventListener('click', handleGlobalClickForMenu);
+
+    const registerBtn = document.getElementById('ctx-register-leave');
+    const closeBtn = document.getElementById('ctx-close-menu');
+    const contextMenu = document.getElementById('custom-context-menu');
+
+    if (registerBtn) {
+        // remove existing listener to avoid duplicates if possible, or just overwrite onclick
+        registerBtn.onclick = handleMenuRegisterClick;
+    }
+    if (closeBtn && contextMenu) {
+        closeBtn.onclick = () => contextMenu.classList.add('hidden');
     }
 
     // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
@@ -2839,6 +2915,124 @@ async function handleImportPreviousMonth() {
     } finally {
         importBtn.disabled = false;
         importBtn.textContent = '📅 지난달 불러오기';
+    }
+}
+
+// =========================================================================================
+// ✨ Context Menu Logic (Right Click -> Leave Registration)
+// =========================================================================================
+
+document.addEventListener('contextmenu', (e) => {
+    // 1. Check if target is a draggable employee or event card
+    const card = e.target.closest('.draggable-employee, .event-card');
+    if (!card) return; // Allow default context menu for other elements
+
+    // 2. Prevent default menu
+    e.preventDefault();
+
+    // 3. Extract Employee Info
+    const empIdStr = card.dataset.employeeId;
+    // Skip spacers/empty slots (negative numbers or 'empty')
+    if (!empIdStr || empIdStr === 'empty' || parseInt(empIdStr) < 0) return;
+
+    const empId = parseInt(empIdStr, 10);
+    const employee = state.management.employees.find(emp => emp.id === empId);
+
+    // 만약 state.management.employees에 없다면? (DOM에는 있는데 State에 없는 경우)
+    if (!employee) {
+        console.warn('Right-clicked employee not found in state:', empId);
+        return;
+    }
+
+    // 4. Determine Context Date (if clicked on calendar grid)
+    let contextDate = null;
+    const dayEl = card.closest('.calendar-day');
+    if (dayEl) {
+        contextDate = dayEl.dataset.date;
+    } else {
+        // Default to today if clicked in sidebar
+        contextDate = dayjs().format('YYYY-MM-DD');
+    }
+
+    // 5. Create/Show Custom Menu
+    createAndShowContextMenu(e.pageX, e.pageY, employee, contextDate);
+});
+
+function createAndShowContextMenu(x, y, employee, date) {
+    // Remove existing menu if any
+    removeContextMenu();
+
+    const menu = document.createElement('div');
+    menu.id = 'custom-context-menu';
+    menu.style.position = 'absolute';
+    menu.style.top = `${y}px`;
+    menu.style.left = `${x}px`;
+    menu.style.zIndex = '9999'; // High z-index to overlay everything
+    menu.style.backgroundColor = 'white';
+    menu.style.border = '1px solid #d1d5db'; // gray-300
+    menu.style.borderRadius = '0.375rem'; // rounded-md
+    menu.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'; // shadow-md
+    menu.style.padding = '4px 0';
+    menu.style.minWidth = '160px';
+
+    // Header (Employee Name)
+    const header = document.createElement('div');
+    header.textContent = `${employee.name} (${date})`;
+    header.style.padding = '8px 12px';
+    header.style.fontSize = '12px';
+    header.style.color = '#6b7280'; // gray-500
+    header.style.borderBottom = '1px solid #f3f4f6';
+    header.style.backgroundColor = '#f9fafb';
+    header.style.marginBottom = '4px';
+    menu.appendChild(header);
+
+    // Menu Item: Register Leave
+    const menuItem = document.createElement('div');
+    menuItem.innerHTML = '🏖️ &nbsp;연차 등록하기';
+    menuItem.style.padding = '8px 12px';
+    menuItem.style.cursor = 'pointer';
+    menuItem.style.fontSize = '14px';
+    menuItem.style.color = '#374151'; // gray-700
+    menuItem.style.display = 'flex';
+    menuItem.style.alignItems = 'center';
+
+    menuItem.onmouseover = () => { menuItem.style.backgroundColor = '#f3f4f6'; };
+    menuItem.onmouseout = () => { menuItem.style.backgroundColor = 'transparent'; };
+
+    menuItem.onclick = () => {
+        registerManualLeave(employee.id, employee.name, date);
+        removeContextMenu();
+    };
+
+    menu.appendChild(menuItem);
+    document.body.appendChild(menu);
+
+    // Adjust position if menu goes off-screen (basic simple check)
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+        menu.style.left = `${x - rect.width}px`;
+    }
+    if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${y - rect.height}px`;
+    }
+
+    // Initial listener to close menu on click outside
+    // Use requestAnimationFrame or setTimeout to prevent immediate closing by the same click event logic
+    setTimeout(() => {
+        const closeHandler = () => {
+            removeContextMenu();
+            document.removeEventListener('click', closeHandler);
+            document.removeEventListener('contextmenu', closeHandler);
+        };
+        document.addEventListener('click', closeHandler);
+        // document.addEventListener('contextmenu', closeHandler); // Don't block subsequent context menus
+    }, 0);
+}
+
+function removeContextMenu() {
+    const menu = document.getElementById('custom-context-menu');
+    if (menu) {
+        menu.remove();
     }
 }
 

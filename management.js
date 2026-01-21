@@ -1988,6 +1988,55 @@ window.viewLeaveApplication = function (requestId) {
     _('#print-leave-app-btn').addEventListener('click', () => window.print());
 };
 
+export async function registerManualLeave(employeeId, employeeName = null, defaultDate = null) {
+    if (!employeeId) {
+        alert('직원 정보를 찾을 수 없습니다.');
+        return;
+    }
+
+    // 이름이 없는 경우 찾기
+    let name = employeeName;
+    if (!name) {
+        const employee = state.management.employees.find(e => e.id == employeeId);
+        if (employee) name = employee.name;
+    }
+
+    // 날짜 입력 받기
+    const dateValue = defaultDate || dayjs().format('YYYY-MM-DD');
+    const inputDate = prompt(`[${name}] 직원의 연차를 수동으로 등록하시겠습니까?\n등록할 날짜를 입력해주세요(YYYY-MM-DD):`, dateValue);
+
+    if (inputDate === null) return;
+
+    // 날짜 유효성 검사
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
+        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD)');
+        return;
+    }
+
+    if (confirm(`${name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
+        try {
+            const { error } = await db.from('leave_requests').insert({
+                employee_id: employeeId,
+                employee_name: name,
+                dates: [inputDate],
+                reason: '관리자 수동 등록',
+                status: 'approved',
+                final_manager_id: state.currentUser.id,
+                final_manager_status: 'approved',
+                final_approved_at: new Date().toISOString()
+            });
+
+            if (error) throw error;
+
+            alert('수동 등록이 완료되었습니다.');
+            await window.loadAndRenderManagement();
+        } catch (err) {
+            console.error(err);
+            alert('등록 중 오류가 발생했습니다: ' + err.message);
+        }
+    }
+}
+
 async function handleLeaveBoxDblClick(e) {
     const box = e.target.closest('.leave-box');
     if (!box) return;
@@ -2018,40 +2067,8 @@ async function handleLeaveBoxDblClick(e) {
     const employee = state.management.employees.find(e => e.id == employeeId);
     if (!employee) return;
 
-    // 날짜 입력 받기
-    const defaultDate = dayjs().format('YYYY-MM-DD');
-    const inputDate = prompt(`[${employee.name}] 직원의 연차를 수동으로 등록하시겠습니까 ?\n등록할 날짜를 입력해주세요(YYYY - MM - DD): `, defaultDate);
-
-    if (inputDate === null) return;
-
-    // 날짜 유효성 검사
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
-        alert('올바른 날짜 형식이 아닙니다 (YYYY-MM-DD)');
-        return;
-    }
-
-    if (confirm(`${employee.name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까 ? `)) {
-        try {
-            const { error } = await db.from('leave_requests').insert({
-                employee_id: employee.id,
-                employee_name: employee.name,
-                dates: [inputDate],
-                reason: '관리자 수동 등록',
-                status: 'approved',
-                final_manager_id: state.currentUser.id,
-                final_manager_status: 'approved',
-                final_approved_at: new Date().toISOString()
-            });
-
-            if (error) throw error;
-
-            alert('수동 등록이 완료되었습니다.');
-            await window.loadAndRenderManagement();
-        } catch (err) {
-            console.error(err);
-            alert('등록 중 오류가 발생했습니다: ' + err.message);
-        }
-    }
+    // Reused function call
+    await registerManualLeave(employee.id, employee.name);
 }
 
 

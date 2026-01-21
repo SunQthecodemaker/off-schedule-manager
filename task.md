@@ -22,6 +22,7 @@
 - [x] **Save Logic**: Batch saving of schedule changes to Supabase.
 - [x] **Conflict Handling**: Visual feedback for existing schedules.
 - [x] **Sort Order Saving**: Ability to save the sidebar sort order.
+- [x] **Right-Click Leave Registration**: Context menu for quick leave registration.
 
 ### 3. Employee Portal
 - [x] **Authentication**: Separate login flows for Employees and Admins.

@@ -70,6 +70,20 @@
         <div id="admin-portal" class="page-section hidden"></div>
     </div>
 
+    <!-- ✨ Right-Click Context Menu -->
+    <div id="custom-context-menu"
+        class="hidden absolute z-50 bg-white border border-gray-200 shadow-lg rounded-md py-1 min-w-[120px]">
+        <button id="ctx-register-leave"
+            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
+            📅 연차 등록하기
+        </button>
+        <div class="border-t border-gray-100 my-1"></div>
+        <button id="ctx-close-menu"
+            class="w-full text-left px-4 py-2 text-sm text-gray-400 hover:bg-gray-50 flex items-center gap-2">
+            ❌ 닫기
+        </button>
+    </div>
+
     <div id="reorder-modal" class="modal-overlay hidden">
         <div class="modal-content-sm">
             <div class="flex justify-between items-center border-b pb-3 mb-4">
