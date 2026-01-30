@@ -71,6 +71,11 @@
     - [x] **Refine Logic**: Address temporary team matching logic in `schedule-generator.js`.
     - [x] **Integration**: Connect `ScheduleGenerator` to the UI.
     - [x] **Verification**: Compare Web-generated schedule with AppSheet/Excel results.
-- [ ] **Handover & Protocol**:
-    - [ ] **Handover Document**: Maintain `HANDOVER.md` (or equivalent) for multi-PC work.
-    - [ ] **Knowledge Update**: Ensure knowledge items reflect latest architecture.
+- [ ] **Phase 3: Verification & Handover**
+    - [x] **[Critical Fix]** Fix Drag & Drop for Hybrid Grid (SortableJS target issue)
+    - [x] **[Critical Fix]** Fix "Sheet Style" interactions (Delete key support)
+    - [x] **[Critical Fix]** Visual indication for Doctor Off-Days (Gray header)
+    - [x] Verify `ScheduleGenerator` logic implementation
+    - [ ] Browser verification of AppSheet buttons (Pending environment fix)
+    - [x] Update `ANTIGRAVITY_HANDOVER.md`
+    - [x] Finalize `walkthrough.md`
