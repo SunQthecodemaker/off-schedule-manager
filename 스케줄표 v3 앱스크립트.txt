@@ -1,0 +1,597 @@
+/**
+ * 치과 진료 스탭 자동 배치 시스템 (Final v43.2 - 휴무요일 표시 복구 & 5명 제한)
+ * * [v43.2 수정] '수정 반영' 시 주간 검수표에 '휴무 요일'이 누락되던 문제 해결
+ * * [기능] 원장 1인당 1일 최대 5명 제한 / 레이아웃 보호 / 검수표 2열 배치
+ */
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('🏥 근무표 관리')
+    .addItem('📅 근무표 생성 (초기화)', 'generateSchedule')
+    .addSeparator()
+    .addItem('🔄 수정 반영 (검수)', 'updateManualChanges')
+    .addSeparator()
+    .addItem('💾 스케줄 확정 (저장하기)', 'saveCurrentSchedule') 
+    .addToUi();
+}
+
+// --- [저장 기능] ---
+function saveCurrentSchedule() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetMain = ss.getSheetByName("Main");
+  
+  if (!sheetMain) return SpreadsheetApp.getUi().alert("Main 시트가 없습니다.");
+  
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const newName = `${dateStr}_확정본`;
+  
+  let finalName = newName;
+  let count = 1;
+  while (ss.getSheetByName(finalName)) {
+    finalName = `${newName}(${count})`;
+    count++;
+  }
+  
+  const newSheet = sheetMain.copyTo(ss);
+  newSheet.setName(finalName);
+  newSheet.setTabColor("#4CAF50");
+  
+  SpreadsheetApp.getUi().alert(`✅ 현재 스케줄이 [${finalName}] 시트로 안전하게 저장되었습니다.`);
+}
+
+
+// --- 1. 근무표 생성 ---
+function generateSchedule() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetData = ss.getSheetByName("Data");
+  const sheetMain = ss.getSheetByName("Main");
+  
+  if (!sheetData || !sheetMain) return SpreadsheetApp.getUi().alert("❌ 오류: 시트가 없습니다.");
+  
+  if (sheetMain.getMaxColumns() < 27) sheetMain.insertColumnsAfter(sheetMain.getMaxColumns(), 27 - sheetMain.getMaxColumns());
+  
+  const rawData = sheetData.getDataRange().getValues();
+  const config = parseData(rawData); 
+  const { startDate, endDate, valid } = getDateRange(config.settings.targetMonth);
+  
+  if (!valid) return SpreadsheetApp.getUi().alert("❌ 날짜 오류: Data 시트 설정을 확인하세요.");
+
+  const holidays = getHolidays(startDate, endDate);
+  renderWideGrid(sheetMain, startDate, endDate, config, holidays);
+  
+  SpreadsheetApp.getUi().alert("✅ 생성 완료! \n원장님 TO 및 인원 제한(5명)에 맞춰 배치했습니다.");
+}
+
+// --- 2. 수정 반영 (휴무요일 표시 복구) ---
+function updateManualChanges() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Main");
+  const sheetData = ss.getSheetByName("Data");
+  
+  if (!sheet || !sheetData) return SpreadsheetApp.getUi().alert("❌ 시트를 찾을 수 없습니다.");
+
+  SpreadsheetApp.flush();
+  Utilities.sleep(500); 
+  ss.toast("화면을 정리하고 숫자를 갱신 중입니다...", "🔄 검수 중", 5);
+
+  const config = parseData(sheetData.getDataRange().getValues());
+  const range = sheet.getDataRange();
+  const displayValues = range.getDisplayValues();
+  const backgrounds = range.getBackgrounds();
+  
+  let headerRows = [];
+  for (let r = 0; r < displayValues.length; r++) {
+    for (let c = 0; c < displayValues[r].length; c++) {
+      if (/\d+일\s*\(/.test(displayValues[r][c])) { 
+        headerRows.push(r);
+        break; 
+      }
+    }
+  }
+  
+  if (headerRows.length === 0) return SpreadsheetApp.getUi().alert("⚠️ 날짜를 찾지 못했습니다.");
+
+  const dayOrderMap = { "월": 1, "화": 2, "수": 3, "목": 4, "금": 5, "토": 6, "일": 7 };
+
+  for (let i = 0; i < headerRows.length; i++) {
+    let startRow = headerRows[i]; 
+    let endRow = (i < headerRows.length - 1) ? headerRows[i + 1] : displayValues.length; 
+    
+    let weekDays = [];
+    let holidayCount = 0; 
+
+    for (let c = 0; c < displayValues[startRow].length; c++) {
+      let txt = displayValues[startRow][c];
+      let match = txt.match(/\((.)\)/);
+      if (match) {
+         let dayChar = match[1];
+         let isHoliday = txt.includes("휴일") || txt.includes("설날") || txt.includes("추석") || backgrounds[startRow][c] == "#f4cccc" || backgrounds[startRow][c] == "#FFCDD2";
+         
+         weekDays.push({ day: dayChar, col: c, isHoliday: isHoliday });
+         
+         if (isHoliday && dayChar !== "일") holidayCount++;
+      }
+    }
+
+    let weeklyWorkLog = {};
+    config.staffs.forEach(s => weeklyWorkLog[s.name] = new Set());
+    
+    let statsRowIndex = -1;
+
+    // --- [A] 일일 통계 갱신 ---
+    for (let r = startRow + 1; r < endRow; r++) {
+       let isStatsRow = false;
+       for (let dObj of weekDays) {
+          let checkTxt = displayValues[r][dObj.col];
+          if (checkTxt.includes("총") || checkTxt.includes("OK") || checkTxt.includes("부족") || checkTxt.includes("여유") || checkTxt.includes("적정")) {
+             isStatsRow = true;
+             statsRowIndex = r; 
+             break;
+          }
+       }
+       if (!isStatsRow) continue; 
+
+       for (let dObj of weekDays) {
+          let col = dObj.col;
+          let dayTO = 0;
+          let staffCount = 0;
+          let dailyStaffNames = new Set(); 
+          
+          for (let scanR = r - 1; scanR > startRow; scanR--) {
+             for (let k = 0; k < 4; k++) {
+                if (col + k >= displayValues[scanR].length) continue;
+                
+                let rawVal = displayValues[scanR][col + k];
+                let val = rawVal.replace(/\s+/g, "").replace(/\u00A0/g, "").trim(); 
+                
+                if (val === "") continue;
+                
+                let isOff = val.includes("(휴)") || val.toLowerCase().endsWith("x");
+                
+                if (val.includes("원장")) {
+                   if (!isOff) {
+                      let pureName = val.replace(/[\(\)휴x]/g, "");
+                      let docObj = config.doctors.find(d => isSameName(d.name, pureName));
+                      if (docObj) dayTO += Number(docObj.to);
+                   }
+                } else {
+                   if (!isOff) {
+                      let sName = val.split("(")[0].trim();
+                      if (dailyStaffNames.has(sName)) {
+                          const cell = sheet.getRange(scanR + 1, col + k + 1);
+                          cell.setValue(`${sName}(중복)`).setFontColor("red").setFontWeight("bold");
+                      } else {
+                          staffCount++;
+                          dailyStaffNames.add(sName);
+                          if (!weeklyWorkLog[sName]) weeklyWorkLog[sName] = new Set();
+                          weeklyWorkLog[sName].add(dObj.day);
+                      }
+                   }
+                }
+             }
+          } 
+          
+          let diff = staffCount - dayTO;
+          let diffFixed = Math.abs(diff).toFixed(1);
+          let resultText = "";
+          let color = "black";
+          let weight = "normal";
+          
+          if (diff < -0.1) {
+             resultText = `⚠️ 총 ${diffFixed}명 부족`;
+             color = "#D32F2F"; weight = "bold";
+          } else if (diff > 0.1) {
+             resultText = `🟢 총 ${diffFixed}명 여유`;
+             color = "#388E3C"; weight = "normal";
+          } else {
+             resultText = `🟢 총 0.0명 적정`; 
+             color = "#388E3C"; weight = "normal";
+          }
+          
+          let oldText = displayValues[r][col];
+          let oldNumMatch = oldText.match(/([\d\.]+)/g);
+          let lastNum = oldNumMatch ? parseFloat(oldNumMatch[oldNumMatch.length-1]) : null;
+          
+          let lastStatus = 0; 
+          if (oldText.includes("부족")) lastStatus = -1;
+          else if (oldText.includes("여유")) lastStatus = 1;
+          else if (oldText.includes("OK") || oldText.includes("적정")) lastStatus = 0;
+          
+          if (lastNum === null && (oldText.includes("OK") || oldText.includes("적정"))) lastNum = 0.0;
+
+          let isChanged = false;
+          if (lastNum !== null) {
+             let oldVal = lastStatus * lastNum;
+             if (Math.abs(oldVal - diff) > 0.1) isChanged = true;
+          }
+          
+          if (isChanged && lastNum !== null) {
+             let statusText = (lastStatus === -1) ? "부족" : (lastStatus === 1 ? "여유" : "적정");
+             let oldDisplay = `${lastNum} ${statusText}`;
+             let newStatusText = (diff < -0.1) ? "부족" : (diff > 0.1 ? "여유" : "적정");
+             let newDisplay = `${diffFixed} ${newStatusText}`;
+             if (diff === 0) newDisplay = "0.0 적정";
+             if (lastNum === 0) oldDisplay = "0.0 적정";
+
+             resultText = `${oldDisplay} ➔ ${newDisplay}`;
+             resultText = (diff < 0 ? "⚠️ " : (diff > 0 ? "🟢 " : (diff === 0 ? "🟢 " : ""))) + resultText;
+          }
+          
+          const targetRange = sheet.getRange(r + 1, col + 1);
+          targetRange.setValue(resultText).setFontColor(color).setFontWeight(weight).setHorizontalAlignment("center");
+       }
+    }
+    
+    // --- [B] 주간 검수표 갱신 (휴무요일 포함) ---
+    let zCol = 25; 
+    if (displayValues[startRow].length > 25) zCol = 25;
+    else zCol = displayValues[startRow].length - 1;
+    
+    let targetWorkDays = (holidayCount >= 2) ? (6 - holidayCount) : 5;
+    let summary = `[주간 검수]\n목표: ${targetWorkDays}일\n`;
+    
+    let staffStats = [];
+    let names = Object.keys(weeklyWorkLog);
+    
+    names.forEach(name => {
+       let workedSet = weeklyWorkLog[name];
+       let cnt = workedSet.size;
+       
+       let absentDays = [];
+       weekDays.forEach(wd => {
+          if (!wd.isHoliday && wd.day !== "일") {
+             if (!workedSet.has(wd.day)) absentDays.push(wd.day);
+          }
+       });
+       let uniqueAbsent = [...new Set(absentDays)].sort((a,b) => (dayOrderMap[a] || 9) - (dayOrderMap[b] || 9));
+
+       let isRegular = config.staffs.some(s => s.name === name);
+       if (cnt > 0 || isRegular) {
+          staffStats.push({
+             name: name,
+             count: cnt,
+             absent: uniqueAbsent,
+             firstAbsentVal: uniqueAbsent.length > 0 ? dayOrderMap[uniqueAbsent[0]] : 99 
+          });
+       }
+    });
+
+    staffStats.sort((a, b) => {
+       if (a.firstAbsentVal !== b.firstAbsentVal) return a.firstAbsentVal - b.firstAbsentVal;
+       return a.name.localeCompare(b.name);
+    });
+
+    // 2열 표기 생성 (휴무요일 추가)
+    let lines = [];
+    for (let k = 0; k < staffStats.length; k += 2) {
+       let items = [];
+       
+       // 왼쪽 직원
+       let s1 = staffStats[k];
+       let diff1 = s1.count - targetWorkDays;
+       let note1 = (diff1 === 0) ? "" : (diff1 < 0 ? `(${diff1})` : `(+${diff1})`);
+       let off1 = (s1.absent.length > 0) ? `(${s1.absent.join(",")})` : "";
+       items.push(`${s1.name}: ${s1.count}${off1} ${note1}`.trim());
+       
+       // 오른쪽 직원
+       if (k + 1 < staffStats.length) {
+          let s2 = staffStats[k+1];
+          let diff2 = s2.count - targetWorkDays;
+          let note2 = (diff2 === 0) ? "" : (diff2 < 0 ? `(${diff2})` : `(+${diff2})`);
+          let off2 = (s2.absent.length > 0) ? `(${s2.absent.join(",")})` : "";
+          items.push(`${s2.name}: ${s2.count}${off2} ${note2}`.trim());
+       }
+       
+       lines.push(items.join("  |  "));
+    }
+    
+    summary += lines.join("\n");
+    
+    sheet.getRange(startRow + 1, zCol + 1)
+         .setValue(summary)
+         .setVerticalAlignment("top")
+         .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP); 
+  }
+
+  ss.toast("휴무 요일이 다시 표시됩니다!", "✅ 완료", 3);
+}
+
+
+// --- 3. 유틸리티 및 계산 로직 ---
+function renderWideGrid(sheet, startDate, endDate, config, holidays) {
+  sheet.clear();
+  sheet.setColumnWidth(1, 20); 
+  for (let c = 2; c <= 25; c++) sheet.setColumnWidth(c, 70); 
+  sheet.setColumnWidth(26, 170); 
+  sheet.setColumnWidth(27, 150); 
+  sheet.getRange("A:Z").setVerticalAlignment("middle").setHorizontalAlignment("center");
+  
+  let currentDate = new Date(startDate);
+  let currentRow = 2;
+  
+  let weeklyCounts = {};
+  let weeklyOffLogs = {}; 
+  config.staffs.forEach(s => { weeklyCounts[s.name] = 0; weeklyOffLogs[s.name] = []; });
+  
+  let holidayCountInWeek = 0;
+  let weeklyRotationOffs = {}; 
+  let weekWorkingDaysCount = 0; 
+
+  while (currentDate <= endDate) {
+    const jsDay = currentDate.getDay(); 
+    if (jsDay === 0) { currentDate.setDate(currentDate.getDate() + 1); continue; } 
+    
+    if (jsDay === 1) {
+      config.staffs.forEach(s => { weeklyCounts[s.name] = 0; weeklyOffLogs[s.name] = []; });
+      holidayCountInWeek = 0;
+      if (currentRow > 2) currentRow += 1; 
+      
+      let tempDate = new Date(currentDate);
+      for(let i=0; i<6; i++) {
+         if (holidays.includes(formatDate(tempDate))) holidayCountInWeek++;
+         tempDate.setDate(tempDate.getDate()+1);
+      }
+      weekWorkingDaysCount = 6 - holidayCountInWeek;
+      weeklyRotationOffs = planWeeklyRotation(currentDate, config, holidays);
+    }
+    
+    const dateStr = formatDate(currentDate);
+    const isHoliday = holidays.includes(dateStr);
+    const dayName = getDayName(jsDay);
+
+    const dailyResult = calculateAllocation(currentDate, config, holidays, weeklyCounts, weeklyRotationOffs, holidayCountInWeek);
+    
+    if (!isHoliday) { 
+       let workingNames = new Set(Object.values(dailyResult.allocation).flat().map(s => s.name));
+       config.staffs.forEach(s => {
+         if (!workingNames.has(s.name)) weeklyOffLogs[s.name].push(dayName);
+       });
+    }
+    
+    const startCol = (jsDay - 1) * 4 + 2;
+    const dateRange = sheet.getRange(currentRow, startCol, 1, 4);
+    let dateText = `${currentDate.getDate()}일 (${dayName})`;
+    if (isHoliday) dateText += " - 휴일";
+    dateRange.merge().setValue(dateText).setFontWeight("bold").setBorder(true, true, true, true, false, false);
+    dateRange.setBackground(isHoliday ? "#FFCDD2" : "#E3F2FD");
+    
+    const doctors = config.doctors; 
+    let maxStaffCount = 0;
+    
+    doctors.forEach((doc, idx) => {
+      const col = startCol + idx;
+      const docCell = sheet.getRange(currentRow + 1, col);
+      const docInfo = dailyResult.doctors.find(d => d.name === doc.name);
+      
+      let docNameText = doc.name;
+      if (!docInfo.isWorking) docNameText += "(휴)";
+      
+      docCell.setValue(docNameText).setFontWeight("bold").setBorder(true, true, true, true, false, false);
+      
+      if (!docInfo.isWorking) {
+        docCell.setBackground("#E0E0E0").setFontColor("#999999");
+      } else {
+        const colors = ["#E8F5E9", "#E3F2FD", "#FFF3E0", "#F3E5F5"];
+        docCell.setBackground(colors[idx] || "#FFFFFF");
+      }
+      
+      const assignedStaffs = dailyResult.allocation[doc.name] || [];
+      if (assignedStaffs.length > maxStaffCount) maxStaffCount = assignedStaffs.length;
+      
+      assignedStaffs.forEach((staff, sIdx) => {
+        sheet.getRange(currentRow + 2 + sIdx, col).setValue(staff.name).setBorder(true, true, true, true, false, false);
+        weeklyCounts[staff.name] += 1;
+      });
+    });
+    
+    const footerRow = currentRow + 2 + Math.max(5, maxStaffCount);
+    const footerRange = sheet.getRange(footerRow, startCol, 1, 4);
+    footerRange.merge();
+    
+    let totalTo = 0, totalAssigned = 0;
+    dailyResult.doctors.forEach(d => { if (d.isWorking) totalTo += Number(d.to); });
+    Object.values(dailyResult.allocation).forEach(arr => totalAssigned += arr.length);
+    
+    const diff = totalAssigned - totalTo;
+    const diffFixed = Math.abs(diff).toFixed(1);
+    
+    if (!isHoliday) {
+      if (diff < -0.1) footerRange.setValue(`⚠️ 총 ${diffFixed}명 부족`).setFontColor("#D32F2F").setFontWeight("bold");
+      else if (diff > 0.1) footerRange.setValue(`🟢 총 ${diffFixed}명 여유`).setFontColor("#388E3C");
+      else footerRange.setValue(`🟢 총 0.0명 적정`).setFontColor("#388E3C");
+    }
+    footerRange.setBorder(true, true, true, true, false, false);
+
+    if (jsDay === 6) {
+       let targetDays = weekWorkingDaysCount;
+       printWeeklyStatsWithOffDays(sheet, currentRow, 26, weeklyCounts, weeklyOffLogs, targetDays);
+       currentRow = footerRow + 2; 
+    }
+    
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+}
+
+function printWeeklyStatsWithOffDays(sheet, row, col, counts, offLogs, target) {
+  let text = `[주간 검수]\n목표: ${target}일\n`;
+  for (let [name, cnt] of Object.entries(counts)) {
+    let diff = target - cnt;
+    let offText = "";
+    if (offLogs[name] && offLogs[name].length > 0) offText = ` (${offLogs[name].join(",")})`;
+    text += `${name}: ${cnt}${offText}\n`;
+  }
+  const cell = sheet.getRange(row, col, 8, 1);
+  cell.merge().setValue(text).setVerticalAlignment("top").setHorizontalAlignment("left").setBackground("#FFFDE7").setBorder(true, true, true, true, false, false);
+}
+
+function planWeeklyRotation(mondayDate, config, holidays) {
+  let strategy = {}; 
+  let hasHoliday = false;
+  for (let i = 0; i < 6; i++) {
+    let d = new Date(mondayDate); d.setDate(mondayDate.getDate() + i);
+    if (holidays.includes(formatDate(d))) { hasHoliday = true; break; }
+  }
+  
+  if (hasHoliday) return strategy; 
+
+  let workingDays = [];
+  for (let i = 0; i < 6; i++) {
+     let d = new Date(mondayDate); d.setDate(mondayDate.getDate() + i);
+     workingDays.push({ date: d, dayName: getDayName(d.getDay()) });
+  }
+  
+  let surplusScores = [];
+  for (let wd of workingDays) {
+    let dayTO = 0;
+    let weekNum = getWeekNumber(wd.date);
+    config.doctors.forEach(doc => { if (!checkDoctorOff(doc.offRule, wd.dayName, weekNum)) dayTO += Number(doc.to); });
+    
+    let availStaff = config.staffs.filter(s => !s.offDay.includes(wd.dayName)).length;
+    surplusScores.push({ day: wd.dayName, score: availStaff - dayTO });
+  }
+  
+  surplusScores.sort((a, b) => b.score - a.score);
+  
+  let freeStaffs = config.staffs.filter(s => (s.offDay === "-" || s.offDay === ""));
+  
+  let dayIdx = 0;
+  for (let staff of freeStaffs) {
+    if (surplusScores.length === 0) break;
+    if (dayIdx >= surplusScores.length) dayIdx = 0;
+    
+    if (surplusScores[dayIdx].score < 0) {
+        dayIdx++; 
+        continue; 
+    }
+
+    strategy[staff.name] = surplusScores[dayIdx].day;
+    surplusScores[dayIdx].score -= 1; 
+    dayIdx++;
+  }
+  return strategy;
+}
+
+function calculateAllocation(date, config, holidays, weeklyCounts, rotationOffs, holidayCountInWeek) {
+  const MAX_PER_DOC = 5; 
+
+  const dateStr = formatDate(date);
+  const isHoliday = holidays.includes(dateStr);
+  const dayName = getDayName(date.getDay());
+  const weekNum = getWeekNumber(date);
+  
+  let allocation = {}; 
+  let doctorStatus = [];
+  let availableStaff = [];
+  let pool = [];
+
+  config.doctors.forEach(doc => {
+    let isWorking = true;
+    let isRegularOff = checkDoctorOff(doc.offRule, dayName, weekNum);
+    if (isRegularOff) {
+      if (holidayCountInWeek > 0 && (doc.name === "박원장" || doc.name === "류원장")) isWorking = true; 
+      else isWorking = false; 
+    }
+    if (isHoliday) isWorking = false; 
+    doctorStatus.push({ name: doc.name, isWorking: isWorking, to: doc.to });
+    allocation[doc.name] = [];
+  });
+
+  config.staffs.forEach(staff => {
+    let isAvailable = true;
+    if (holidayCountInWeek > 0) { } 
+    else {
+       if (staff.offDay.includes(dayName)) isAvailable = false;
+       if (rotationOffs[staff.name] === dayName) isAvailable = false;
+    }
+    if (weeklyCounts[staff.name] >= config.settings.workLimit) isAvailable = false; 
+    if (isHoliday) isAvailable = false;
+    if (isAvailable) availableStaff.push(staff);
+  });
+
+  availableStaff.forEach(staff => {
+    const t1 = doctorStatus.find(d => isSameName(d.name, staff.team1));
+    const t2 = doctorStatus.find(d => isSameName(d.name, staff.team2));
+    
+    if (t1 && t1.isWorking && allocation[t1.name].length < MAX_PER_DOC) { 
+        allocation[t1.name].push(staff); 
+        staff.lastAssignedTeam = t1.name; 
+    }
+    else if (t2 && t2.isWorking && allocation[t2.name].length < MAX_PER_DOC) { 
+        allocation[t2.name].push(staff); 
+        staff.lastAssignedTeam = t2.name; 
+    }
+    else { 
+        pool.push(staff); 
+    }
+  });
+
+  let workingTeams = doctorStatus.filter(d => d.isWorking);
+  if (workingTeams.length > 0 && pool.length > 0) {
+    pool.forEach(staff => {
+      let candidates = workingTeams.filter(t => allocation[t.name].length < MAX_PER_DOC);
+      
+      if (candidates.length > 0) {
+         candidates.forEach(t => t.gap = allocation[t.name].length - t.to); 
+         candidates.sort((a, b) => {
+           if (Math.abs(a.gap - b.gap) > 0.5) return a.gap - b.gap;
+           const aFav = (a.name === staff.lastAssignedTeam) ? -1 : 1;
+           const bFav = (b.name === staff.lastAssignedTeam) ? -1 : 1;
+           return aFav - bFav;
+         });
+         allocation[candidates[0].name].push(staff);
+         staff.lastAssignedTeam = candidates[0].name;
+      }
+    });
+  }
+  return { doctors: doctorStatus, allocation: allocation, isHoliday: isHoliday };
+}
+
+function isSameName(n1, n2) {
+  if (!n1 || !n2) return false;
+  return String(n1).replace(/\s+/g, "") === String(n2).replace(/\s+/g, "");
+}
+
+function parseData(rawData) {
+  let doctors = [], staffs = [], settings = { workLimit: 5, targetMonth: "" };
+  if (rawData.length < 2) return { doctors, staffs, settings };
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    if (!row[0]) continue;
+    const type = String(row[0]).trim();
+    
+    let canSub = true;
+    if (row.length > 7 && String(row[7]).toUpperCase().trim() === "X") canSub = false;
+
+    if (type === "원장") doctors.push({ name: row[1], to: row[6], offRule: String(row[5]), canSubstitute: canSub });
+    else if (type === "직원") staffs.push({ name: row[1], team1: row[3]==="-"?null:row[3], team2: row[4]==="-"?null:row[4], offDay: String(row[5]), canSubstitute: canSub });
+    else if (type === "설정") {
+      if (String(row[1]).trim() === "주간근무한도") settings.workLimit = Number(row[2]);
+      if (String(row[1]).trim() === "년월") settings.targetMonth = row[2];
+    }
+  }
+  return { doctors, staffs, settings };
+}
+
+function getHolidays(start, end) { try { return CalendarApp.getCalendarById('ko.south_korea#holiday@group.v.calendar.google.com').getEvents(start, end).map(e => formatDate(e.getStartTime())); } catch (e) { return []; } }
+function checkDoctorOff(rule, dayName, weekNum) {
+  if (!rule || rule === "-") return false;
+  const conditions = rule.split(",");
+  for (let c of conditions) {
+    c = c.trim();
+    if (c === dayName) return true;
+    if (c.includes("-")) { const [w, d] = c.split("-"); if (weekNum === parseInt(w.replace("주","")) && dayName === d) return true; }
+  }
+  return false;
+}
+function getWeekNumber(date) { const first = new Date(date.getFullYear(), date.getMonth(), 1); return Math.ceil((date.getDate() + first.getDay()) / 7); }
+function getDayName(i) { return ["일","월","화","수","목","금","토"][i]; }
+function formatDate(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function getDateRange(ym) {
+  let year, month;
+  if (ym instanceof Date) { year = ym.getFullYear(); month = ym.getMonth() + 1; } 
+  else {
+    try { const parts = String(ym).trim().replace(/[.\/ ]/g, "-").split("-"); year = parseInt(parts[0]); month = parseInt(parts[1]); } catch (e) { return { valid: false }; }
+  }
+  if (!year || !month) return { valid: false };
+  return { startDate: new Date(year, month - 1, 1), endDate: new Date(year, month, 0), valid: true };
+}

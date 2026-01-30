@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>연차 및 스케줄 관리 시스템</title>
+    <script>
+        // ✨ Force Unregister Service Workers to clear cache issues
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                for (let registration of registrations) {
+                    console.log('Unregistering Service Worker:', registration);
+                    registration.unregister();
+                }
+            });
+        }
+
+        window.onerror = function (message, source, lineno, colno, error) {
+            alert('시스템 오류 발생:\n' + message + '\n' + source + ':' + lineno);
+        };
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css?v=20251022-mobile" />
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/isSameOrAfter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/isSameOrBefore.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen p-4">
+
+    <div id="app">
+        <div id="login-screen" class="page-section flex flex-col items-center justify-center min-h-screen">
+            <div class="max-w-xl w-full bg-white rounded shadow p-6 text-center">
+                <h1 class="text-3xl font-bold mb-6">연차 및 스케줄 관리 시스템</h1>
+                <div id="login-forms-container">
+                    <div id="employeeLoginContainer" class="space-y-4">
+                        <h2 class="text-xl font-semibold">직원 로그인</h2>
+                        <form id="employeeLoginForm" class="space-y-3">
+                            <input type="text" id="empLoginName" placeholder="직원 이름" class="w-full border p-3 rounded"
+                                required />
+                            <input type="password" id="empLoginPass" placeholder="비밀번호"
+                                class="w-full border p-3 rounded" required />
+                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded">로그인</button>
+                        </form>
+                        <button type="button" id="goToOwnerLoginBtn" class="text-blue-600 underline">관리자 로그인</button>
+                    </div>
+                    <div id="ownerLoginContainer" class="hidden space-y-4">
+                        <h2 class="text-xl font-semibold">관리자 로그인</h2>
+                        <form id="adminLoginForm" class="space-y-3">
+                            <input type="email" id="adminLoginId" placeholder="관리자 이메일"
+                                class="w-full border p-3 rounded" required />
+                            <input type="password" id="adminLoginPass" placeholder="비밀번호"
+                                class="w-full border p-3 rounded" required />
+                            <button type="submit" class="w-full bg-green-600 text-white py-2 rounded">로그인</button>
+                        </form>
+                        <button type="button" id="goToEmployeeLoginBtn" class="text-blue-600 underline">직원
+                            로그인으로</button>
+                    </div>
+                </div>
+                <div id="password-reset-container" class="hidden space-y-4">
+                    <h2 class="text-xl font-semibold">새 비밀번호 설정</h2>
+                    <p class="text-sm text-gray-600">새롭게 사용할 비밀번호를 입력해주세요.</p>
+                    <form id="passwordResetForm" class="space-y-3">
+                        <input type="password" id="newPassword" placeholder="새 비밀번호 (6자리 이상)"
+                            class="w-full border p-3 rounded" required />
+                        <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded">비밀번호 변경하기</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="employee-portal" class="page-section hidden"></div>
+        <div id="admin-portal" class="page-section hidden"></div>
+    </div>
+
+    <!-- ✨ Right-Click Context Menu -->
+    <div id="custom-context-menu-v2"
+        class="hidden absolute bg-white shadow-lg rounded-lg border border-gray-200 py-1 z-50 text-sm min-w-[150px]">
+        <div id="ctx-register-leave-v2"
+            class="px-4 py-2 hover:bg-blue-50 cursor-pointer text-gray-700 font-medium transition-colors hover:text-blue-600">
+            🏖️ 연차 등록하기
+        </div>
+        <div id="ctx-cancel-leave-v2"
+            class="hidden px-4 py-2 hover:bg-red-50 cursor-pointer text-gray-700 font-medium transition-colors hover:text-red-600">
+            🗑️ 연차 취소하기
+        </div>
+        <div class="border-t border-gray-100 my-1"></div>
+        <div id="ctx-close-menu" class="px-4 py-2 hover:bg-gray-50 cursor-pointer text-gray-500">
+            닫기
+        </div>
+    </div>
+
+    <div id="reorder-modal" class="modal-overlay hidden">
+        <div class="modal-content-sm">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 id="reorder-modal-title" class="text-2xl font-bold">근무 순서 변경</h2>
+                <button id="close-reorder-modal-btn" class="text-3xl">&times;</button>
+            </div>
+            <div id="reorder-list" class="space-y-2 mb-4 min-h-[100px] max-h-[400px] overflow-y-auto">
+            </div>
+            <div class="flex justify-end space-x-3 pt-4 border-t">
+                <button type="button" id="cancel-reorder-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                <button type="button" id="save-reorder-btn" class="px-4 py-2 bg-blue-600 text-white rounded">순서
+                    저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="leave-form-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 class="text-2xl font-bold">연차 신청서</h2>
+                <button id="close-modal-btn" class="text-3xl">&times;</button>
+            </div>
+            <div>
+                <div class="space-y-4">
+                    <div>
+                        <label class="font-semibold">신청자</label>
+                        <p id="form-applicant-name" class="mt-1 p-2 bg-gray-100 rounded"></p>
+                    </div>
+                    <div>
+                        <label class="font-semibold">신청 날짜</label>
+                        <div id="form-selected-dates" class="mt-1 p-2 bg-gray-100 rounded min-h-[40px]"></div>
+                    </div>
+                    <div>
+                        <label for="form-reason" class="font-semibold">사유 (선택)</label>
+                        <textarea id="form-reason" rows="3" class="w-full mt-1 p-2 border rounded"></textarea>
+                    </div>
+
+                    <!-- 당겨쓰기 동의 섹션 (숨김 처리) -->
+                    <div id="borrowing-agreement-section"
+                        class="hidden bg-red-50 border border-red-200 rounded p-3 text-red-700 space-y-2">
+                        <div class="font-bold flex items-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                                </path>
+                            </svg>
+                            연차 당겨쓰기 경고
+                        </div>
+                        <p class="text-sm">
+                            현재 잔여 연차가 부족하여 <span id="borrowing-amount" class="font-bold"></span>일을 내년 연차에서 당겨 사용해야 합니다.
+                        </p>
+                        <div class="flex items-start items-center gap-2 mt-2">
+                            <input type="checkbox" id="borrowing-agreement-check" class="mt-1 w-4 h-4">
+                            <label for="borrowing-agreement-check" class="text-xs font-semibold">
+                                본인은 내년도 발생할 연차를 미리 사용하는 것에 동의하며,<br>
+                                추후 발생 연차에서 차감되거나 퇴직 시 정산됨을 확인합니다.
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center">
+                            <label class="font-semibold">서명</label>
+                            <button type="button" id="clear-signature-btn" class="text-sm text-blue-600">다시
+                                서명하기</button>
+                        </div>
+                        <canvas id="signature-canvas" class="signature-canvas mt-1 w-full h-32 border"></canvas>
+                    </div>
+                    <div class="flex justify-end space-x-3 pt-4 border-t">
+                        <button type="button" id="cancel-submission-btn"
+                            class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                        <button type="button" id="submit-leave-form-btn"
+                            class="px-4 py-2 bg-blue-600 text-white rounded">최종 제출</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="preview-modal" class="modal-overlay hidden">
+        <div class="modal-content-lg">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 id="preview-modal-title" class="text-2xl font-bold">서식 미리보기</h2>
+                <button id="close-preview-modal-btn" class="text-3xl">&times;</button>
+            </div>
+            <div id="preview-modal-body" class="document-preview-body bg-gray-100 p-8"></div>
+        </div>
+    </div>
+
+    <div id="document-submission-modal" class="modal-overlay hidden">
+        <div class="modal-content-lg">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 id="submission-modal-title" class="text-2xl font-bold">서류 작성</h2>
+                <button id="close-submission-modal-btn" class="text-3xl">&times;</button>
+            </div>
+            <div id="submission-modal-body" class="document-preview-body bg-white p-8"></div>
+            <div class="flex justify-end space-x-3 pt-4 mt-4 border-t">
+                <button type="button" id="cancel-doc-submission-btn" class="px-6 py-2 bg-gray-300 rounded">취소</button>
+                <button type="button" id="submit-doc-submission-btn"
+                    class="px-6 py-2 bg-blue-600 text-white rounded">제출하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="issue-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 class="text-2xl font-bold">서류 제출 요청</h2>
+                <button id="close-issue-modal-btn" class="text-3xl">&times;</button>
+            </div>
+            <form id="issue-form">
+                <input type="hidden" id="issue-employee-id">
+                <div class="space-y-4">
+                    <div>
+                        <label class="font-semibold">대상 직원</label>
+                        <p id="issue-employee-name" class="mt-1 p-2 bg-gray-100 rounded"></p>
+                    </div>
+                    <div>
+                        <label for="issue-type" class="font-semibold">이슈 유형</label>
+                        <select id="issue-type" class="w-full mt-1 p-2 border rounded" required>
+                            <option value="document_request">특정 서류 제출 요청</option>
+                            <option value="unauthorized_absence">무단결근 처리</option>
+                            <option value="sick_leave">병가 처리</option>
+                            <option value="other">기타</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="issue-details" class="font-semibold">상세 내용</label>
+                        <textarea id="issue-details" rows="3" class="w-full mt-1 p-2 border rounded"
+                            placeholder="직원에게 전달될 내용을 입력하세요. (예: 9/17 무단결근으로 인한 경위서 제출 요청)"></textarea>
+                    </div>
+                    <div>
+                        <label for="issue-required-doc" class="font-semibold">요청할 서류 (선택)</label>
+                        <select id="issue-required-doc" class="w-full mt-1 p-2 border rounded">
+                            <option value="">-- 서류를 선택하세요 --</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end space-x-3 pt-4 border-t">
+                        <button type="button" id="cancel-issue-btn" class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                        <button type="submit"
+                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">요청 생성</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="bulk-register-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 class="text-2xl font-bold">직원 대량 등록</h2>
+                <button id="close-bulk-modal-btn" class="text-3xl">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="font-semibold block mb-2">엑셀, 시트 등에서 복사한 데이터를 아래에 붙여넣으세요.</label>
+                    <p class="text-sm text-gray-600 mb-2">
+                        - 한 줄에 한 명씩 입력해주세요.<br>
+                        - 각 항목은 탭(Tab)으로 구분되어야 합니다.<br>
+                        - 순서: <span class="font-mono text-blue-600">이름 (Tab) 입사일(YYYY-MM-DD) (Tab) 이메일 (Tab) 초기비밀번호
+                            (Tab) 부서명</span>
+                    </p>
+                    <textarea id="bulk-employee-data" rows="10" class="w-full mt-1 p-2 border rounded font-mono text-sm"
+                        placeholder="예시)&#10;홍길동	2025-01-15	hong@example.com	123456	진료팀&#10;이순신	2024-03-01	lee@example.com	123456	데스크팀"></textarea>
+                </div>
+                <div id="bulk-register-result"
+                    class="text-sm p-2 bg-gray-100 rounded min-h-[80px] whitespace-pre-wrap overflow-y-auto"></div>
+                <div class="flex justify-end space-x-3 pt-4 border-t">
+                    <button type="button" id="cancel-bulk-submission-btn"
+                        class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                    <button type="button" id="submit-bulk-register-btn"
+                        class="px-4 py-2 bg-blue-600 text-white rounded">등록하기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        @media print {
+            .fc-event-main-custom {
+                font-size: 6pt !important;
+            }
+
+            .custom-event-name {
+                font-size: 5pt !important;
+                font-weight: 600 !important;
+            }
+        }
+
+        .employee-tab-btn {
+            transition: all 0.2s ease;
+        }
+
+        .employee-tab-btn:hover {
+            background-color: #f3f4f6;
+        }
+    </style>
+
+    <script type="module" src="main.v2.js"></script>
+    <script type="module" src="schedule.js?v=2.2"></script>
+    <script type="module" src="management.js?v=2.2"></script>
+    <script type="module" src="employee-portal-final.js?v=2.2"></script>
+    <script type="module">
+        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 연차 신청 모달 관련
+            document.getElementById('close-modal-btn')?.addEventListener('click', closeLeaveFormModal);
+            document.getElementById('cancel-submission-btn')?.addEventListener('click', closeLeaveFormModal);
+            document.getElementById('submit-leave-form-btn')?.addEventListener('click', handleSubmitLeaveRequest);
+
+            document.getElementById('clear-signature-btn')?.addEventListener('click', () => {
+                if (window.signaturePad) {
+                    window.signaturePad.clear();
+                }
+            });
+
+            // 이슈 모달 관련
+            document.getElementById('close-issue-modal-btn')?.addEventListener('click', () => {
+                document.getElementById('issue-modal').classList.add('hidden');
+            });
+
+            document.getElementById('cancel-issue-btn')?.addEventListener('click', () => {
+                document.getElementById('issue-modal').classList.add('hidden');
+            });
+
+            document.getElementById('issue-form')?.addEventListener('submit', window.handleIssueSubmit);
+        });
+    </script>
+</body>
+
+</html>

@@ -61,3 +61,16 @@
 - **2025-12-11**: Implemented "Confirm Schedule" button & Mobile view improvements.
 - **2025-12-08**: Added "Retire" button and Password Reset functionality.
 - **2026-01-21**: Implemented Right-Click Context Menu for Leave Registration/Cancellation. Fixed persistent Service Worker caching issue and removed duplicate legacy code causing "Ghost Menu".
+
+## 🚀 Phase 2: Hybrid Schedule & Integration
+- [ ] **AppSheet Integration**:
+    - [x] **Data Sync (Web -> AppSheet)**: Send employees and approved leaves (Implemented UI & Logic).
+    - [x] **Schedule Import (AppSheet -> Web)**: Import confirmed schedules (Implemented UI & Logic).
+    - [ ] **GAS Script**: Verify `doPost` and `doGet` handlers in Google Sheets.
+- [x] **Schedule Generator (Web Logic)**:
+    - [x] **Refine Logic**: Address temporary team matching logic in `schedule-generator.js`.
+    - [x] **Integration**: Connect `ScheduleGenerator` to the UI.
+    - [x] **Verification**: Compare Web-generated schedule with AppSheet/Excel results.
+- [ ] **Handover & Protocol**:
+    - [ ] **Handover Document**: Maintain `HANDOVER.md` (or equivalent) for multi-PC work.
+    - [ ] **Knowledge Update**: Ensure knowledge items reflect latest architecture.
