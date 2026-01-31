@@ -71,7 +71,9 @@
     - [x] **Refine Logic**: Address temporary team matching logic in `schedule-generator.js`.
     - [x] **Integration**: Connect `ScheduleGenerator` to the UI.
     - [x] **Verification**: Compare Web-generated schedule with AppSheet/Excel results.
-- [ ] **Phase 3: Verification & Handover**
+- [x] **Phase 3: Verification & Handover**
+    - [x] **[Pivot]** Revert to Flow Layout (Responsive UI)
+    - [x] **[Smart Import]** Prioritize Local Leave Data over Import
     - [x] **[Critical Fix]** Fix Drag & Drop for Hybrid Grid (SortableJS target issue)
     - [x] **[Critical Fix]** Fix "Sheet Style" interactions (Delete key support)
     - [x] **[Critical Fix]** Visual indication for Doctor Off-Days (Gray header)

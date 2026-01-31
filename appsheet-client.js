@@ -131,15 +131,29 @@ export async function importFromAppSheet() {
 
         console.log(`📥 가져온 스케줄: ${rawSchedules.length}건`);
 
-        // 1. 직원 매핑 (이름 -> ID)
+        // 1. 직원 매핑 (이름 -> ID) & 연차 정보 가져오기
         const { data: employees } = await db.from('employees').select('id, name');
         const empMap = new Map();
         employees.forEach(e => empMap.set(e.name, e.id));
 
+        // 해당 월의 승인된 연차 정보 가져오기 (충돌 체크용)
+        const { data: leaves } = await db.from('leave_requests')
+            .select('*')
+            .or('status.eq.approved,final_manager_status.eq.approved'); // 승인된 건만
+
+        // 연차 검색 최적화를 위한 Set 생성 ( "empId_date" )
+        const leaveSet = new Set();
+        leaves.forEach(req => {
+            if (req.dates && Array.isArray(req.dates)) {
+                req.dates.forEach(d => leaveSet.add(`${req.employee_id}_${d}`));
+            }
+        });
+
         const newSchedules = [];
         const unknownNames = new Set();
+        const conflictList = []; // { date, name, reason }
 
-        let sortCounter = 0; // 간단한 정렬 순서
+        let sortCounter = 0;
 
         rawSchedules.forEach(item => {
             const empId = empMap.get(item.name);
@@ -148,8 +162,12 @@ export async function importFromAppSheet() {
                 return;
             }
 
-            // 이미 해당 날짜/직원 스케줄이 중복되는지 체크? (DB Insert 시 충돌날 수 있으니)
-            // 일단 다 모은다.
+            // ⭐️ 충돌 체크: 승인된 연차가 있다면 제외 (Local DB Priority)
+            if (leaveSet.has(`${empId}_${item.date}`)) {
+                conflictList.push({ date: item.date, name: item.name });
+                return;
+            }
+
             newSchedules.push({
                 date: item.date,
                 employee_id: empId,
@@ -159,9 +177,26 @@ export async function importFromAppSheet() {
             });
         });
 
-        if (unknownNames.size > 0) {
-            alert(`⚠️ 다음 직원은 이름을 찾을 수 없어 제외되었습니다:\n${[...unknownNames].join(', ')}`);
+        // ⚠️ 알림 메시지 구성
+        let alertMsg = `✅ 스케줄 가져오기 성공!\n- 총 ${newSchedules.length}건의 근무 스케줄이 등록됩니다.`;
+
+        if (conflictList.length > 0) {
+            // 날짜별/사람별 그룹화해서 보여주기엔 너무 길 수 있으니 요약
+            const conflictNames = [...new Set(conflictList.map(c => c.name))];
+            alertMsg += `\n\n⛔️ 연차 충돌로직에 의해 ${conflictList.length}건이 제외되었습니다.\n(해당 직원은 승인된 연차가 있어 근무에서 제외됨)\n대상: ${conflictNames.join(', ')}`;
+            console.log('Conflicts:', conflictList);
         }
+
+        if (unknownNames.size > 0) {
+            alertMsg += `\n\n⚠️ 이름을 찾을 수 없는 직원: ${[...unknownNames].join(', ')}`;
+        }
+
+        if (newSchedules.length === 0 && conflictList.length === 0) {
+            alert('가져올 스케줄 데이터가 없습니다.');
+            return;
+        }
+
+        if (!confirm(`${alertMsg}\n\n진행하시겠습니까?`)) return;
 
         // 2. DB 저장
         // 해당 월 기존 데이터 삭제

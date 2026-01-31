@@ -696,23 +696,13 @@ function initializeDayDragDrop(dayEl, dateStr) {
         eventContainer.sortableInstance.destroy();
     }
 
-    // ✨ 날짜 칸에 드롭존 설정
-    let dragSourceInfo = null; // 드래그 시작 정보 저장
-
-    // ✨ [Fix] Grid Layout에 맞게 DropZone 변경
-    // .day-events가 아니라, 그 내부의 .doctors-grid와 .other-depts-container에 각각 Sortable 적용
-
-    const doctorsGrid = dayEl.querySelector('.doctors-grid');
-    const otherContainer = dayEl.querySelector('.other-depts-container');
-
-    // 공통 설정 생성 함수
-    const createSortableConfig = (containerName) => ({
+    eventContainer.sortableInstance = new Sortable(eventContainer, {
         group: {
             name: 'calendar-group',
             pull: true,
             put: ['sidebar-employees', 'calendar-group']
         },
-        draggable: '.event-card, .draggable-employee, .list-spacer, .event-slot',
+        draggable: '.event-card, .event-slot', // event-slot might be used for empty day droppable area if implemented, otherwise event-card
         animation: 150,
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
@@ -720,44 +710,46 @@ function initializeDayDragDrop(dayEl, dateStr) {
         dragoverBubble: true,
         delay: 100,
         delayOnTouchOnly: false,
-        swap: true, // ✨ Swap 모드 활성화 (그리드 교환용)
-        swapClass: 'sortable-swap-highlight',
-
         onStart(evt) {
             isDragging = true;
             dragStartTime = Date.now();
             document.body.style.userSelect = 'none';
+            document.querySelectorAll('.day-events').forEach(el => {
+                el.style.minHeight = '100px';
+                el.style.backgroundColor = 'rgba(59, 130, 246, 0.05)';
+                el.style.border = '2px dashed rgba(59, 130, 246, 0.3)';
+            });
         },
-
         onEnd(evt) {
             setTimeout(() => { isDragging = false; }, 100);
             document.body.style.userSelect = '';
+            document.querySelectorAll('.day-events').forEach(el => {
+                el.style.minHeight = '';
+                el.style.backgroundColor = '';
+                el.style.border = '';
+            });
         },
-
         onUpdate(evt) {
-            // 같은 컨테이너 내 이동
             updateScheduleSortOrders(dateStr);
             updateSaveButtonState();
         },
-
         onAdd(evt) {
             const employeeEl = evt.item;
 
-            // 1. 다른 날짜/컨테이너에서 이동해온 경우 (기존 카드)
+            // 1. 기존 카드 이동
             if (employeeEl.classList.contains('event-card')) {
                 updateScheduleSortOrders(dateStr);
                 updateSaveButtonState();
                 return;
             }
 
-            // 2. 사이드바에서 드롭된 경우 (새로운 카드 생성)
+            // 2. 사이드바 드롭
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
             if (isNaN(empId)) {
                 employeeEl.remove();
                 return;
             }
 
-            // 중복 체크 (이미 근무 중이면 차단)
             const existingWorking = state.schedule.schedules.find(
                 s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
             );
@@ -767,7 +759,6 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 return;
             }
 
-            // 휴무 상태였다면 휴무 제거 (상태 변경)
             const existingOffIndex = state.schedule.schedules.findIndex(
                 s => s.date === dateStr && s.employee_id === empId && s.status === '휴무'
             );
@@ -779,39 +770,24 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 }
             }
 
-            // 새 스케줄 객체 생성 (일단 DOM 위치는 Sortable이 잡았으므로 state만 추가)
-            // 정확한 위치는 updateScheduleSortOrders에서 다시 계산됨
+            // 새 스케줄 (위치는 DOM 순서에 따름 -> updateScheduleSortOrders)
             const tempId = `temp-${Date.now()}-${empId}`;
             const newSchedule = {
                 id: tempId,
                 date: dateStr,
                 employee_id: empId,
                 status: '근무',
-                sort_order: 999, // 임시 (updateScheduleSortOrders가 수정함)
-                grid_position: 999
+                sort_order: evt.newIndex,
+                grid_position: evt.newIndex
             };
             state.schedule.schedules.push(newSchedule);
             unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
 
-            // DOM 정리 (드롭된 엘리먼트는 제거하고 렌더링으로 갱신하거나, 그대로 두고 ID만 매핑)
-            // 여기서는 렌더링으로 갱신하여 깔끔하게 처리
-            employeeEl.remove(); // 드롭된 클론 제거
-            renderCalendar(); // 전체 다시 그리기 (가장 안전)
+            employeeEl.remove();
+            renderCalendar();
             updateSaveButtonState();
         }
     });
-
-    // 1. Doctors Grid
-    if (doctorsGrid) {
-        if (doctorsGrid.sortableInstance) doctorsGrid.sortableInstance.destroy();
-        doctorsGrid.sortableInstance = new Sortable(doctorsGrid, createSortableConfig('grid'));
-    }
-
-    // 2. Other Depts Logic
-    if (otherContainer) {
-        if (otherContainer.sortableInstance) otherContainer.sortableInstance.destroy();
-        otherContainer.sortableInstance = new Sortable(otherContainer, createSortableConfig('other'));
-    }
 }
 
 function getWorkingEmployeesOnDate(dateStr) {
@@ -1104,33 +1080,27 @@ function renderCalendar() {
                     </div>`;
                 }
             }
+            // ✨ [Revert] Flow Layout 복구
+            // 4열 그리드 제거하고 단순 나열 방식으로 변경
+            // Working View logic
 
-            // 2. Other Depts (Vertical Stack)
-            let otherDeptsHTML = '';
+            // 근무자 목록 가져오기 (정렬됨)
+            const workingEmps = getWorkingEmployeesOnDate(dateStr);
 
-            // 기존 sort_order가 있으면 정렬
-            otherDeptsList.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+            const eventsHTML = workingEmps.map(emp => {
+                const schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id && s.status === '근무');
+                if (!schedule) return '';
 
-            otherDeptsList.forEach(sch => {
-                const emp = state.management.employees.find(e => e.id === sch.employee_id);
-                if (!emp) return;
                 const deptColor = getDepartmentColor(emp.departments?.id);
-                const isSelected = state.schedule.selectedSchedules.has(sch.id) ? 'selected' : '';
+                const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
 
-                otherDeptsHTML += `<div class="event-card event-working ${isSelected}" data-employee-id="${emp.id}" data-schedule-id="${sch.id}" data-type="working" draggable="true">
+                return `<div class="event-card event-working ${isSelected}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working" draggable="true">
                     <span class="event-dot" style="background-color: ${deptColor};"></span>
                     <span class="event-name">${emp.name}</span>
                 </div>`;
-            });
+            }).join('');
 
-            dayInnerHTML = `
-                <div class="doctors-grid">
-                    ${gridCellsHTML}
-                </div>
-                <div class="other-depts-container text-xs text-gray-500 mt-1 border-t pt-1">
-                    ${otherDeptsHTML}
-                </div>
-            `;
+            dayInnerHTML = `<div class="day-events">${eventsHTML}</div>`;
 
         } else {
             // 휴무자/연차자 보기 (기존 로직 유지)
@@ -1175,7 +1145,7 @@ function renderCalendar() {
     // ✨ 추가 이벤트 리스너 연결 (더블클릭, 컨텍스트 메뉴, 키보드)
     initializeCalendarEvents();
 
-    console.log('Calendar rendered successfully (Hybrid View)');
+    console.log('Calendar rendered successfully (Flow Layout)');
 }
 
 // ✨ [신규] 자동 스케줄 생성 핸들러
