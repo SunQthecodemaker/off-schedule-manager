@@ -702,7 +702,9 @@ function initializeDayDragDrop(dayEl, dateStr) {
             pull: true,
             put: ['sidebar-employees', 'calendar-group']
         },
-        draggable: '.event-card, .event-slot', // event-slot might be used for empty day droppable area if implemented, otherwise event-card
+        draggable: '.event-card, .event-slot', // 빈 슬롯도 드래그 가능해야 스왑 가능
+        swap: true, // ✨ Swap 모드 활성화 (밀어내기 방지)
+        swapClass: 'sortable-swap-highlight', // 스왑 대상 강조
         animation: 150,
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
@@ -1080,27 +1082,8 @@ function renderCalendar() {
                     </div>`;
                 }
             }
-            // ✨ [Revert] Flow Layout 복구
-            // 4열 그리드 제거하고 단순 나열 방식으로 변경
-            // Working View logic
-
-            // 근무자 목록 가져오기 (정렬됨)
-            const workingEmps = getWorkingEmployeesOnDate(dateStr);
-
-            const eventsHTML = workingEmps.map(emp => {
-                const schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id && s.status === '근무');
-                if (!schedule) return '';
-
-                const deptColor = getDepartmentColor(emp.departments?.id);
-                const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
-
-                return `<div class="event-card event-working ${isSelected}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working" draggable="true">
-                    <span class="event-dot" style="background-color: ${deptColor};"></span>
-                    <span class="event-name">${emp.name}</span>
-                </div>`;
-            }).join('');
-
-            dayInnerHTML = `<div class="day-events">${eventsHTML}</div>`;
+            // 5. Wrap Grid Cells
+            dayInnerHTML = `<div class="day-events grid-view" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:2px;">${gridCellsHTML}</div>`;
 
         } else {
             // 휴무자/연차자 보기 (기존 로직 유지)
