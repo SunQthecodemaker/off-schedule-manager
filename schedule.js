@@ -2,9 +2,6 @@ import { state, db } from './state.js';
 import { _, show, hide } from './utils.js';
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
 import { registerManualLeave, cancelManualLeave } from './management.js';
-import { ScheduleGenerator } from './schedule-generator.js';
-import { syncToAppSheet, importFromAppSheet, setScriptUrl, getScriptUrl } from './appsheet-client.js';
-
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
@@ -696,15 +693,16 @@ function initializeDayDragDrop(dayEl, dateStr) {
         eventContainer.sortableInstance.destroy();
     }
 
+    // ✨ 날짜 칸에 드롭존 설정
+    let dragSourceInfo = null; // 드래그 시작 정보 저장
+
     eventContainer.sortableInstance = new Sortable(eventContainer, {
         group: {
             name: 'calendar-group',
             pull: true,
-            put: ['sidebar-employees', 'calendar-group']
+            put: ['sidebar-employees', 'calendar-group'] // ✅ 그룹명 변경
         },
-        draggable: '.event-card, .event-slot', // 빈 슬롯도 드래그 가능해야 스왑 가능
-        swap: true, // ✨ Swap 모드 활성화 (밀어내기 방지)
-        swapClass: 'sortable-swap-highlight', // 스왑 대상 강조
+        draggable: '.event-card, .draggable-employee, .list-spacer, .event-slot',  // ✅ 빈 슬롯도 드래그 가능
         animation: 150,
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
@@ -712,83 +710,218 @@ function initializeDayDragDrop(dayEl, dateStr) {
         dragoverBubble: true,
         delay: 100,
         delayOnTouchOnly: false,
+        forceFallback: false,
+        fallbackTolerance: 5,
+        forceFallback: false,
+        fallbackTolerance: 5,
+        emptyInsertThreshold: 30,
+        swap: true, // ✨ Swap 모드 활성화
+        swapClass: 'sortable-swap-highlight', // 교환 대상 강조 스타일
+
         onStart(evt) {
             isDragging = true;
             dragStartTime = Date.now();
             document.body.style.userSelect = 'none';
+
+            // ✅ 드래그 시작 시 현재 상태 저장
+            const draggedCard = evt.item;
+            const empIdStr = draggedCard.dataset.employeeId;
+
+            // ✅ 빈 슬롯도 드래그 가능하게 변경
+            const empId = empIdStr === 'empty' ? null : parseInt(empIdStr, 10);
+
+            dragSourceInfo = {
+                employeeId: empId,
+                oldIndex: evt.oldIndex,
+                fromDate: dateStr,
+                originalState: state.schedule.schedules
+                    .filter(s => s.date === dateStr && s.status === '근무')
+                    .map(s => ({ employee_id: s.employee_id, grid_position: s.grid_position }))
+            };
+
+            console.log('📅 Drag started:', dragSourceInfo);
+
             document.querySelectorAll('.day-events').forEach(el => {
                 el.style.minHeight = '100px';
                 el.style.backgroundColor = 'rgba(59, 130, 246, 0.05)';
                 el.style.border = '2px dashed rgba(59, 130, 246, 0.3)';
             });
         },
+
         onEnd(evt) {
-            setTimeout(() => { isDragging = false; }, 100);
+            setTimeout(() => {
+                isDragging = false;
+            }, 100);
             document.body.style.userSelect = '';
             document.querySelectorAll('.day-events').forEach(el => {
                 el.style.minHeight = '';
                 el.style.backgroundColor = '';
                 el.style.border = '';
             });
+
+            console.log('📅 [onEnd] Drag ended');
+            dragSourceInfo = null;
         },
+
         onUpdate(evt) {
-            updateScheduleSortOrders(dateStr);
-            updateSaveButtonState();
+            // ✅ 같은 날짜 내 이동 처리
+            const oldIndex = evt.oldIndex;
+            const newIndex = evt.newIndex;
+
+            console.log('📅 [onUpdate] 같은 날짜 내 이동:', oldIndex, '→', newIndex);
+
+            if (oldIndex !== newIndex) {
+                // ✨ [Sync] 단순히 현재 화면 순서를 그대로 저장 (Swap이든 Insert든 최종 결과만 반영)
+                console.log('📅 [onUpdate] 순서 변경 감지 -> 동기화');
+                updateScheduleSortOrders(dateStr);
+                updateSaveButtonState();
+            }
         },
+
         onAdd(evt) {
+            console.log('🎯 Calendar onAdd triggered! Date:', dateStr);
             const employeeEl = evt.item;
 
-            // 1. 기존 카드 이동
+            // ✅ event-card인 경우는 다른 날짜에서 온 것 (규칙 5)
             if (employeeEl.classList.contains('event-card')) {
+                console.log('✅ Moved from another date');
                 updateScheduleSortOrders(dateStr);
                 updateSaveButtonState();
                 return;
             }
 
-            // 2. 사이드바 드롭
+            // ✅ draggable-employee인 경우 사이드바에서 온 것
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
+            console.log('📝 Dropped employee ID:', empId);
+
             if (isNaN(empId)) {
+                console.log('❌ Invalid employee ID, removing element');
                 employeeEl.remove();
                 return;
             }
 
+            // ✅ 중복 체크 (규칙 4-2) -> [수정] 이미 '근무' 중인 경우만 막고, '휴무'인 경우는 '휴무'를 제거
             const existingWorking = state.schedule.schedules.find(
                 s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
             );
+
             if (existingWorking) {
+                console.log('❌ Employee already working on this date - drop cancelled');
                 employeeEl.remove();
                 alert('이미 해당 날짜에 근무 중인 직원입니다.');
                 return;
             }
 
+            // [수정] '휴무' 상태가 있다면 제거 (상태 중복 방지)
             const existingOffIndex = state.schedule.schedules.findIndex(
                 s => s.date === dateStr && s.employee_id === empId && s.status === '휴무'
             );
+
             if (existingOffIndex !== -1) {
                 const offSchedule = state.schedule.schedules[existingOffIndex];
+                console.log('🔄 휴무 상태 제거:', offSchedule);
+                // state에서 제거
                 state.schedule.schedules.splice(existingOffIndex, 1);
+                // DB 삭제 예약
                 if (!offSchedule.id.toString().startsWith('temp-')) {
                     unsavedChanges.set(offSchedule.id, { type: 'delete', data: offSchedule });
                 }
             }
 
-            // 새 스케줄 (위치는 DOM 순서에 따름 -> updateScheduleSortOrders)
+            // ✅ 음수 ID는 빈칸으로 처리
+            let employee = null;
+            let employeeName = '';
+            if (empId < 0) {
+                employeeName = `빈칸${-empId}`;
+                console.log('✅ Spacer:', employeeName, 'at position:', evt.newIndex);
+            } else {
+                employee = state.management.employees.find(e => e.id === empId);
+                if (!employee) {
+                    console.log('❌ Employee not found, removing element');
+                    employeeEl.remove();
+                    return;
+                }
+                employeeName = employee.name;
+                console.log('✅ Found employee:', employeeName, 'at position:', evt.newIndex);
+            }
+
+            // [수정] 덮어쓰기 방지: 자리에 누가 있다면 '가장 가까운 빈칸'으로 이동
+            const GRID_SIZE = 24;
+            const targetPos = evt.newIndex;
+
+            // 현재 그리드 상태 계산
+            const currentGrid = new Array(GRID_SIZE).fill(null);
+            state.schedule.schedules.forEach(s => {
+                if (s.date === dateStr && s.status === '근무' && s.grid_position != null) {
+                    if (s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
+                        currentGrid[s.grid_position] = s.employee_id;
+                    }
+                }
+            });
+
+            const occupiedEmpId = currentGrid[targetPos];
+
+            if (occupiedEmpId !== null && occupiedEmpId !== undefined) {
+                console.log(`⚠️ Slot ${targetPos} is occupied by ${occupiedEmpId}. Finding nearest empty slot...`);
+
+                let bestPos = -1;
+                let minDist = Infinity;
+
+                // 가장 가까운 빈칸 탐색
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    // 빈칸이면서, 현재 드롭하려는 위치가 아닌 곳
+                    if (currentGrid[i] === null && i !== targetPos) {
+                        const dist = Math.abs(i - targetPos);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestPos = i;
+                        } else if (dist === minDist) {
+                            // 거리가 같다면 뒤쪽(+)을 우선
+                            if (i > targetPos) bestPos = i;
+                        }
+                    }
+                }
+
+                if (bestPos === -1) {
+                    alert('배치할 빈 공간이 없습니다.');
+                    employeeEl.remove();
+                    // 만약 휴무를 삭제했다면 복구해야 하지만... (생략)
+                    return;
+                }
+
+                console.log(`✅ Found nearest empty slot at ${bestPos}. Moving existing employee.`);
+
+                // 기존 직원 이동 처리
+                const occupiedSchedule = state.schedule.schedules.find(
+                    s => s.date === dateStr && s.employee_id === occupiedEmpId && s.status === '근무'
+                );
+
+                if (occupiedSchedule) {
+                    occupiedSchedule.grid_position = bestPos;
+                    occupiedSchedule.sort_order = bestPos;
+                    unsavedChanges.set(occupiedSchedule.id, { type: 'update', data: occupiedSchedule });
+                }
+            }
+
+            // ✅ 새 스케줄 추가
             const tempId = `temp-${Date.now()}-${empId}`;
             const newSchedule = {
                 id: tempId,
                 date: dateStr,
                 employee_id: empId,
                 status: '근무',
-                sort_order: evt.newIndex,
-                grid_position: evt.newIndex
+                sort_order: targetPos,
+                grid_position: targetPos
             };
             state.schedule.schedules.push(newSchedule);
             unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+            console.log('✅ Added new schedule:', empId, 'at position:', targetPos);
 
+            // ✅ DOM 정리 및 재렌더링
             employeeEl.remove();
             renderCalendar();
             updateSaveButtonState();
-        }
+        },
     });
 }
 
@@ -997,108 +1130,87 @@ function renderCalendar() {
         if (isSunday) numberClass += ' text-red-500';
         else if (isSaturday) numberClass += ' text-blue-500';
 
-        let dayInnerHTML = '';
-
+        let eventsHTML = '';
         if (state.schedule.viewMode === 'working') {
-            // ✅ [Hybrid View] 4열 그리드 + 타 부서 스택
+            // ✅ 항상 24칸 고정 렌더링
             const GRID_SIZE = 24;
             const gridSlots = new Array(GRID_SIZE).fill(null);
-            const otherDeptsList = []; // 타 부서 (Grid 외)
 
-            // 스케줄 분류
-            state.schedule.schedules.forEach(schedule => {
-                if (schedule.date === dateStr && schedule.status === '근무') {
-                    // 부서 필터링
-                    if (state.schedule.activeDepartmentFilters.size > 0) {
-                        const emp = state.management.employees.find(e => e.id === schedule.employee_id);
-                        if (emp && !state.schedule.activeDepartmentFilters.has(emp.department_id)) return;
+            // 해당 날짜의 스케줄을 그리드 위치에 배치
+
+            // ✅ 부서 필터 적용된 직원 ID 목록
+            const filteredEmployeeIds = new Set();
+            if (state.schedule.activeDepartmentFilters.size > 0) {
+                state.management.employees.forEach(emp => {
+                    if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
+                        filteredEmployeeIds.add(emp.id);
                     }
-
-
-                    if (schedule.grid_position != null && schedule.grid_position < GRID_SIZE) {
-                        gridSlots[schedule.grid_position] = schedule;
-                    } else {
-                        // grid_position이 없거나 24 이상인 경우 (타 부서)
-                        otherDeptsList.push(schedule);
+                });
+            }
+            state.schedule.schedules.forEach(schedule => {
+                if (schedule.date === dateStr && schedule.status === '근무' && schedule.grid_position != null) {
+                    // ✅ 부서 필터가 있으면 필터링된 직원만 표시
+                    if (state.schedule.activeDepartmentFilters.size > 0) {
+                        if (!filteredEmployeeIds.has(schedule.employee_id) && schedule.employee_id > 0) {
+                            return; // 필터에 해당하지 않는 직원은 스킵
+                        }
+                    }
+                    const pos = schedule.grid_position;
+                    if (pos >= 0 && pos < GRID_SIZE) {
+                        gridSlots[pos] = schedule;
                     }
                 }
             });
 
-            // 1. Doctors Grid (0~23)
-            let gridCellsHTML = '';
-
-            // 0~3 인덱스는 헤더로 처리 (원장님 이름)
-            const doctorNames = ['박원장', '류원장', '최원장', '김원장'];
-
-            for (let i = 0; i < GRID_SIZE; i++) {
-                // 0~3: Header Logic
-                if (i < 4) {
-                    const docName = doctorNames[i];
-
-                    // ✨ [Fix] 원장님 휴무일 체크 로직 구현
-                    // 박원장(목), 류원장(화), 최원장(수), 김원장(월) (하드코딩 규칙)
-                    // TODO: 나중에 설정에서 가져오도록 개선
-                    let isDocOff = false;
-                    const dayOfWeek = dayjs(dateStr).day(); // 0:일, 1:월, 2:화, 3:수, 4:목, 5:금, 6:토
-
-                    if (docName === '박원장' && dayOfWeek === 4) isDocOff = true;
-                    if (docName === '류원장' && dayOfWeek === 2) isDocOff = true;
-                    if (docName === '최원장' && dayOfWeek === 3) isDocOff = true;
-                    if (docName === '김원장' && dayOfWeek === 1) isDocOff = true;
-
-                    const headerStyle = isDocOff
-                        ? 'background-color:#f3f4f6;color:#ccc;text-decoration:line-through; font-size: 11px;'
-                        : 'background-color:#e0f2fe;font-weight:bold;color:#1e3a8a; font-size: 11px;';
-
-                    gridCellsHTML += `<div class="event-card header-card" style="${headerStyle}justify-content:center;">
-                        <span class="event-name" style="flex-grow:0;">${docName}</span>
-                    </div>`;
-                    continue;
-                }
-
-                // 4~23: Staff Slots
-                const schedule = gridSlots[i];
+            // 각 슬롯을 HTML로 변환
+            eventsHTML = gridSlots.map((schedule, position) => {
                 if (!schedule) {
                     // 빈 슬롯
-                    gridCellsHTML += `<div class="event-slot empty-slot" data-position="${i}" data-employee-id="empty" data-type="empty">
-                        <span class="slot-number" style="display:none;">${i}</span>
+                    return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
+                        <span class="slot-number">${position + 1}</span>
                     </div>`;
                 } else if (schedule.employee_id < 0) {
-                    // 빈칸(Spacer)
+                    // ✅ 빈칸 카드
+                    const spacerName = `빈칸${-schedule.employee_id}`;
                     const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
-                    gridCellsHTML += `<div class="event-card event-working ${isSelected}" data-position="${i}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" draggable="true" style="background-color: #f3f4f6;">
-                         <span class="event-name" style="color:#ddd;">-</span>
+                    return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                        <span class="event-dot" style="background-color: #f3f4f6;"></span>
+                        <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
                     </div>`;
                 } else {
-                    // 직원
+                    // 직원 카드
                     const emp = state.management.employees.find(e => e.id === schedule.employee_id);
-                    const name = emp ? emp.name : 'Unknown';
-                    const deptColor = emp ? getDepartmentColor(emp.departments?.id) : '#ccc';
-                    const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                    if (!emp) {
+                        // 삭제된 직원
+                        const spacerName = schedule.employee_id < 0 ? `빈칸${-schedule.employee_id}` : '알수없음';
+                        const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                        return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                            <span class="event-dot" style="background-color: #f3f4f6;"></span>
+                            <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
+                        </div>`;
+                    }
 
-                    gridCellsHTML += `<div class="event-card event-working ${isSelected}" data-position="${i}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" draggable="true">
+                    const deptColor = getDepartmentColor(emp.departments?.id);
+                    const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                    return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working">
                         <span class="event-dot" style="background-color: ${deptColor};"></span>
-                        <span class="event-name">${name}</span>
+                        <span class="event-name">${emp.name}</span>
                     </div>`;
                 }
-            }
-            // 5. Wrap Grid Cells
-            dayInnerHTML = `<div class="day-events grid-view" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:2px;">${gridCellsHTML}</div>`;
-
+            }).join('');
         } else {
-            // 휴무자/연차자 보기 (기존 로직 유지)
             const offData = getOffEmployeesOnDate(dateStr);
-            const eventsHTML = offData.map(item => {
+            eventsHTML = offData.map(item => {
                 const scheduleId = item.schedule?.id || '';
                 const type = item.type;
                 const deptColor = getDepartmentColor(item.employee.departments?.id);
                 const eventClass = type === 'leave' ? 'event-leave' : 'event-off';
+                // ✨ 삭제 버튼 제거
                 return `<div class="event-card ${eventClass}" data-employee-id="${item.employee.id}" data-schedule-id="${scheduleId}" data-type="${type}">
                     <span class="event-dot" style="background-color: ${deptColor};"></span>
                     <span class="event-name">${item.employee.name}</span>
                 </div>`;
             }).join('');
-            dayInnerHTML = `<div class="day-events">${eventsHTML}</div>`;
         }
 
         calendarHTML += `
@@ -1106,7 +1218,7 @@ function renderCalendar() {
                 <div class="day-header">
                     <span class="${numberClass}">${dayNum}</span>
                 </div>
-                <div class="day-wrapper" style="display:flex;flex-direction:column;height:100%;">${dayInnerHTML}</div>
+                <div class="day-events">${eventsHTML}</div>
             </div>`;
 
         currentLoop = currentLoop.add(1, 'day');
@@ -1128,96 +1240,8 @@ function renderCalendar() {
     // ✨ 추가 이벤트 리스너 연결 (더블클릭, 컨텍스트 메뉴, 키보드)
     initializeCalendarEvents();
 
-    console.log('Calendar rendered successfully (Flow Layout)');
+    console.log('Calendar rendered successfully');
 }
-
-// ✨ [신규] 자동 스케줄 생성 핸들러
-export async function handleAutoSchedule() {
-    if (!confirm('현재 보고 있는 달의 스케줄을 자동으로 생성하시겠습니까?\n\n주의: 현재 화면의 기존 근무 스케줄은 모두 삭제되고 새로 생성됩니다.\n(결과는 저장하기 전까지 확정되지 않습니다)')) return;
-
-    const generator = new ScheduleGenerator();
-    const currentDate = dayjs(state.schedule.currentDate);
-
-    // 1. 필요한 데이터 준비
-    const year = currentDate.year();
-    const month = currentDate.month(); // 0-indexed
-    const employees = state.management.employees;
-
-    // 연차 정보 가져오기 (승인된 것만)
-    const leaves = state.management.leaveRequests
-        .filter(req => req.status === 'approved' || req.final_manager_status === 'approved')
-        .map(req => ({
-            employee_id: req.employee_id,
-            dates: req.dates || []
-        }));
-
-    const companyHolidays = state.schedule.companyHolidays;
-
-    try {
-        const btn = _('#auto-schedule-btn');
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = '생성 중...';
-        }
-
-        // 2. 로직 실행
-        // 병원 휴무일 뿐만 아니라 로컬 state의 휴무일 변경사항도 반영해야 함 (unsaved)
-        // 하지만 generator는 Set을 받으므로, 현재 state.schedule.companyHolidays (이미 반영됨)를 그대로 쓰면 됨.
-        const newSchedules = generator.generate(year, month, employees, leaves, companyHolidays);
-
-        console.log(`✅ ${newSchedules.length}개의 스케줄이 생성되었습니다.`);
-
-        // 3. 기존 스케줄 삭제 처리 (Local State & UnsavedChanges)
-        const startOfMonth = currentDate.startOf('month').format('YYYY-MM-DD');
-        const endOfMonth = currentDate.endOf('month').format('YYYY-MM-DD');
-
-        // 삭제 대상 식별: 해당 월의 '근무' 스케줄
-        const schedulesToRemove = state.schedule.schedules.filter(s =>
-            s.date >= startOfMonth && s.date <= endOfMonth && s.status === '근무'
-        );
-
-        schedulesToRemove.forEach(s => {
-            // DB에 있는 데이터라면 삭제 목록에 추가
-            if (!s.id.toString().startsWith('temp-')) {
-                unsavedChanges.set(s.id, { type: 'delete', data: s });
-            } else {
-                // 임시 데이터라면 생성 목록에서 제거 (또는 그냥 무시하면 됨, state에서 빠지므로)
-                unsavedChanges.delete(s.id);
-            }
-        });
-
-        // State에서 제거
-        state.schedule.schedules = state.schedule.schedules.filter(s =>
-            !(s.date >= startOfMonth && s.date <= endOfMonth && s.status === '근무')
-        );
-
-        // 4. 새 스케줄 추가 처리 (Local State & UnsavedChanges)
-        newSchedules.forEach(s => {
-            const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const scheduleWithId = { ...s, id: tempId };
-
-            state.schedule.schedules.push(scheduleWithId);
-            unsavedChanges.set(tempId, { type: 'new', data: scheduleWithId });
-        });
-
-        // 5. 화면 갱신
-        renderCalendar();
-        updateSaveButtonState();
-
-        alert(`자동 배정이 완료되었습니다.\n총 ${newSchedules.length}건이 생성되었습니다.\n\n내용을 확인하고 [스케줄 저장] 버튼을 눌러 확정하세요.`);
-
-    } catch (e) {
-        console.error('자동 배정 실패:', e);
-        alert('자동 배정 중 오류가 발생했습니다: ' + e.message);
-    } finally {
-        const btn = _('#auto-schedule-btn');
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = '🤖 자동 배정';
-        }
-    }
-}
-
 
 // ✨ 달력 클릭 핸들러 분리
 function handleCalendarClick(e) {
@@ -2214,26 +2238,6 @@ function initializeCalendarEvents() {
     // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
     document.removeEventListener('keydown', handleGlobalKeydown);
     document.addEventListener('keydown', handleGlobalKeydown);
-
-    // ✨ Event Listeners for new buttons
-    const autoScheduleBtn = _('#auto-schedule-btn');
-    if (autoScheduleBtn) {
-        autoScheduleBtn.removeEventListener('click', handleAutoSchedule);
-        autoScheduleBtn.addEventListener('click', handleAutoSchedule);
-    }
-
-    // Existing listeners
-    const saveBtn = _('#save-schedule-btn');
-    if (saveBtn) {
-        saveBtn.removeEventListener('click', handleSaveSchedules);
-        saveBtn.addEventListener('click', handleSaveSchedules);
-    }
-
-    const revertBtn = _('#revert-schedule-btn');
-    if (revertBtn) {
-        revertBtn.removeEventListener('click', handleRevertChanges);
-        revertBtn.addEventListener('click', handleRevertChanges);
-    }
 }
 
 // ✨ 키보드 이벤트 핸들러
@@ -2303,40 +2307,6 @@ function handleGlobalKeydown(e) {
             renderCalendar();
             updateSaveButtonState();
             console.log('Cut to clipboard:', scheduleClipboard);
-        }
-        return;
-        return;
-    }
-
-    // Delete (Delete / Backspace)
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (state.schedule.selectedSchedules.size > 0) {
-            e.preventDefault(); // Backspace 뒤로가기 방지
-            pushUndoState('Delete Schedules');
-
-            let deleteCount = 0;
-            state.schedule.selectedSchedules.forEach(scheduleId => {
-                const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
-                if (schedule) {
-                    if (schedule.id.toString().startsWith('temp-')) {
-                        // 임시 직원은 완전 삭제
-                        state.schedule.schedules = state.schedule.schedules.filter(s => s.id !== schedule.id);
-                        unsavedChanges.set(schedule.id, { type: 'delete', data: schedule });
-                    } else {
-                        // 정규 직원은 '휴무' 처리 (또는 삭제 예약)
-                        schedule.status = '휴무';
-                        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                    }
-                    deleteCount++;
-                }
-            });
-
-            if (deleteCount > 0) {
-                console.log(`🗑️ Deleted ${deleteCount} items via Keyboard`);
-                clearSelection();
-                renderCalendar();
-                updateSaveButtonState();
-            }
         }
         return;
     }
@@ -2612,14 +2582,8 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
-                <span class="text-gray-300">|</span>
-                <button id="sync-appsheet-btn" class="bg-gray-500 text-white hover:bg-gray-600 px-2 py-1 text-sm rounded" title="직원/연차 정보 전송">📤 동기화</button>
-                <button id="import-appsheet-btn" class="bg-gray-500 text-white hover:bg-gray-600 px-2 py-1 text-sm rounded" title="스케줄 가져오기">📥 가져오기</button>
-                <button id="appsheet-settings-btn" class="text-gray-400 hover:text-gray-600" title="AppSheet 연동 설정">⚙️</button>
-                <span class="text-gray-300">|</span>
                 <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
                 <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
-                <button id="auto-schedule-btn" class="bg-indigo-600 text-white hover:bg-indigo-700">🤖 자동 배정</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
                 <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
@@ -2661,11 +2625,7 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
-        _('#auto-schedule-btn')?.addEventListener('click', handleAutoSchedule);
         _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
-        _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
-        _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
-        _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
@@ -3038,16 +2998,6 @@ async function handleImportPreviousMonth() {
 // [Legacy Context Menu Removed]
 
 
-window.handleResetSchedule = handleResetSchedule;
-window.handleAutoSchedule = handleAutoSchedule;
-
-// ✨ AppSheet 설정 핸들러
-function handleAppSheetSettings() {
-    const currentUrl = getScriptUrl();
-    const newUrl = prompt('AppSheet 연동 스크립트(Google Apps Script) URL을 입력하세요:\n(배포된 웹앱 URL)', currentUrl);
-    if (newUrl !== null) {
-        setScriptUrl(newUrl);
-        alert('AppSheet 연동 URL이 저장되었습니다.');
-    }
-}
+// ✨ Expose for manual updates from other modules
+window.loadAndRenderScheduleData = loadAndRenderScheduleData;
 
