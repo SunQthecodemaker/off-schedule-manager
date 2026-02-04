@@ -1,9 +1,9 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=RESTORE_FEATURE_RICH';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=2.3';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=2.3';
-import { renderEmployeePortal } from './employee-portal-final.js?v=2.3';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=RESTORE_FEATURE_RICH';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=RESTORE_FEATURE_RICH';
+import { renderEmployeePortal } from './employee-portal-final.js?v=RESTORE_FEATURE_RICH';
 import { getLeaveDetails } from './leave-utils.js';
 
 // Safely initialize dayjs plugins
