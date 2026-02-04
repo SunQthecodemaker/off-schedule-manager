@@ -100,130 +100,238 @@ export async function syncToAppSheet() {
 /**
  * 2. 구글 시트의 확정된 스케줄을 가져와서 Supabase에 저장
  */
+/**
+ * 2. [변경] 앱시트(엑셀) 복사 데이터를 붙여넣어 스케줄 가져오기
+ *    - 원장, 진료실 부서만 업데이트
+ */
 export async function importFromAppSheet() {
-    const scriptUrl = getScriptUrl();
-    if (!scriptUrl) {
-        alert('AppSheet 스크립트 URL이 설정되지 않았습니다.');
-        return;
+    // 1. 모달 생성 (붙여넣기 입력창)
+    const modalHtml = `
+        <div id="paste-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl h-3/4 flex flex-col">
+                <h3 class="text-lg font-bold mb-4">앱시트 스케줄 붙여넣기</h3>
+                <div class="mb-2 text-sm text-gray-600">
+                    <p>1. 구글 시트(앱시트)에서 스케줄 영역을 복사(Ctrl+C)하세요.</br>(날짜 행과 이름들이 포함되도록 넓게 복사해주세요)</p>
+                    <p>2. 아래 상자에 붙여넣기(Ctrl+V) 한 후 [분석 및 가져오기]를 누르세요.</p>
+                </div>
+                <textarea id="paste-area" class="flex-1 w-full p-4 border border-gray-300 rounded mb-4 font-mono text-xs whitespace-pre" placeholder="여기에 엑셀 데이터를 붙여넣으세요..."></textarea>
+                <div class="flex justify-end gap-2">
+                    <button id="cancel-paste-btn" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">취소</button>
+                    <button id="analyze-paste-btn" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">분석 및 가져오기</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 이벤트 핸들러
+    const modal = document.getElementById('paste-import-modal');
+    const textarea = document.getElementById('paste-area');
+    const cancelBtn = document.getElementById('cancel-paste-btn');
+    const analyzeBtn = document.getElementById('analyze-paste-btn');
+
+    textarea.focus();
+
+    const closeModal = () => modal.remove();
+
+    cancelBtn.onclick = closeModal;
+    modal.onclick = (e) => {
+        if (e.target === modal) closeModal();
+    };
+
+    analyzeBtn.onclick = async () => {
+        const text = textarea.value;
+        if (!text.trim()) {
+            alert('데이터를 붙여넣어주세요.');
+            return;
+        }
+
+        try {
+            await processPastedData(text);
+            closeModal();
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+}
+
+async function processPastedData(text) {
+    const lines = text.split('\n').map(l => l.trimEnd()); // 행 단위 분리
+    const rawSchedules = [];
+    const debugLogs = [];
+
+    // 1. 날짜 헤더 찾기 (예: "1일 (월)", "2일 (화)")
+    //    가장 많은 "N일" 패턴이 있는 행을 헤더로 간주하거나, 등장하는 족족 처리
+    //    구글 시트 복사 시 탭(\t)으로 컬럼 구분됨
+
+    let currentDates = {}; // { columnIndex: "YYYY-MM-DD" }
+    const currentYear = dayjs(state.schedule.currentDate).year();
+    const currentMonth = dayjs(state.schedule.currentDate).month() + 1; // 사용자가 보고 있는 월 기준
+
+    // 부서 정보 매핑 준비
+    const targetDeptNames = ['원장', '진료', '진료실', '진료팀', '진료부']; // 타겟 키워드
+    const empMap = new Map(); // Name -> { id, deptId, deptName }
+
+    state.management.employees.forEach(e => {
+        const dept = state.management.departments.find(d => d.id === e.department_id);
+        empMap.set(e.name, {
+            id: e.id,
+            deptId: e.department_id,
+            deptName: dept ? dept.name : ''
+        });
+    });
+
+    const parsedSchedules = [];
+    const skippedNames = new Set();
+    const targetUpdates = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const cells = line.split('\t'); // 엑셀 붙여넣기는 탭 구분
+
+        // A. 날짜 행인지 판단
+        const dayMatchIndices = [];
+        cells.forEach((cell, idx) => {
+            if (/^\d+일/.test(cell.trim())) {
+                dayMatchIndices.push(idx);
+            }
+        });
+
+        if (dayMatchIndices.length > 0) {
+            // 날짜 헤더 갱신
+            currentDates = {};
+            dayMatchIndices.forEach(idx => {
+                const dayStr = cells[idx].match(/(\d+)일/)[1];
+                const dayNum = parseInt(dayStr, 10);
+                // "1일"이 나오는데 현재 뷰가 말일쯤이면 다음달? 아니면 그냥 현재 보고 있는 월의 날짜로 간주
+                // 안전하게: 현재 state.currentDate의 월을 따름
+                const date = dayjs(`${currentYear}-${currentMonth}-${dayNum}`).format('YYYY-MM-DD');
+
+                // 엑셀 병합 셀 이슈: 날짜 하나가 4칸 차지할 수 있음 (Main 시트 구조상)
+                // 따라서 idx, idx+1, idx+2... 를 해당 날짜로 매핑해야 함.
+                // 다음 날짜 인덱스가 나올 때까지 채우기
+                // 하지만 여기선 단순하게: 날짜가 있는 idx가 시작점.
+                // 보통 병합된 셀을 복사하면 첫 셀에만 값이 있나? -> 브라우저/엑셀 버전에 따라 다름.
+                // 보통 그냥 빈칸으로 나옴.
+                // 일단 정확한 "값"이 있는 컬럼을 기준으로 잡고, 그 아래 이름들을 매핑
+
+                // 오프셋 처리: 보통 한 날짜에 4명의 원장/직원이 들어갈 수 있음 (4열)
+                // 다음 날짜 인덱스 전까지 모두 이 날짜로 할당해야 함.
+                currentDates[idx] = date;
+                currentDates[idx + 1] = date;
+                currentDates[idx + 2] = date;
+                currentDates[idx + 3] = date; // 넉넉히 4칸 할당
+            });
+            continue; // 헤더 행은 스킵
+        }
+
+        // B. 데이터 행 처리
+        if (Object.keys(currentDates).length === 0) continue; // 날짜 매핑이 안된 상태면 스킵
+
+        cells.forEach((cell, idx) => {
+            const name = cell.trim();
+            if (!name) return;
+            if (!currentDates[idx]) return;
+
+            // 예외 키워드
+            if (['부족', '여유', '적정', '목표:', '주간 검수'].some(k => name.includes(k))) return;
+
+            // 이름 정제
+            const cleanName = name.replace(/\(.*\)/, '').replace(/[0-9]/g, '').trim(); // 괄호 및 숫자 제거
+            if (!cleanName) return;
+
+            const empInfo = empMap.get(cleanName);
+            const date = currentDates[idx];
+
+            if (empInfo) {
+                // 부서 체크
+                const isTarget = targetDeptNames.some(k => empInfo.deptName.includes(k));
+                if (isTarget) {
+                    parsedSchedules.push({
+                        date: date,
+                        employee_id: empInfo.id,
+                        name: cleanName,
+                        dept: empInfo.deptName
+                    });
+                } else {
+                    skippedNames.add(`${cleanName}(${empInfo.deptName})`);
+                }
+            } else {
+                // DB에 없는 이름
+                //  console.log('Unmapped name:', cleanName); 
+            }
+        });
     }
 
-    const month = dayjs(state.schedule.currentDate).format('YYYY-MM');
+    if (parsedSchedules.length === 0) {
+        throw new Error('유효한 스케줄 데이터를 찾지 못했습니다.\n- 날짜 행("1일")을 포함해서 복사했는지 확인해주세요.\n- 직원 이름이 정확한지 확인해주세요.');
+    }
 
-    if (!confirm(`${month}월 스케줄을 AppSheet에서 가져오시겠습니까?\n기존 스케줄은 덮어씌워집니다.`)) return;
-
-    try {
-        // GET 요청은 CORS 문제 없이 JSON 받기 가능 (GAS가 적절히 헤더를 주면)
-        // GAS 코드에 setMimeType(JSON)이 있으면 보통 리다이렉트 팔로우해서 됨.
-        const url = `${scriptUrl}?action=getSchedule&month=${month}`;
-
-        const response = await fetch(url, { method: 'GET' });
-        const result = await response.json();
-
-        if (result.status !== 'success') {
-            throw new Error(result.message || 'Unknown error form script');
+    const uniqueSchedules = [];
+    const seen = new Set();
+    parsedSchedules.forEach(s => {
+        const key = `${s.date}_${s.employee_id}`;
+        if (!seen.has(key)) {
+            uniqueSchedules.push(s);
+            seen.add(key);
         }
+    });
 
-        const rawSchedules = result.data; // [{date, name, status, team?}]
-        if (!rawSchedules || rawSchedules.length === 0) {
-            alert('가져올 스케줄 데이터가 없습니다. (확정된 시트가 있는지 확인하세요)');
-            return;
-        }
+    const targetEmployees = new Set(uniqueSchedules.map(s => s.name));
+    const confirmMsg = `✅ 분석 완료!\n\n` +
+        `- 대상 기간: ${dayjs(state.schedule.currentDate).format('YYYY-MM')}\n` +
+        `- 업데이트 대상 직원: ${targetEmployees.size}명 (원장/진료실)\n` +
+        `- 총 스케줄 건수: ${uniqueSchedules.length}건\n\n` +
+        `이 데이터를 적용하시겠습니까?\n(대상 직원의 기존 스케줄은 덮어씌워집니다)`;
 
-        console.log(`📥 가져온 스케줄: ${rawSchedules.length}건`);
+    if (!confirm(confirmMsg)) return;
 
-        // 1. 직원 매핑 (이름 -> ID) & 연차 정보 가져오기
-        const { data: employees } = await db.from('employees').select('id, name');
-        const empMap = new Map();
-        employees.forEach(e => empMap.set(e.name, e.id));
+    // DB 업데이트 로직
+    await applyImportedSchedules(uniqueSchedules);
+}
 
-        // 해당 월의 승인된 연차 정보 가져오기 (충돌 체크용)
-        const { data: leaves } = await db.from('leave_requests')
-            .select('*')
-            .or('status.eq.approved,final_manager_status.eq.approved'); // 승인된 건만
+async function applyImportedSchedules(newSchedules) {
+    // 1. 업데이트 대상 직원 ID 목록 추출
+    const targetEmpIds = [...new Set(newSchedules.map(s => s.employee_id))];
 
-        // 연차 검색 최적화를 위한 Set 생성 ( "empId_date" )
-        const leaveSet = new Set();
-        leaves.forEach(req => {
-            if (req.dates && Array.isArray(req.dates)) {
-                req.dates.forEach(d => leaveSet.add(`${req.employee_id}_${d}`));
-            }
-        });
+    // 2. 날짜 범위 추출
+    const dates = newSchedules.map(s => s.date);
+    const minDate = dates.sort()[0];
+    const maxDate = dates.sort()[dates.length - 1];
 
-        const newSchedules = [];
-        const unknownNames = new Set();
-        const conflictList = []; // { date, name, reason }
+    if (!minDate || !maxDate) return;
 
-        let sortCounter = 0;
+    // 3. 기존 데이터 삭제 (범위 내, 타겟 직원들만)
+    const { error: delError } = await db.from('schedules')
+        .delete()
+        .gte('date', minDate)
+        .lte('date', maxDate)
+        .in('employee_id', targetEmpIds); // ✨ 중요: 타겟 직원만 삭제
 
-        rawSchedules.forEach(item => {
-            const empId = empMap.get(item.name);
-            if (!empId) {
-                unknownNames.add(item.name);
-                return;
-            }
+    if (delError) throw new Error('기존 데이터 삭제 실패: ' + delError.message);
 
-            // ⭐️ 충돌 체크: 승인된 연차가 있다면 제외 (Local DB Priority)
-            if (leaveSet.has(`${empId}_${item.date}`)) {
-                conflictList.push({ date: item.date, name: item.name });
-                return;
-            }
+    // 4. 새 데이터 삽입
+    const insertData = newSchedules.map((s, idx) => ({
+        date: s.date,
+        employee_id: s.employee_id,
+        status: '근무',
+        sort_order: idx, // 대충 순서 넣기 (화면에서 자동 정렬됨)
+        grid_position: idx % 20 // 임시 포지션
+    }));
 
-            newSchedules.push({
-                date: item.date,
-                employee_id: empId,
-                status: '근무', // AppSheet는 근무자만 줌
-                sort_order: sortCounter++,
-                grid_position: sortCounter // 임시
-            });
-        });
+    // 배치 처리
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < insertData.length; i += BATCH_SIZE) {
+        const batch = insertData.slice(i, i + BATCH_SIZE);
+        const { error } = await db.from('schedules').insert(batch);
+        if (error) throw new Error('데이터 저장 실패: ' + error.message);
+    }
 
-        // ⚠️ 알림 메시지 구성
-        let alertMsg = `✅ 스케줄 가져오기 성공!\n- 총 ${newSchedules.length}건의 근무 스케줄이 등록됩니다.`;
-
-        if (conflictList.length > 0) {
-            // 날짜별/사람별 그룹화해서 보여주기엔 너무 길 수 있으니 요약
-            const conflictNames = [...new Set(conflictList.map(c => c.name))];
-            alertMsg += `\n\n⛔️ 연차 충돌로직에 의해 ${conflictList.length}건이 제외되었습니다.\n(해당 직원은 승인된 연차가 있어 근무에서 제외됨)\n대상: ${conflictNames.join(', ')}`;
-            console.log('Conflicts:', conflictList);
-        }
-
-        if (unknownNames.size > 0) {
-            alertMsg += `\n\n⚠️ 이름을 찾을 수 없는 직원: ${[...unknownNames].join(', ')}`;
-        }
-
-        if (newSchedules.length === 0 && conflictList.length === 0) {
-            alert('가져올 스케줄 데이터가 없습니다.');
-            return;
-        }
-
-        if (!confirm(`${alertMsg}\n\n진행하시겠습니까?`)) return;
-
-        // 2. DB 저장
-        // 해당 월 기존 데이터 삭제
-        const startOfMonth = dayjs(month).startOf('month').format('YYYY-MM-DD');
-        const endOfMonth = dayjs(month).endOf('month').format('YYYY-MM-DD');
-
-        await db.from('schedules').delete().gte('date', startOfMonth).lte('date', endOfMonth);
-
-        // 배치 삽입
-        const BATCH_SIZE = 100;
-        for (let i = 0; i < newSchedules.length; i += BATCH_SIZE) {
-            const batch = newSchedules.slice(i, i + BATCH_SIZE);
-            const { error } = await db.from('schedules').insert(batch);
-            if (error) throw error;
-        }
-
-        alert('스케줄 가져오기 성공!');
-
-        // 화면 갱신
-        if (window.loadAndRenderScheduleData) {
-            window.loadAndRenderScheduleData(state.schedule.currentDate);
-        } else {
-            location.reload();
-        }
-
-    } catch (error) {
-        console.error('Import Error:', error);
-        alert('스케줄 가져오기 실패: ' + error.message);
+    alert('✅ 스케줄 업데이트 완료!');
+    if (window.loadAndRenderScheduleData) {
+        window.loadAndRenderScheduleData(state.schedule.currentDate);
+    } else {
+        location.reload();
     }
 }

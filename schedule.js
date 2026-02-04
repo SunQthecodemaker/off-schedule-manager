@@ -1,10 +1,12 @@
 import { state, db } from './state.js';
-import { _, show, hide } from './utils.js';
+import { _, _all, show, hide } from './utils.js';
+import { syncToAppSheet, importFromAppSheet, setScriptUrl, getScriptUrl } from './appsheet-client.js';
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
 import { registerManualLeave, cancelManualLeave } from './management.js';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
+
 state.schedule.activeDepartmentFilters = new Set();
 state.schedule.companyHolidays = new Set();
 state.schedule.activeReorder = {
@@ -2583,6 +2585,11 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
             </div>
             <div class="flex items-center gap-2">
                 <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
+                <!-- AppSheet Integration -->
+                <button id="sync-appsheet-btn" class="bg-indigo-600 text-white hover:bg-indigo-700" title="AppSheet로 데이터 전송">📤 동기화</button>
+                <button id="import-appsheet-btn" class="bg-purple-600 text-white hover:bg-purple-700" title="AppSheet 스케줄 가져오기">📥 가져오기</button>
+                <button id="appsheet-settings-btn" class="bg-gray-200 text-gray-700 hover:bg-gray-300" title="AppSheet 연동 설정">⚙️</button>
+                <!-- End AppSheet Integration -->
                 <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
@@ -2626,6 +2633,11 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
         _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
+
+        // AppSheet Handlers
+        _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
+        _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
+        _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
@@ -2642,6 +2654,16 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     } catch (error) {
         console.error('Error in initial render:', error);
         alert('초기 데이터 로딩에 실패했습니다: ' + error.message);
+    }
+}
+
+// ✨ AppSheet 설정 핸들러
+function handleAppSheetSettings() {
+    const currentUrl = getScriptUrl();
+    const newUrl = prompt('Google Apps Script 웹 앱 URL을 입력하세요:\n(배포된 웹 앱 URL)', currentUrl);
+    if (newUrl !== null) {
+        setScriptUrl(newUrl);
+        alert('연동 URL이 저장되었습니다.');
     }
 }
 
