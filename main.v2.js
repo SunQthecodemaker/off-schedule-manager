@@ -1,6 +1,6 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=2.3';
+import { renderScheduleManagement } from './schedule.js?v=FIX_SORTABLE_FINAL';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=2.3';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=2.3';
 import { renderEmployeePortal } from './employee-portal-final.js?v=2.3';
