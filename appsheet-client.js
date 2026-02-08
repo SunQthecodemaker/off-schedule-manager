@@ -196,17 +196,41 @@ export async function importFromAppSheet() {
 
     // 상태 저장 변수
     let parsedDataResult = null;
+    let pastedRawHtml = ''; // ✨ Ghost Paste: HTML 데이터를 메모리에만 저장
 
     const closeModal = () => modal.remove();
     closeBtn.onclick = closeModal;
 
-    wrapToggle.onchange = (e) => {
-        // HTML 모드에서는 줄바꿈 토글이 큰 의미 없지만 유지
-        if (e.target.checked) {
-            textarea.style.whiteSpace = 'pre-wrap';
+    // ✨ Ghost Paste Listener
+    // 대량의 HTML 테이블을 contenteditable에 직접 렌더링하면 브라우저가 멈춤.
+    // 따라서 붙여넣기 이벤트를 가로채서 데이터만 저장하고, 화면에는 텍스트만 표시함.
+    textarea.addEventListener('paste', (e) => {
+        e.preventDefault();
+
+        const clipboardHtml = e.clipboardData.getData('text/html');
+        const clipboardText = e.clipboardData.getData('text/plain');
+
+        if (clipboardHtml) {
+            pastedRawHtml = clipboardHtml;
+            textarea.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full text-green-600 space-y-2">
+                    <span class="text-4xl">✅</span>
+                    <span class="font-bold text-lg">데이터 붙여넣기 완료!</span>
+                    <span class="text-sm text-gray-500">(브라우저 멈춤 방지를 위해 표는 표시하지 않습니다)</span>
+                    <span class="text-xs text-gray-400 mt-2">바로 아래 [분석하기] 버튼을 눌러주세요.</span>
+                </div>
+            `;
         } else {
-            textarea.style.whiteSpace = 'normal';
+            // HTML이 없는 경우 (일반 텍스트)
+            textarea.innerText = clipboardText; // fallback
+            pastedRawHtml = ''; // 초기화
         }
+    });
+
+    wrapToggle.onchange = (e) => {
+        // ... (토글 로직 유지, Ghost Paste 시에는 의미 없지만 텍스트 모드 대비)
+        if (e.target.checked) textarea.style.whiteSpace = 'pre-wrap';
+        else textarea.style.whiteSpace = 'normal';
     };
 
     analyzeBtn.onclick = () => {
@@ -465,6 +489,9 @@ function analyzePastedTable(containerEl, targetMonthStr) {
 /**
  * 미리보기 렌더링
  */
+/**
+ * 미리보기 렌더링 (참고: 성능 최적화를 위한 페이지네이션)
+ */
 function renderPreview(result) {
     const container = document.getElementById('preview-container');
     const actions = document.getElementById('preview-actions');
@@ -482,10 +509,6 @@ function renderPreview(result) {
         return;
     }
 
-    const dates = [...new Set(result.schedules.map(s => s.date))].sort();
-    const minD = dates[0];
-    const maxD = dates[dates.length - 1];
-
     countSpan.textContent = `총 ${result.schedules.length}건`;
     actions.classList.remove('hidden');
 
@@ -497,7 +520,11 @@ function renderPreview(result) {
 
     const sortedDates = Object.keys(grouped).sort();
 
-    // ✨ 헤더 분석 결과 시각화 (디버깅용)
+    // ✨ 성능 최적화: 7일씩 끊어서 렌더링 (Pagination)
+    const BATCH_SIZE = 7;
+    let currentBatchIndex = 0;
+
+    // 헤더 분석 정보 (항상 표시)
     let debugHtml = `
         <details class="mb-4 text-xs bg-gray-50 border rounded p-2 flex-shrink-0">
             <summary class="font-bold text-gray-500 cursor-pointer select-none">🔍 시스템이 인식한 날짜 헤더 보기 (여기를 눌러 확인)</summary>
@@ -512,43 +539,74 @@ function renderPreview(result) {
         </details>
     `;
 
-    let html = debugHtml + `<div class="grid grid-cols-1 gap-4 p-2">`;
+    // 메인 컨테이너 초기화
+    container.innerHTML = debugHtml + `<div id="preview-list" class="grid grid-cols-1 gap-4 p-2"></div>`;
+    const listContainer = container.querySelector('#preview-list');
 
-    const totalItems = Object.values(grouped).reduce((acc, arr) => acc + arr.length, 0);
+    // "더 보기" 버튼 생성
+    const loadMoreBtn = document.createElement('button');
+    loadMoreBtn.className = "w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded mt-4 text-sm hidden";
+    loadMoreBtn.innerHTML = "⬇️ 다음 날짜 더 보기";
+    container.appendChild(loadMoreBtn);
 
-    sortedDates.forEach(date => {
-        const daySchedules = grouped[date];
-        const dayStr = dayjs(date).format('MM-DD (ddd)');
-        const maxPos = Math.max(...daySchedules.map(s => s.grid_position));
-        const rowCount = Math.floor(maxPos / 4) + 1;
+    // 렌더링 함수
+    const renderBatch = () => {
+        const start = currentBatchIndex * BATCH_SIZE;
+        const end = start + BATCH_SIZE;
+        const batchDates = sortedDates.slice(start, end);
 
-        // ✨ 성능 최적화: content-visibility: auto (화면 밖 요소 렌더링 생략)
-        html += `
-            <div class="border rounded bg-white shadow-sm overflow-hidden mb-4" style="content-visibility: auto; contain-intrinsic-size: 100px;">
-                <div class="bg-gray-100 px-3 py-2 font-bold text-sm border-b flex justify-between">
-                    <span>${dayStr}</span>
-                    <span class="text-xs text-gray-500 font-normal">${daySchedules.length}명</span>
-                </div>
-                <div class="grid grid-cols-4 gap-px bg-gray-200 border-b">
-        `;
-
-        const totalCells = rowCount * 4;
-        for (let i = 0; i < totalCells; i++) {
-            const match = daySchedules.find(s => s.grid_position === i);
-            if (match) {
-                html += `
-                    <div class="bg-white p-2 min-h-[60px] flex flex-col justify-center items-center text-center relative hover:bg-purple-50 transition-colors">
-                        <span class="font-bold text-sm text-gray-800">${match.name}</span>
-                        <span class="text-[10px] text-gray-500 block leading-tight mt-0.5">${match.dept}</span>
-                    </div>
-                `;
-            } else {
-                html += `<div class="bg-white min-h-[60px]"></div>`;
-            }
+        if (batchDates.length === 0) {
+            loadMoreBtn.classList.add('hidden');
+            return;
         }
-        html += `</div></div>`;
-    });
 
-    html += `</div>`;
-    container.innerHTML = html;
+        let html = '';
+        batchDates.forEach(date => {
+            const daySchedules = grouped[date];
+            const dayStr = dayjs(date).format('MM-DD (ddd)');
+            const maxPos = Math.max(...daySchedules.map(s => s.grid_position));
+            const rowCount = Math.floor(maxPos / 4) + 1;
+
+            html += `
+                <div class="border rounded bg-white shadow-sm overflow-hidden mb-4" style="content-visibility: auto; contain-intrinsic-size: 100px;">
+                    <div class="bg-gray-100 px-3 py-2 font-bold text-sm border-b flex justify-between">
+                        <span>${dayStr}</span>
+                        <span class="text-xs text-gray-500 font-normal">${daySchedules.length}명</span>
+                    </div>
+                    <div class="grid grid-cols-4 gap-px bg-gray-200 border-b">
+            `;
+
+            const totalCells = rowCount * 4;
+            for (let i = 0; i < totalCells; i++) {
+                const match = daySchedules.find(s => s.grid_position === i);
+                if (match) {
+                    html += `
+                        <div class="bg-white p-2 min-h-[60px] flex flex-col justify-center items-center text-center relative hover:bg-purple-50 transition-colors">
+                            <span class="font-bold text-sm text-gray-800">${match.name}</span>
+                            <span class="text-[10px] text-gray-500 block leading-tight mt-0.5">${match.dept}</span>
+                        </div>
+                    `;
+                } else {
+                    html += `<div class="bg-white min-h-[60px]"></div>`;
+                }
+            }
+            html += `</div></div>`;
+        });
+
+        listContainer.insertAdjacentHTML('beforeend', html);
+
+        currentBatchIndex++;
+        if (currentBatchIndex * BATCH_SIZE >= sortedDates.length) {
+            loadMoreBtn.classList.add('hidden');
+        } else {
+            loadMoreBtn.classList.remove('hidden');
+            loadMoreBtn.textContent = `⬇️ 다음 날짜 더 보기 (${Math.min((currentBatchIndex + 1) * BATCH_SIZE, sortedDates.length)} / ${sortedDates.length})`;
+        }
+    };
+
+    // 초기 실행
+    renderBatch();
+
+    // 버튼 이벤트
+    loadMoreBtn.onclick = renderBatch;
 }
