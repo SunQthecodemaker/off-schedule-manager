@@ -201,30 +201,30 @@ export async function importFromAppSheet() {
     const closeModal = () => modal.remove();
     closeBtn.onclick = closeModal;
 
-    // ✨ Ghost Paste Listener
-    // 대량의 HTML 테이블을 contenteditable에 직접 렌더링하면 브라우저가 멈춤.
-    // 따라서 붙여넣기 이벤트를 가로채서 데이터만 저장하고, 화면에는 텍스트만 표시함.
+    // ✨ Grid Canvas Paste Listener (v3.0)
+    // 엑셀 복사 시 TSV(Tab-Separated Values) 형태로 데이터를 받아서
+    // 2D 배열로 변환 후 HTML 그리드로 시각화
+    let pastedGrid = null; // 2D 배열 저장
+
     textarea.addEventListener('paste', (e) => {
         e.preventDefault();
 
-        const clipboardHtml = e.clipboardData.getData('text/html');
+        // TSV 데이터 추출 (엑셀 복사 시 기본 형식)
         const clipboardText = e.clipboardData.getData('text/plain');
 
-        if (clipboardHtml) {
-            pastedRawHtml = clipboardHtml;
-            textarea.innerHTML = `
-                <div class="flex flex-col items-center justify-center h-full text-green-600 space-y-2">
-                    <span class="text-4xl">✅</span>
-                    <span class="font-bold text-lg">데이터 붙여넣기 완료!</span>
-                    <span class="text-sm text-gray-500">(브라우저 멈춤 방지를 위해 표는 표시하지 않습니다)</span>
-                    <span class="text-xs text-gray-400 mt-2">바로 아래 [분석하기] 버튼을 눌러주세요.</span>
-                </div>
-            `;
-        } else {
-            // HTML이 없는 경우 (일반 텍스트)
-            textarea.innerText = clipboardText; // fallback
-            pastedRawHtml = ''; // 초기화
+        if (!clipboardText || !clipboardText.trim()) {
+            alert('붙여넣기 데이터가 비어있습니다.');
+            return;
         }
+
+        // TSV → 2D 배열 변환
+        pastedGrid = parseTSV(clipboardText);
+
+        // 그리드 시각화
+        const gridHtml = renderGridPreview(pastedGrid);
+        textarea.innerHTML = gridHtml;
+
+        console.log('✅ Grid parsed:', pastedGrid.length, 'rows x', pastedGrid[0]?.length || 0, 'cols');
     });
 
     wrapToggle.onchange = (e) => {
@@ -235,60 +235,21 @@ export async function importFromAppSheet() {
 
     analyzeBtn.onclick = () => {
         const targetMonth = monthInput.value;
-        let sourceElement;
 
-        // 1. Ghost Paste 데이터가 있으면 우선 사용
-        if (typeof pastedRawHtml !== 'undefined' && pastedRawHtml) {
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = pastedRawHtml;
-            sourceElement = tempDiv;
-        }
-        // 2. 없으면 화면에 있는 내용 사용 (DOM)
-        else {
-            sourceElement = textarea;
-        }
-
-        // 내용 확인
-        const hasTable = sourceElement.querySelector('table');
-        const hasText = sourceElement.innerText.trim().length > 0;
-
-        if (!hasTable && !hasText) {
+        // 그리드 데이터 확인
+        if (!pastedGrid || pastedGrid.length === 0) {
             alert('데이터를 붙여넣어주세요.');
             return;
         }
 
         try {
-            if (hasTable) {
-                // ✨ 1순위: HTML 테이블 파싱 (정확도 높음, 병합 셀 지원)
-                console.log('HTML 테이블 감지됨: 테이블 파싱 시도');
-                parsedDataResult = analyzePastedTable(sourceElement, targetMonth);
-            } else {
-                // ✨ 2순위: 텍스트 파싱 (Fallback)
-                console.warn('HTML 테이블 없음: 텍스트 파싱 시도 (병합 셀 미지원)');
-                if (typeof analyzePastedText === 'function') {
-                    const textContent = sourceElement.innerText || sourceElement.textContent;
-                    parsedDataResult = analyzePastedText(textContent, targetMonth);
-                } else {
-                    throw new Error('텍스트 분석 함수를 찾을 수 없습니다.');
-                }
-            }
-
+            // ✨ Grid 기반 파싱 (v3.0)
+            console.log('🔍 Grid 분석 시작:', pastedGrid.length, 'rows');
+            parsedDataResult = analyzeGridData(pastedGrid, targetMonth);
             renderPreview(parsedDataResult);
         } catch (err) {
             console.error('파싱 실패:', err);
-            // 만약 테이블 파싱에서 실패했다면 텍스트 파싱으로 재시도
-            if (hasTable && typeof analyzePastedText === 'function') {
-                try {
-                    console.log('테이블 파싱 실패 후 텍스트 파싱 재시도...');
-                    const textContent = sourceElement.innerText || sourceElement.textContent;
-                    parsedDataResult = analyzePastedText(textContent, targetMonth);
-                    renderPreview(parsedDataResult);
-                    return;
-                } catch (textErr) {
-                    console.error('텍스트 파싱도 실패:', textErr);
-                }
-            }
-            alert('분석 실패: ' + err.message + '\n(엑셀에서 복사했는지 확인해주세요)');
+            alert('분석 실패: ' + err.message + '\n\n데이터 형식을 확인해주세요.');
         }
     };
 
@@ -307,6 +268,181 @@ export async function importFromAppSheet() {
         }
     };
 }
+
+// =============================================================================
+// ✨ Grid-Based Import Functions (v3.0)
+// =============================================================================
+
+/**
+ * TSV → 2D 배열 변환
+ */
+function parseTSV(text) {
+    const lines = text.split('\n');
+    return lines.map(line => line.split('\t').map(cell => cell.trim()));
+}
+
+/**
+ * 2D 배열 → HTML 그리드 시각화
+ */
+function renderGridPreview(grid) {
+    if (!grid || grid.length === 0) {
+        return '<div class="p-4 text-center text-gray-500">데이터가 비어있습니다.</div>';
+    }
+
+    let html = `
+        <div class="p-2 bg-green-50 border border-green-200 rounded mb-2 text-sm text-green-700">
+            ✅ <strong>${grid.length}행 × ${grid[0]?.length || 0}열</strong> 데이터 인식 완료! 아래 [분석하기] 버튼을 눌러주세요.
+        </div>
+        <div class="overflow-auto max-h-96 border rounded">
+            <table class="w-full text-xs border-collapse">
+    `;
+
+    grid.forEach((row, rowIdx) => {
+        html += '<tr>';
+        row.forEach((cell, colIdx) => {
+            const bgClass = rowIdx === 0 ? 'bg-gray-100 font-bold' : 'bg-white';
+            html += `<td class="${bgClass} border border-gray-300 px-2 py-1 whitespace-nowrap">${cell || '&nbsp;'}</td>`;
+        });
+        html += '</tr>';
+    });
+
+    html += '</table></div>';
+    return html;
+}
+
+/**
+ * Grid 데이터 분석 (핵심 로직)
+ */
+function analyzeGridData(grid, targetMonthStr) {
+    const baseDate = dayjs(targetMonthStr + '-01');
+
+    // 직원 매핑
+    const targetDeptNames = ['원장', '진료', '진료실', '진료팀', '진료부'];
+    const empMap = new Map();
+    state.management.employees.forEach(e => {
+        const dept = state.management.departments.find(d => d.id === e.department_id);
+        if (dept) {
+            empMap.set(e.name.replace(/\s+/g, ''), {
+                id: e.id,
+                name: e.name,
+                deptName: dept.name
+            });
+        }
+    });
+
+    // 1단계: 날짜 헤더 행 찾기
+    let headerRowIndex = -1;
+    const dateMap = new Map(); // colIndex → { date, raw }
+    const detectedHeaders = [];
+
+    const fullDateRegex = /^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/;
+    const simpleDayRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
+    const holidayKeywords = ['휴일', '휴무', '대체공휴일', '공휴일'];
+
+    for (let r = 0; r < Math.min(grid.length, 10); r++) {
+        const row = grid[r];
+        let dateCount = 0;
+
+        for (let c = 0; c < row.length; c++) {
+            const cell = row[c];
+            if (!cell) continue;
+
+            // 휴일 키워드 체크 - 이 셀은 날짜로 인식하지 않음
+            if (holidayKeywords.some(k => cell.includes(k))) {
+                continue;
+            }
+
+            // 날짜 패턴 감지
+            const fullMatch = cell.match(fullDateRegex);
+            if (fullMatch) {
+                const y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
+                const m = parseInt(fullMatch[2], 10);
+                const d = parseInt(fullMatch[3], 10);
+                if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                    const dateStr = dayjs(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`).format('YYYY-MM-DD');
+                    dateMap.set(c, { date: dateStr, raw: cell });
+                    detectedHeaders.push({ date: dateStr, raw: cell, col: c });
+                    dateCount++;
+                    continue;
+                }
+            }
+
+            const simpleMatch = cell.match(simpleDayRegex);
+            if (simpleMatch) {
+                const d = parseInt(simpleMatch[1], 10);
+                if (d >= 1 && d <= 31) {
+                    const dateStr = baseDate.date(d).format('YYYY-MM-DD');
+                    dateMap.set(c, { date: dateStr, raw: cell });
+                    detectedHeaders.push({ date: dateStr, raw: cell, col: c });
+                    dateCount++;
+                }
+            }
+        }
+
+        // 2개 이상의 날짜가 있으면 헤더 행으로 인식
+        if (dateCount >= 2) {
+            headerRowIndex = r;
+            break;
+        }
+    }
+
+    if (headerRowIndex === -1) {
+        return { schedules: [], headerFound: false, headers: [] };
+    }
+
+    // 2단계: 데이터 행 파싱
+    const schedules = [];
+
+    for (let r = headerRowIndex + 1; r < grid.length; r++) {
+        const row = grid[r];
+
+        for (let c = 0; c < row.length; c++) {
+            const cell = row[c];
+            if (!cell) continue;
+
+            // 제외 키워드
+            if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => cell.includes(k))) {
+                continue;
+            }
+
+            // 이름 추출
+            let cleanName = cell.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
+            const lookupName = cleanName.replace(/\s+/g, '');
+
+            if (lookupName.length >= 2) {
+                const emp = empMap.get(lookupName);
+                if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
+                    const dateInfo = dateMap.get(c);
+                    if (dateInfo) {
+                        // Grid Position: 행 인덱스 기반
+                        const rowPos = r - headerRowIndex - 1;
+
+                        // 중복 체크
+                        const exists = schedules.some(s => s.date === dateInfo.date && s.grid_position === rowPos);
+                        if (!exists) {
+                            schedules.push({
+                                date: dateInfo.date,
+                                name: emp.name,
+                                dept: emp.deptName,
+                                employee_id: emp.id,
+                                raw: cell,
+                                grid_position: rowPos
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return {
+        schedules: schedules,
+        headerFound: true,
+        headers: detectedHeaders
+    };
+}
+
+/**
 
 /**
  * ✨ HTML 테이블 분석 로직 (병합된 셀 지원)
