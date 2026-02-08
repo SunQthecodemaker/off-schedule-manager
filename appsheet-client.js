@@ -234,24 +234,61 @@ export async function importFromAppSheet() {
     };
 
     analyzeBtn.onclick = () => {
-        // HTML 파싱을 위해 innerHTML 사용 안함 (이미 DOM에 있으므로 쿼리 가능)
-        // 하지만 격리된 분석을 위해 클론을 만들거나, 직접 element를 넘김
-        const toggleBtn = document.getElementById('mode-toggle-btn');
         const targetMonth = monthInput.value;
+        let sourceElement;
+
+        // 1. Ghost Paste 데이터가 있으면 우선 사용
+        if (typeof pastedRawHtml !== 'undefined' && pastedRawHtml) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = pastedRawHtml;
+            sourceElement = tempDiv;
+        }
+        // 2. 없으면 화면에 있는 내용 사용 (DOM)
+        else {
+            sourceElement = textarea;
+        }
 
         // 내용 확인
-        if (!textarea.innerText.trim() && !textarea.querySelector('table')) {
+        const hasTable = sourceElement.querySelector('table');
+        const hasText = sourceElement.innerText.trim().length > 0;
+
+        if (!hasTable && !hasText) {
             alert('데이터를 붙여넣어주세요.');
             return;
         }
 
         try {
-            // ✨ HTML 테이블 파싱 로직 호출
-            parsedDataResult = analyzePastedTable(textarea, targetMonth);
+            if (hasTable) {
+                // ✨ 1순위: HTML 테이블 파싱 (정확도 높음, 병합 셀 지원)
+                console.log('HTML 테이블 감지됨: 테이블 파싱 시도');
+                parsedDataResult = analyzePastedTable(sourceElement, targetMonth);
+            } else {
+                // ✨ 2순위: 텍스트 파싱 (Fallback)
+                console.warn('HTML 테이블 없음: 텍스트 파싱 시도 (병합 셀 미지원)');
+                if (typeof analyzePastedText === 'function') {
+                    const textContent = sourceElement.innerText || sourceElement.textContent;
+                    parsedDataResult = analyzePastedText(textContent, targetMonth);
+                } else {
+                    throw new Error('텍스트 분석 함수를 찾을 수 없습니다.');
+                }
+            }
+
             renderPreview(parsedDataResult);
         } catch (err) {
-            console.error(err);
-            alert('분석 실패: ' + err.message);
+            console.error('파싱 실패:', err);
+            // 만약 테이블 파싱에서 실패했다면 텍스트 파싱으로 재시도
+            if (hasTable && typeof analyzePastedText === 'function') {
+                try {
+                    console.log('테이블 파싱 실패 후 텍스트 파싱 재시도...');
+                    const textContent = sourceElement.innerText || sourceElement.textContent;
+                    parsedDataResult = analyzePastedText(textContent, targetMonth);
+                    renderPreview(parsedDataResult);
+                    return;
+                } catch (textErr) {
+                    console.error('텍스트 파싱도 실패:', textErr);
+                }
+            }
+            alert('분석 실패: ' + err.message + '\n(엑셀에서 복사했는지 확인해주세요)');
         }
     };
 
