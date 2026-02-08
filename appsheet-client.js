@@ -150,7 +150,7 @@ export async function importFromAppSheet() {
                         </div>
 
                         <!-- 미리보기 컨테이너 (남은 공간 모두 차지 + 스크롤) -->
-                        <div id="preview-container" class="flex-1 min-h-[200px] border rounded-lg bg-white overflow-y-auto shadow-sm p-2">
+                        <div id="preview-container" class="flex-1 border rounded-lg bg-white overflow-y-auto shadow-sm p-2" style="max-height: 65vh; min-height: 200px;">
                             <div class="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
                                 <svg class="w-16 h-16 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
                                 <p>왼쪽에 데이터를 붙여넣고 [분석하기]를 눌러주세요.</p>
@@ -487,25 +487,17 @@ function renderPreview(result) {
 
     let html = debugHtml + `<div class="grid grid-cols-1 gap-4 p-2">`;
 
-    const MAX_PREVIEW_ITEMS = 300; // ✨ UI 멈춤 방지 제한
     const totalItems = Object.values(grouped).reduce((acc, arr) => acc + arr.length, 0);
-    const isTruncated = totalItems > MAX_PREVIEW_ITEMS;
-
-    // 만약 너무 많으면 날짜 단위로 자르거나, 전체에서 자름
-    let renderedCount = 0;
 
     sortedDates.forEach(date => {
-        if (renderedCount >= MAX_PREVIEW_ITEMS) return;
-
         const daySchedules = grouped[date];
         const dayStr = dayjs(date).format('MM-DD (ddd)');
         const maxPos = Math.max(...daySchedules.map(s => s.grid_position));
         const rowCount = Math.floor(maxPos / 4) + 1;
 
-        renderedCount += daySchedules.length;
-
+        // ✨ 성능 최적화: content-visibility: auto (화면 밖 요소 렌더링 생략)
         html += `
-            <div class="border rounded bg-white shadow-sm overflow-hidden">
+            <div class="border rounded bg-white shadow-sm overflow-hidden mb-4" style="content-visibility: auto; contain-intrinsic-size: 100px;">
                 <div class="bg-gray-100 px-3 py-2 font-bold text-sm border-b flex justify-between">
                     <span>${dayStr}</span>
                     <span class="text-xs text-gray-500 font-normal">${daySchedules.length}명</span>
@@ -529,15 +521,6 @@ function renderPreview(result) {
         }
         html += `</div></div>`;
     });
-
-    if (isTruncated) {
-        html += `
-            <div class="p-4 text-center bg-yellow-50 text-yellow-800 font-bold rounded shadow-sm">
-                ⚡ 성능 최적화를 위해 미리보기는 ${MAX_PREVIEW_ITEMS}개까지만 표시됩니다.<br>
-                (실제 적용 시에는 ${totalItems}개 모두 정상적으로 저장됩니다)
-            </div>
-        `;
-    }
 
     html += `</div>`;
     container.innerHTML = html;
