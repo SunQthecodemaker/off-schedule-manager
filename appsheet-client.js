@@ -269,9 +269,15 @@ function analyzePastedText(text, targetMonthStr) {
     let headerRowIndex = -1;
 
     // 날짜 헤더 감지를 위한 정규식
-    // 예: "2일", "2(월)", "02일 (월)", "2 일"
-    // 숫자와 '일' 사이 공백 허용, 또는 괄호 요일 허용
-    const dateRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
+    // 1. YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD (연도는 선택)
+    // 2. MM-DD, MM.DD, MM/DD
+    // 3. 1일, 1(월)
+    // const dateRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/; // Old
+
+    // 통합 Regex: (Group 1,2,3: Full Date) OR (Group 4: Simple Day)
+    // 주의: 단순 숫자(1, 2)는 날짜로 오인될 수 있으므로 구분자가 있거나 '일/요일'이 있어야 함
+    const fullDateRegex = /^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/;
+    const simpleDayRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
 
     // 디버그용: 감지된 헤더 정보 저장
     const detectedHeaders = [];
@@ -289,11 +295,29 @@ function analyzePastedText(text, targetMonthStr) {
         const potentialDates = [];
         cells.forEach((cell, idx) => {
             const trimmed = cell.trim();
-            const match = trimmed.match(dateRegex);
-            if (match) {
-                const day = parseInt(match[1], 10);
-                if (day >= 1 && day <= 31) {
-                    potentialDates.push({ idx, day, text: trimmed });
+            if (!trimmed) return;
+
+            // 1. Full Date Check (2024-05-01, 5/1 etc)
+            const fullMatch = trimmed.match(fullDateRegex);
+            if (fullMatch) {
+                // fullMatch[1]=Year(opt), [2]=Month, [3]=Day
+                let y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
+                let m = parseInt(fullMatch[2], 10);
+                let d = parseInt(fullMatch[3], 10);
+
+                // 유효성 검사 (월 1~12, 일 1~31)
+                if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                    potentialDates.push({ idx, year: y, month: m, day: d, text: trimmed, type: 'full' });
+                    return;
+                }
+            }
+
+            // 2. Simple Day Check (1일, 1(월))
+            const simpleMatch = trimmed.match(simpleDayRegex);
+            if (simpleMatch) {
+                const d = parseInt(simpleMatch[1], 10);
+                if (d >= 1 && d <= 31) {
+                    potentialDates.push({ idx, day: d, text: trimmed, type: 'simple' });
                 }
             }
         });
@@ -308,7 +332,21 @@ function analyzePastedText(text, targetMonthStr) {
                 const item = potentialDates[k];
                 const nextItem = potentialDates[k + 1];
 
-                const resolvedDate = baseDate.date(item.day);
+                // 날짜 객체 생성
+                let resolvedDate;
+                if (item.type === 'full') {
+                    // 연/월/일이 명시된 경우
+                    // 만약 연도가 없으면 baseDate의 연도 사용 (위에서 처리됨)
+                    // 월이 다를 수 있으므로 dayjs(new Date(y, m-1, d)) 사용 권장
+                    // dayjs는 month가 0-indexed가 아님 ('YYYY-MM-DD' 포맷 권장)
+                    const mStr = String(item.month).padStart(2, '0');
+                    const dStr = String(item.day).padStart(2, '0');
+                    resolvedDate = dayjs(`${item.year}-${mStr}-${dStr}`);
+                } else {
+                    // 일만 있는 경우 -> baseDate의 월 사용
+                    resolvedDate = baseDate.clone().date(item.day);
+                }
+
                 const dateStr = resolvedDate.format('YYYY-MM-DD');
 
                 // 2. Col Span 계산
@@ -449,11 +487,22 @@ function renderPreview(result) {
 
     let html = debugHtml + `<div class="grid grid-cols-1 gap-4 p-2">`;
 
+    const MAX_PREVIEW_ITEMS = 300; // ✨ UI 멈춤 방지 제한
+    const totalItems = Object.values(grouped).reduce((acc, arr) => acc + arr.length, 0);
+    const isTruncated = totalItems > MAX_PREVIEW_ITEMS;
+
+    // 만약 너무 많으면 날짜 단위로 자르거나, 전체에서 자름
+    let renderedCount = 0;
+
     sortedDates.forEach(date => {
+        if (renderedCount >= MAX_PREVIEW_ITEMS) return;
+
         const daySchedules = grouped[date];
         const dayStr = dayjs(date).format('MM-DD (ddd)');
         const maxPos = Math.max(...daySchedules.map(s => s.grid_position));
         const rowCount = Math.floor(maxPos / 4) + 1;
+
+        renderedCount += daySchedules.length;
 
         html += `
             <div class="border rounded bg-white shadow-sm overflow-hidden">
@@ -480,6 +529,15 @@ function renderPreview(result) {
         }
         html += `</div></div>`;
     });
+
+    if (isTruncated) {
+        html += `
+            <div class="p-4 text-center bg-yellow-50 text-yellow-800 font-bold rounded shadow-sm">
+                ⚡ 성능 최적화를 위해 미리보기는 ${MAX_PREVIEW_ITEMS}개까지만 표시됩니다.<br>
+                (실제 적용 시에는 ${totalItems}개 모두 정상적으로 저장됩니다)
+            </div>
+        `;
+    }
 
     html += `</div>`;
     container.innerHTML = html;
