@@ -71,13 +71,6 @@ export async function syncToAppSheet() {
             leaves: flatLeaves
         };
 
-        // 3. 전송 (no-cors 모드 주의: GAS 웹앱은 POST 응답을 제대로 받으려면 리다이렉트가 일어나는데 
-        // fetch는 이를 opaque response로 처리할 수 있음.
-        // 또는 text/plain으로 보내야 CORS 프리플라이트를 피할 수 있음)
-
-        // GAS는 POST 요청 시 JSON.parse(e.postData.contents)로 읽으려면 Content-Type이 필요할 수 있으나
-        // text/plain으로 보내고 GAS에서 파싱하는 게 가장 안전함.
-
         const response = await fetch(scriptUrl, {
             method: 'POST',
             mode: 'no-cors', // 불투명 응답 (성공 여부 알 수 없음)
@@ -87,8 +80,6 @@ export async function syncToAppSheet() {
             body: JSON.stringify(payload)
         });
 
-        // no-cors라 response.ok 확인 불가, response.json() 불가.
-        // 에러가 안 나면 성공으로 간주하거나, GET으로 확인해야 함.
         alert('데이터 전송을 요청했습니다.\n(잠시 후 시트에서 데이터가 갱신되었는지 확인하세요)');
 
     } catch (error) {
@@ -106,52 +97,83 @@ export async function importFromAppSheet() {
     // 1. 모달 생성 (붙여넣기 입력창 + 미리보기 존)
     const currentMonthStr = dayjs(state.schedule.currentDate).format('YYYY-MM');
 
-    // ✨ UI 개선: overflow-hidden으로 모달 전체 스크롤 방지, 내부 영역만 스크롤
+    // ✨ UI 개선: 
+    // - h-[85vh]로 높이 고정
+    // - Flex 구조로 헤더/바디/푸터 분리: 불필요시 바디 내에서 스크롤 처리
+    // - Textarea: overflow-auto, flex-1 적용하여 남는 공간만 차지하고 스크롤 생김
     const modalHtml = `
-        <div id="paste-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-6xl h-5/6 flex flex-col overflow-hidden">
-                <div class="flex justify-between items-center mb-4 flex-shrink-0">
-                    <h3 class="text-lg font-bold">📆 앱시트 스케줄 가져오기 (배치 반영)</h3>
-                    <button id="close-modal-x" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+        <div id="paste-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-70 flex items-center justify-center z-[9999]">
+            <div class="bg-white rounded-xl shadow-2xl w-[95%] max-w-7xl h-[85vh] flex flex-col overflow-hidden">
+                <!-- 헤더 -->
+                <div class="flex justify-between items-center p-4 border-b bg-gray-50 flex-shrink-0">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-800">📆 앱시트 스케줄 가져오기</h3>
+                        <p class="text-xs text-gray-500 mt-1">앱시트의 "배치(행/열)"를 그대로 반영하여 가져옵니다.</p>
+                    </div>
+                    <button id="close-modal-x" class="text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
                 </div>
 
-                <div class="grid grid-cols-2 gap-6 flex-1 min-h-0 overflow-hidden">
-                    <!-- 왼쪽: 입력 -->
-                    <div class="flex flex-col h-full overflow-hidden">
-                        <div class="mb-2 text-sm text-gray-700 bg-gray-50 p-3 rounded flex-shrink-0">
-                            <label class="block font-bold mb-1">1. 적용할 월 선택</label>
-                            <input type="month" id="import-month" value="${currentMonthStr}" class="border rounded px-2 py-1 w-full mb-3">
+                <!-- 바디 (2단 컬럼) -->
+                <div class="flex-1 flex overflow-hidden">
+                    
+                    <!-- 왼쪽: 입력 (40%) -->
+                    <div class="w-2/5 flex flex-col border-r p-4 bg-white h-full relative">
+                        <div class="flex-shrink-0 mb-4 space-y-3">
+                            <div>
+                                <label class="block font-bold text-gray-700 mb-1">1. 적용할 월 선택 (기준 월)</label>
+                                <input type="month" id="import-month" value="${currentMonthStr}" class="border border-gray-300 rounded px-3 py-2 w-full focus:ring-2 focus:ring-purple-500 outline-none">
+                            </div>
                             
-                            <div class="flex items-center justify-between mb-1">
-                                <p class="font-bold">2. 데이터 붙여넣기</p>
-                                <label class="flex items-center space-x-2 text-xs text-gray-600 cursor-pointer select-none">
-                                    <input type="checkbox" id="wrap-toggle" class="form-checkbox h-3 w-3 text-purple-600 rounded focus:ring-purple-500">
-                                    <span class="font-medium">줄바꿈 (Word Wrap)</span>
+                            <div class="flex items-center justify-between">
+                                <label class="font-bold text-gray-700">2. 데이터 붙여넣기</label>
+                                <label class="flex items-center space-x-2 text-xs text-gray-600 cursor-pointer select-none bg-gray-100 px-2 py-1 rounded hover:bg-gray-200">
+                                    <input type="checkbox" id="wrap-toggle" class="form-checkbox h-3 w-3 text-purple-600 rounded">
+                                    <span>줄바꿈 보기</span>
                                 </label>
                             </div>
-                            <p class="text-xs text-gray-500 mb-1">
-                                앱시트(구글 시트)에서 날짜 행(예: 1일, 2일...)을 포함하여 스케줄 전체를 복사(Ctrl+C)한 뒤 붙여넣기(Ctrl+V) 하세요.<br>
-                                <span class="text-red-600 font-bold">* 중요: 빈 칸도 위치에 반영됩니다.</span>
+                            <p class="text-xs text-gray-500 bg-blue-50 p-2 rounded text-blue-700 leading-tight">
+                                💡 팁: 앱시트에서 <strong>날짜 행을 포함하여</strong> 드래그 복사하세요.<br>
+                                요일(예: 월, 화) 정보가 포함되어야 날짜가 정확히 매핑됩니다.
                             </p>
                         </div>
-                        <textarea id="paste-area" class="flex-1 w-full p-2 border border-gray-300 rounded font-mono text-xs whitespace-pre overflow-auto resize-none" placeholder="여기에 엑셀 데이터를 붙여넣으세요..."></textarea>
-                        <button id="analyze-paste-btn" class="mt-2 w-full py-3 bg-purple-600 text-white rounded font-bold hover:bg-purple-700 flex-shrink-0">🔍 데이터 분석 및 미리보기</button>
+
+                        <!-- 텍스트 영역: 남는 높이 모두 차지 + 스크롤 -->
+                        <div class="flex-1 relative border border-gray-300 rounded overflow-hidden shadow-inner">
+                            <textarea id="paste-area" class="absolute inset-0 w-full h-full p-3 font-mono text-xs outline-none resize-none whitespace-pre overflow-auto focus:bg-gray-50 transition-colors" placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></textarea>
+                        </div>
+
+                        <!-- 분석 버튼 -->
+                        <button id="analyze-paste-btn" class="mt-4 w-full py-4 bg-purple-600 text-white rounded-lg font-bold text-lg hover:bg-purple-700 shadow-md transition-transform transform active:scale-95 flex-shrink-0">
+                            🔍 데이터 분석하기
+                        </button>
                     </div>
 
-                    <!-- 오른쪽: 미리보기 -->
-                    <div class="flex flex-col h-full bg-gray-50 rounded p-3 border border-gray-200 overflow-hidden">
-                        <h4 class="font-bold mb-2 flex justify-between flex-shrink-0">
-                            <span>미리보기 (적용 대상: 원장/진료실)</span>
-                            <span id="preview-count" class="text-sm font-normal text-purple-600"></span>
-                        </h4>
-                        <div id="preview-container" class="flex-1 overflow-auto border bg-white text-xs">
-                            <div class="p-4 text-center text-gray-400 mt-10">
-                                왼쪽 테두리에 데이터를 붙여넣고 [분석] 버튼을 눌러주세요.
+                    <!-- 오른쪽: 미리보기 (60%) -->
+                    <div class="w-3/5 flex flex-col p-4 bg-gray-50 h-full overflow-hidden">
+                        <div class="flex justify-between items-center mb-2 flex-shrink-0">
+                            <h4 class="font-bold text-gray-700">3. 미리보기 및 적용</h4>
+                            <span id="preview-count" class="text-sm font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full"></span>
+                        </div>
+
+                        <!-- 미리보기 컨테이너: 스크롤 영역 -->
+                        <div id="preview-container" class="flex-1 border rounded-lg bg-white overflow-auto shadow-sm p-2">
+                            <div class="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
+                                <svg class="w-16 h-16 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                <p>왼쪽에 데이터를 붙여넣고 [분석하기]를 눌러주세요.</p>
                             </div>
                         </div>
-                        <div id="preview-actions" class="mt-2 text-right hidden flex-shrink-0">
-                             <p class="text-xs text-red-500 mb-2 font-bold">* 기존 스케줄은 덮어쓰기 됩니다.</p>
-                            <button id="apply-import-btn" class="px-6 py-3 bg-green-600 text-white rounded font-bold hover:bg-green-700 shadow-md">✅ 적용하기 (위치 포함)</button>
+
+                        <!-- 적용 버튼 영역 (분석 후 표시) - 고정됨 -->
+                        <div id="preview-actions" class="mt-4 hidden flex-shrink-0 z-10">
+                            <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100 shadow-sm">
+                                <p class="text-xs text-red-500 font-bold flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    주의: 해당 월의 기존 스케줄은 모두 덮어쓰기 됩니다.
+                                </p>
+                                <button id="apply-import-btn" class="px-8 py-3 bg-green-600 text-white rounded-lg font-bold text-base hover:bg-green-700 shadow flex items-center transition-colors">
+                                    <span>✅ 스케줄 최종 적용</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -217,7 +239,7 @@ export async function importFromAppSheet() {
             return;
         }
         try {
-            if (confirm(`총 ${parsedDataResult.schedules.length}건의 스케줄을 적용하시겠습니까?`)) {
+            if (confirm(`총 ${parsedDataResult.schedules.length}건의 스케줄을 실제 시스템에 적용하시겠습니까?\n\n(❗️ 해당 기간의 기존 스케줄은 삭제됩니다)`)) {
                 await applyImportedSchedules(parsedDataResult.schedules);
                 closeModal();
             }
@@ -229,13 +251,14 @@ export async function importFromAppSheet() {
 
 /**
  * 텍스트 분석 로직
- * ✨ 탭(Tab)으로 구분된 셀 위치를 기반으로 Grid Position 계산
+ * ✨ 1. 요일(수, 목)을 확인하여 월(Month) 자동 보정 (3/1이 일요일인데 1(수)라면 4월로 인식)
+ * ✨ 2. 날짜 간격을 계산하여 Column Span 자동 감지
  */
 function analyzePastedText(text, targetMonthStr) {
     const lines = text.split('\n').map(l => l.trimEnd());
-    const targetDate = dayjs(targetMonthStr + '-01'); // 선택한 월의 1일
-    const targetYear = targetDate.year();
-    const targetMonth = targetDate.month() + 1; // 1-12
+
+    // 기준 월 설정
+    const baseDate = dayjs(targetMonthStr + '-01'); // 2026-03-01
 
     // 1. 직원 정보 및 타겟 부서 매핑
     const targetDeptNames = ['원장', '진료', '진료실', '진료팀', '진료부'];
@@ -243,7 +266,8 @@ function analyzePastedText(text, targetMonthStr) {
     state.management.employees.forEach(e => {
         const dept = state.management.departments.find(d => d.id === e.department_id);
         if (dept) {
-            empMap.set(e.name, {
+            // 이름 정규화 (공백제거)
+            empMap.set(e.name.replace(/\s+/g, ''), {
                 id: e.id,
                 name: e.name,
                 deptId: e.department_id,
@@ -252,100 +276,151 @@ function analyzePastedText(text, targetMonthStr) {
         }
     });
 
-    let currentDates = {}; // { colIndex: { date: "YYYY-MM-DD", startColIdx: number } }
+    let currentDates = {}; // { colIndex: { date: "YYYY-MM-DD", startColIdx: number, span: number } }
     const schedules = [];
-
     let headerRowIndex = -1;
 
-    // 날짜 헤더 감지를 위한 정규식 (1일, 01일, 1(월), 등)
-    const dateRegex = /^0?(\d{1,2})\s*(일|\([월화수목금토일]\))?/;
+    // 날짜 헤더 감지를 위한 정규식
+    // ✨ 필수조건: 숫자 뒤에 '일'이 있거나, 괄호로 감싸진 요일이 있어야 함.
+    // 예: "2일", "2(월)", "02일 (월)"
+    // (단순 숫자만 있는 경우 제외하여 통계 데이터 오탐지 방지)
+    const dateRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
+
+    // 요일 매핑 for 검증
+    const weekDayMap = { '일': 0, '월': 1, '화': 2, '수': 3, '목': 4, '금': 5, '토': 6 };
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (!line.trim()) continue;
 
-        // 탭으로 분리 (빈 셀 유지)
+        // ✨ 통계 라인 등 명확히 아닌 행은 아예 date parsing 시도조차 하지 않음
+        if (line.includes('TO:') || line.includes('근무:') || line.includes('목표:')) continue;
+
         const cells = line.split('\t');
 
         // A. 날짜 행 판단
-        // 이번 행에 날짜가 몇 개나 있는지 확인
-        const dateIndices = [];
+        const potentialDates = [];
         cells.forEach((cell, idx) => {
             const trimmed = cell.trim();
-            // 숫자 + '일' 또는 숫자 + '요일' 패턴 확인 (1~31 범위)
             const match = trimmed.match(dateRegex);
             if (match) {
+                // match[1]은 날짜 숫자
                 const day = parseInt(match[1], 10);
+
+                // 요일 추출 (괄호 안의 문자)
+                const weekMatch = trimmed.match(/\(([월화수목금토일])\)/);
+                const weekChar = weekMatch ? weekMatch[1] : undefined;
+
+                // 날짜가 1~31 사이인지 확인
                 if (day >= 1 && day <= 31) {
-                    dateIndices.push({ idx, day });
+                    potentialDates.push({ idx, day, weekChar });
                 }
             }
         });
 
         // 날짜가 2개 이상 발견되면 헤더 행으로 간주
-        // (가끔 데이터 내용 중에 날짜 같은 숫자가 있을 수 있으므로 여러 개 발견 시 헤더 확신)
-        if (dateIndices.length >= 2) {
+        if (potentialDates.length >= 2) {
             currentDates = {};
             headerRowIndex = i;
 
-            dateIndices.forEach(item => {
-                const dateObj = dayjs(`${targetYear}-${targetMonth}-${item.day}`);
-                if (dateObj.isValid()) {
-                    const dateStr = dateObj.format('YYYY-MM-DD');
-                    const info = { date: dateStr, startColIdx: item.idx };
+            // ✨ 날짜 매핑 로직 (월 보정)
+            for (let k = 0; k < potentialDates.length; k++) {
+                const item = potentialDates[k];
+                const nextItem = potentialDates[k + 1];
 
-                    // 해당 컬럼부터 +3 (총 4칸)까지 이 날짜 구역으로 설정
-                    // ✨ 중요: 앱시트가 4칸 병합 셀이라면, 탭 분리 시 빈 셀 3개가 뒤따를 수 있음.
-                    // 또는 병합되지 않은 4칸일 수도 있음.
-                    // 일단 시작 인덱스 기준으로 4칸을 매핑해둠.
-                    currentDates[item.idx] = info;
-                    currentDates[item.idx + 1] = info;
-                    currentDates[item.idx + 2] = info;
-                    currentDates[item.idx + 3] = info;
+                // 1. 요일로 월 추정
+                let resolvedDate = null;
+
+                // 후보: 이번달(1순위), 지난달, 다음달
+                // ✨ 중요: 이번달을 가장 먼저 체크해야 함 (요일 같을 경우 이번달 우선)
+                const candidates = [
+                    baseDate.date(item.day),                 // 이번달
+                    baseDate.subtract(1, 'month').date(item.day), // 지난달
+                    baseDate.add(1, 'month').date(item.day)       // 다음달
+                ];
+
+                if (item.weekChar) {
+                    // 요일이 맞아야만 함
+                    const targetDay = weekDayMap[item.weekChar];
+                    resolvedDate = candidates.find(d => d.day() === targetDay);
                 }
-            });
+
+                // 요일이 없거나 매칭 실패 시 -> 이번달 우선
+                if (!resolvedDate) {
+                    resolvedDate = candidates[0];
+                }
+
+                if (!resolvedDate || !resolvedDate.isValid()) continue;
+
+                const dateStr = resolvedDate.format('YYYY-MM-DD');
+
+                // 2. Col Span 계산 (다음 날짜와의 간격)
+                let span = 4; // 기본값
+                if (nextItem) {
+                    span = nextItem.idx - item.idx;
+                    // 너무 좁거나(1 미만) 너무 넓으면(10 초과) 기본값 4
+                    if (span < 1 || span > 10) span = 4;
+                } else {
+                    // 마지막 날짜는 이전 간격을 따라감 (단, 첫 날짜면 기본값 4)
+                    const prevItem = potentialDates[k - 1];
+                    if (prevItem) {
+                        const prevSpan = item.idx - prevItem.idx;
+                        if (prevSpan >= 1 && prevSpan <= 10) span = prevSpan;
+                    }
+                }
+
+                const info = { date: dateStr, startColIdx: item.idx, span: span };
+
+                // 해당 범위만큼 매핑
+                for (let offset = 0; offset < span; offset++) {
+                    currentDates[item.idx + offset] = info;
+                }
+            }
             continue;
         }
 
         // B. 데이터 행 처리
         if (headerRowIndex === -1) continue;
-
-        // 현재 행이 헤더로부터 얼마나 떨어져 있는지 (1부터 시작 -> 그대로 row index로 사용)
         const rowOffset = i - headerRowIndex - 1;
         if (rowOffset < 0) continue;
 
-        // 너무 멀거나(예: 요일 행 다음 실제 데이터가 아닌 행) 하는 경우 체크
-        // 일단 데이터가 있으면 처리.
-
         cells.forEach((cell, idx) => {
             const rawName = cell.trim();
-            if (!rawName) return; // 이름 없는 칸 무시
+            if (!rawName) return;
 
             const dateInfo = currentDates[idx];
             if (!dateInfo) return; // 날짜 컬럼 영역 밖
 
-            // 필터 키워드 (통계나 기타 텍스트 제외)
-            if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원'].some(k => rawName.includes(k))) return;
+            // 필터 키워드
+            if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => rawName.includes(k))) return;
 
             // 이름 정제
             let cleanName = rawName.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
-            if (cleanName.length < 2) return;
+            // 공백 제거 후 비교 (이름에 공백 실수 방지)
+            const lookupName = cleanName.replace(/\s+/g, '');
+            if (lookupName.length < 2) return;
 
-            const emp = empMap.get(cleanName);
+            const emp = empMap.get(lookupName);
             if (emp) {
                 const isTarget = targetDeptNames.some(k => emp.deptName.includes(k));
                 if (isTarget) {
                     // ✨ 그리드 포지션 계산 (행 * 4 + 열)
-                    // 가로 오프셋 (0~3): 현재 셀의 인덱스 - 시작 인덱스
+                    // 가로 오프셋: (현재 인덱스 - 시작 인덱스)
                     let colOffset = idx - dateInfo.startColIdx;
 
-                    // 안전장치: 범위를 벗어나면 0으로 처리하거나 무시
-                    if (colOffset < 0) colOffset = 0;
-                    if (colOffset > 3) colOffset = 3; // 4칸을 넘어가면 마지막 칸으로
+                    // Span에 맞춰 4칸 그리드로 정규화
+                    // 만약 Span이 1칸(단일 컬럼)이라면 -> 세로로 쌓아야 하나?
+                    // 현재 시스템은 가로 4칸이 한 행.
+                    // 소스 데이터가 4칸이라면 1:1 매핑.
+                    // 소스 데이터가 1칸이라면? -> 항상 첫 칸에 들어감. (원하는 대로 배치 안될 수 있음)
+                    // -> 사용자 스크린샷은 4칸 구조임.
 
+                    if (colOffset >= 4) colOffset = 3; // 4칸 넘어가면 마지막에
+
+                    // grid_position = (행 * 4) + 열
                     const gridPos = (rowOffset * 4) + colOffset;
 
-                    // 중복 방지 (같은 날, 같은 사람)
+                    // 중복 방지
                     const exists = schedules.some(s => s.date === dateInfo.date && s.employee_id === emp.id);
                     if (!exists) {
                         schedules.push({
@@ -354,7 +429,7 @@ function analyzePastedText(text, targetMonthStr) {
                             dept: emp.deptName,
                             employee_id: emp.id,
                             raw: rawName,
-                            grid_position: gridPos // ✨ 위치 정보 저장
+                            grid_position: gridPos
                         });
                     }
                 }
@@ -362,7 +437,7 @@ function analyzePastedText(text, targetMonthStr) {
         });
     }
 
-    // 정렬 (미리보기용): 날짜 별 -> 위치 별
+    // 정렬
     schedules.sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return a.grid_position - b.grid_position;
@@ -380,18 +455,23 @@ function renderPreview(result) {
     const countSpan = document.getElementById('preview-count');
 
     if (!result.headerFound) {
-        container.innerHTML = `<div class="p-4 text-center text-red-500 font-bold">❌ 날짜 행을 찾을 수 없습니다.<br>복사한 데이터에 "1일", "2일" 또는 "1(월)" 같은 날짜가 2개 이상 포함되어 있어야 합니다.</div>`;
+        container.innerHTML = `<div class="p-4 text-center text-red-500 font-bold">❌ 날짜 행을 찾을 수 없습니다.<br>복사한 데이터에 "2일 (월)", "3일" 같은 날짜가 2개 이상 포함되어 있어야 합니다.</div>`;
         actions.classList.add('hidden');
         return;
     }
 
     if (result.schedules.length === 0) {
-        container.innerHTML = `<div class="p-4 text-center text-orange-500 font-bold">⚠️ 날짜는 찾았으나, 매칭되는 직원(원장/진료실)이 없습니다.<br>이름이 DB와 정확히 일치하는지 확인해주세요.<br>(예: '김철수' vs '김철수 원장님')</div>`;
+        container.innerHTML = `<div class="p-4 text-center text-orange-500 font-bold">⚠️ 날짜는 찾았으나, 매칭되는 직원이 없습니다.<br>이름이 DB와 일치하는지 확인해주세요.</div>`;
         actions.classList.add('hidden');
         return;
     }
 
-    countSpan.textContent = `총 ${result.schedules.length}건`;
+    // 최소/최대 날짜 범위 표시
+    const dates = [...new Set(result.schedules.map(s => s.date))].sort();
+    const minD = dates[0];
+    const maxD = dates[dates.length - 1];
+
+    countSpan.textContent = `총 ${result.schedules.length}건 (${minD} ~ ${maxD})`;
     actions.classList.remove('hidden');
 
     // 날짜별 그룹화
@@ -401,17 +481,14 @@ function renderPreview(result) {
         grouped[s.date].push(s);
     });
 
-    // 날짜 오름차순 정렬
     const sortedDates = Object.keys(grouped).sort();
 
-    // HTML 생성
     let html = `<div class="grid grid-cols-1 gap-4 p-2">`;
 
     sortedDates.forEach(date => {
         const daySchedules = grouped[date];
         const dayStr = dayjs(date).format('MM-DD (ddd)');
 
-        // 최대 grid_position 찾기 (행 개수 결정용)
         const maxPos = Math.max(...daySchedules.map(s => s.grid_position));
         const rowCount = Math.floor(maxPos / 4) + 1; // 4칸 기준 행 수
 
@@ -421,11 +498,9 @@ function renderPreview(result) {
                     <span>${dayStr}</span>
                     <span class="text-xs text-gray-500 font-normal">${daySchedules.length}명</span>
                 </div>
-                <!-- 4열 그리드, 최소 높이 확보 -->
                 <div class="grid grid-cols-4 gap-px bg-gray-200 border-b">
         `;
 
-        // 그리드 셀 생성
         const totalCells = rowCount * 4;
         for (let i = 0; i < totalCells; i++) {
             const match = daySchedules.find(s => s.grid_position === i);
@@ -434,11 +509,10 @@ function renderPreview(result) {
                     <div class="bg-white p-2 min-h-[60px] flex flex-col justify-center items-center text-center relative hover:bg-purple-50 transition-colors">
                         <span class="font-bold text-sm text-gray-800">${match.name}</span>
                         <span class="text-[10px] text-gray-500 block leading-tight mt-0.5">${match.dept}</span>
-                        ${match.raw !== match.name ? `<span class="text-[9px] text-gray-400 block zoom-text absolute top-1 right-1" title="${match.raw}">*</span>` : ''}
                     </div>
                 `;
             } else {
-                html += `<div class="bg-white min-h-[60px]"></div>`; // 빈 셀 (테두리는 gap으로 처리됨)
+                html += `<div class="bg-white min-h-[60px]"></div>`;
             }
         }
 
@@ -463,7 +537,7 @@ async function applyImportedSchedules(newSchedules) {
 
     if (!minDate || !maxDate) return;
 
-    // 1. 기존 데이터 삭제 (해당 기간, 해당 직원들만)
+    // 1. 기존 데이터 삭제
     const { error: delError } = await db.from('schedules')
         .delete()
         .gte('date', minDate)
@@ -472,7 +546,7 @@ async function applyImportedSchedules(newSchedules) {
 
     if (delError) throw new Error('기존 데이터 삭제 실패: ' + delError.message);
 
-    // 2. 새 데이터 삽입 (grid_position 포함)
+    // 2. 새 데이터 삽입
     const insertData = newSchedules.map((s, idx) => ({
         date: s.date,
         employee_id: s.employee_id,
