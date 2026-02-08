@@ -312,6 +312,9 @@ function renderGridPreview(grid) {
 
 /**
  * Grid 데이터 분석 (핵심 로직)
+ * ✨ 중요: 엑셀 원본은 "행(Row) = 날짜" 구조!
+ *    - 각 행이 하나의 날짜를 나타냄 (세로 방향)
+ *    - 각 열이 직원 위치 (가로 방향)
  */
 function analyzeGridData(grid, targetMonthStr) {
     const baseDate = dayjs(targetMonthStr + '-01');
@@ -330,105 +333,90 @@ function analyzeGridData(grid, targetMonthStr) {
         }
     });
 
-    // 1단계: 날짜 헤더 행 찾기
-    let headerRowIndex = -1;
-    const dateMap = new Map(); // colIndex → { date, raw }
+    const schedules = [];
     const detectedHeaders = [];
 
     const fullDateRegex = /^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/;
     const simpleDayRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
     const holidayKeywords = ['휴일', '휴무', '대체공휴일', '공휴일'];
 
-    for (let r = 0; r < Math.min(grid.length, 10); r++) {
+    // 각 행을 순회 (각 행 = 하나의 날짜)
+    for (let r = 0; r < grid.length; r++) {
         const row = grid[r];
-        let dateCount = 0;
+        if (!row || row.length === 0) continue;
 
-        for (let c = 0; c < row.length; c++) {
-            const cell = row[c];
-            if (!cell) continue;
+        // 첫 번째 셀에서 날짜 찾기
+        const firstCell = row[0];
+        if (!firstCell) continue;
 
-            // 휴일 키워드 체크 - 이 셀은 날짜로 인식하지 않음
-            if (holidayKeywords.some(k => cell.includes(k))) {
-                continue;
+        // 휴일 키워드 체크
+        if (holidayKeywords.some(k => firstCell.includes(k))) {
+            console.log(`⏭️ 휴일 감지 (행 ${r}):`, firstCell);
+            continue;
+        }
+
+        let dateStr = null;
+
+        // 날짜 패턴 감지
+        const fullMatch = firstCell.match(fullDateRegex);
+        if (fullMatch) {
+            const y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
+            const m = parseInt(fullMatch[2], 10);
+            const d = parseInt(fullMatch[3], 10);
+            if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                dateStr = dayjs(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`).format('YYYY-MM-DD');
             }
+        }
 
-            // 날짜 패턴 감지
-            const fullMatch = cell.match(fullDateRegex);
-            if (fullMatch) {
-                const y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
-                const m = parseInt(fullMatch[2], 10);
-                const d = parseInt(fullMatch[3], 10);
-                if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-                    const dateStr = dayjs(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`).format('YYYY-MM-DD');
-                    dateMap.set(c, { date: dateStr, raw: cell });
-                    detectedHeaders.push({ date: dateStr, raw: cell, col: c });
-                    dateCount++;
-                    continue;
-                }
-            }
-
-            const simpleMatch = cell.match(simpleDayRegex);
+        if (!dateStr) {
+            const simpleMatch = firstCell.match(simpleDayRegex);
             if (simpleMatch) {
                 const d = parseInt(simpleMatch[1], 10);
                 if (d >= 1 && d <= 31) {
-                    const dateStr = baseDate.date(d).format('YYYY-MM-DD');
-                    dateMap.set(c, { date: dateStr, raw: cell });
-                    detectedHeaders.push({ date: dateStr, raw: cell, col: c });
-                    dateCount++;
+                    dateStr = baseDate.date(d).format('YYYY-MM-DD');
                 }
             }
         }
 
-        // 2개 이상의 날짜가 있으면 헤더 행으로 인식
-        if (dateCount >= 2) {
-            headerRowIndex = r;
-            break;
-        }
-    }
+        // 날짜를 찾았으면 이 행의 직원 데이터 파싱
+        if (dateStr) {
+            detectedHeaders.push({ date: dateStr, raw: firstCell, row: r });
+            console.log(`📅 날짜 감지 (행 ${r}):`, dateStr, '←', firstCell);
 
-    if (headerRowIndex === -1) {
-        return { schedules: [], headerFound: false, headers: [] };
-    }
+            // 1열부터 끝까지 직원 이름 찾기 (0열은 날짜)
+            for (let c = 1; c < row.length; c++) {
+                const cell = row[c];
+                if (!cell) continue;
 
-    // 2단계: 데이터 행 파싱
-    const schedules = [];
+                // 제외 키워드
+                if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:', 'TO', '근무:'].some(k => cell.includes(k))) {
+                    continue;
+                }
 
-    for (let r = headerRowIndex + 1; r < grid.length; r++) {
-        const row = grid[r];
+                // 이름 추출
+                let cleanName = cell.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
+                const lookupName = cleanName.replace(/\s+/g, '');
 
-        for (let c = 0; c < row.length; c++) {
-            const cell = row[c];
-            if (!cell) continue;
+                if (lookupName.length >= 2) {
+                    const emp = empMap.get(lookupName);
+                    if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
+                        // ✨ Grid Position: 열 인덱스 - 1 (0열은 날짜이므로)
+                        // 1열 → grid_position 0
+                        // 2열 → grid_position 1
+                        // 3열 → grid_position 2
+                        // 4열 → grid_position 3
+                        const gridPos = c - 1;
 
-            // 제외 키워드
-            if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => cell.includes(k))) {
-                continue;
-            }
+                        schedules.push({
+                            date: dateStr,
+                            name: emp.name,
+                            dept: emp.deptName,
+                            employee_id: emp.id,
+                            raw: cell,
+                            grid_position: gridPos
+                        });
 
-            // 이름 추출
-            let cleanName = cell.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
-            const lookupName = cleanName.replace(/\s+/g, '');
-
-            if (lookupName.length >= 2) {
-                const emp = empMap.get(lookupName);
-                if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
-                    const dateInfo = dateMap.get(c);
-                    if (dateInfo) {
-                        // Grid Position: 행 인덱스 기반
-                        const rowPos = r - headerRowIndex - 1;
-
-                        // 중복 체크
-                        const exists = schedules.some(s => s.date === dateInfo.date && s.grid_position === rowPos);
-                        if (!exists) {
-                            schedules.push({
-                                date: dateInfo.date,
-                                name: emp.name,
-                                dept: emp.deptName,
-                                employee_id: emp.id,
-                                raw: cell,
-                                grid_position: rowPos
-                            });
-                        }
+                        console.log(`  👤 직원 추가: ${emp.name} (열 ${c} → pos ${gridPos})`);
                     }
                 }
             }
@@ -437,7 +425,7 @@ function analyzeGridData(grid, targetMonthStr) {
 
     return {
         schedules: schedules,
-        headerFound: true,
+        headerFound: detectedHeaders.length > 0,
         headers: detectedHeaders
     };
 }
