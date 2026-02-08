@@ -87,26 +87,29 @@ export async function syncToAppSheet() {
 export async function importFromAppSheet() {
     const currentMonthStr = dayjs(state.schedule.currentDate).format('YYYY-MM');
 
-    // ✨ UI 개선: 
-    // - 텍스트 입력창 높이를 고정(h-96)하고 absolute 제거하여 확실히 보이게 함
+    // ✨ UI 개선 3차: Flexbox 완벽 적용 
+    // - 모달 전체 높이 제한 (max-h-90vh)
+    // - 내부 영역은 flex-1 min-h-0 으로 설정하여 넘치는 내용만 스크롤되도록 함
+    // - 버튼과 헤더는 flex-shrink-0 으로 고정
     const modalHtml = `
-        <div id="paste-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-70 flex items-center justify-center z-[9999]">
-            <div class="bg-white rounded-xl shadow-2xl w-[95%] max-w-7xl h-[85vh] flex flex-col overflow-hidden">
-                <!-- 헤더 -->
+        <div id="paste-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-70 flex items-center justify-center z-[9999] p-4">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col overflow-hidden">
+                <!-- 헤더 (고정) -->
                 <div class="flex justify-between items-center p-4 border-b bg-gray-50 flex-shrink-0">
                     <div>
-                        <h3 class="text-xl font-bold text-gray-800">📆 앱시트 스케줄 가져오기</h3>
-                        <p class="text-xs text-gray-500 mt-1">앱시트의 "배치(행/열)"를 그대로 반영하여 가져옵니다.</p>
+                        <h3 class="text-xl font-bold text-gray-800">📆 앱시트 스케줄 가져오기 (v2.2)</h3>
+                        <p class="text-xs text-gray-500 mt-1">앱시트의 "배치(행/열)"를 그대로 반영하여 가져옵니다. (요일 무시, 선택한 월 기준)</p>
                     </div>
                     <button id="close-modal-x" class="text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
                 </div>
 
-                <!-- 바디 (2단 컬럼) -->
-                <div class="flex-1 flex overflow-hidden">
+                <!-- 바디 (2단 컬럼) - 높이 유동적 -->
+                <div class="flex-1 flex overflow-hidden min-h-0">
                     
                     <!-- 왼쪽: 입력 (40%) -->
-                    <div class="w-2/5 flex flex-col border-r p-4 bg-white h-full relative overflow-y-auto">
-                        <div class="flex-shrink-0 mb-4 space-y-3">
+                    <div class="w-2/5 flex flex-col border-r p-4 bg-white h-full">
+                        <!-- 설정 영역 (고정) -->
+                        <div class="flex-shrink-0 mb-2 space-y-3">
                             <div>
                                 <label class="block font-bold text-gray-700 mb-1">1. 적용할 월 선택 (기준 월)</label>
                                 <input type="month" id="import-month" value="${currentMonthStr}" class="border border-gray-300 rounded px-3 py-2 w-full focus:ring-2 focus:ring-purple-500 outline-none">
@@ -125,41 +128,44 @@ export async function importFromAppSheet() {
                             </p>
                         </div>
 
-                        <!-- 텍스트 영역: 고정 높이 400px (h-96은 24rem=384px) -->
-                        <div class="mt-2 mb-4">
-                            <textarea id="paste-area" class="w-full h-96 p-3 border border-gray-300 rounded font-mono text-xs outline-none resize-none whitespace-pre overflow-auto focus:bg-gray-50 transition-colors shadow-inner" placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></textarea>
+                        <!-- 텍스트 영역 (남은 공간 모두 차지 + 스크롤) -->
+                        <div class="flex-1 min-h-[200px] mb-4 border border-gray-300 rounded overflow-hidden shadow-inner">
+                            <textarea id="paste-area" 
+                                class="w-full h-full p-3 font-mono text-xs outline-none resize-none whitespace-pre overflow-auto bg-yellow-50 focus:bg-white transition-colors block" 
+                                placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></textarea>
                         </div>
 
-                        <!-- 분석 버튼 -->
-                        <button id="analyze-paste-btn" class="w-full py-4 bg-purple-600 text-white rounded-lg font-bold text-lg hover:bg-purple-700 shadow-md transition-transform transform active:scale-95 flex-shrink-0">
+                        <!-- 분석 버튼 (고정) -->
+                        <button id="analyze-paste-btn" class="w-full py-3 bg-purple-600 text-white rounded-lg font-bold text-lg hover:bg-purple-700 shadow-md transition-transform transform active:scale-95 flex-shrink-0">
                             🔍 데이터 분석하기
                         </button>
                     </div>
 
                     <!-- 오른쪽: 미리보기 (60%) -->
-                    <div class="w-3/5 flex flex-col p-4 bg-gray-50 h-full overflow-hidden">
+                    <div class="w-3/5 flex flex-col p-4 bg-gray-50 h-full">
+                        <!-- 헤더 (고정) -->
                         <div class="flex justify-between items-center mb-2 flex-shrink-0">
                             <h4 class="font-bold text-gray-700">3. 미리보기 및 적용</h4>
                             <span id="preview-count" class="text-sm font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full"></span>
                         </div>
 
-                        <!-- 미리보기 컨테이너 -->
-                        <div id="preview-container" class="flex-1 border rounded-lg bg-white overflow-auto shadow-sm p-2">
+                        <!-- 미리보기 컨테이너 (남은 공간 모두 차지 + 스크롤) -->
+                        <div id="preview-container" class="flex-1 min-h-[200px] border rounded-lg bg-white overflow-y-auto shadow-sm p-2">
                             <div class="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
                                 <svg class="w-16 h-16 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
                                 <p>왼쪽에 데이터를 붙여넣고 [분석하기]를 눌러주세요.</p>
                             </div>
                         </div>
 
-                        <!-- 적용 버튼 영역 -->
-                        <div id="preview-actions" class="mt-4 hidden flex-shrink-0 z-10">
-                            <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100 shadow-sm">
+                        <!-- 적용 버튼 영역 (고정) -->
+                        <div id="preview-actions" class="mt-4 hidden flex-shrink-0 z-10 w-full">
+                            <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100 shadow-sm w-full">
                                 <p class="text-xs text-red-500 font-bold flex items-center">
                                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                    주의: 해당 월의 기존 스케줄은 모두 덮어쓰기 됩니다.
+                                    주의: 해당 월 기존 스케줄 덮어쓰기
                                 </p>
-                                <button id="apply-import-btn" class="px-8 py-3 bg-green-600 text-white rounded-lg font-bold text-base hover:bg-green-700 shadow flex items-center transition-colors">
-                                    <span>✅ 스케줄 최종 적용</span>
+                                <button id="apply-import-btn" class="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow flex items-center transition-colors">
+                                    <span>✅ 스케줄 적용</span>
                                 </button>
                             </div>
                         </div>
@@ -428,7 +434,7 @@ function renderPreview(result) {
 
     // ✨ 헤더 분석 결과 시각화 (디버깅용)
     let debugHtml = `
-        <details class="mb-4 text-xs bg-gray-50 border rounded p-2">
+        <details class="mb-4 text-xs bg-gray-50 border rounded p-2 flex-shrink-0">
             <summary class="font-bold text-gray-500 cursor-pointer select-none">🔍 시스템이 인식한 날짜 헤더 보기 (여기를 눌러 확인)</summary>
             <div class="mt-2 grid grid-cols-2 gap-2">
                 ${result.headers.map(h => `
