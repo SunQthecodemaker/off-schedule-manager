@@ -129,15 +129,17 @@ export async function importFromAppSheet() {
                         </div>
 
                         <!-- 텍스트 영역 (남은 공간 모두 차지 + 스크롤) -->
-                        <div class="flex-1 min-h-[200px] mb-4 border border-gray-300 rounded overflow-hidden shadow-inner">
-                            <textarea id="paste-area" 
-                                class="w-full h-full p-3 font-mono text-xs outline-none resize-none whitespace-pre overflow-auto bg-yellow-50 focus:bg-white transition-colors block" 
-                                placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></textarea>
+                        <div class="flex-1 min-h-[200px] mb-4 border border-gray-300 rounded overflow-hidden shadow-inner bg-white">
+                            <div id="paste-area" 
+                                contenteditable="true"
+                                class="w-full h-full p-3 text-xs outline-none overflow-auto focus:bg-white transition-colors block"
+                                style="white-space: normal;"
+                                placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></div>
                         </div>
 
-                        <!-- 분석 버튼 (고정) -->
+                        <!-- 분석 버튼 (고정) - 텍스트 변경 -->
                         <button id="analyze-paste-btn" class="w-full py-3 bg-purple-600 text-white rounded-lg font-bold text-lg hover:bg-purple-700 shadow-md transition-transform transform active:scale-95 flex-shrink-0">
-                            🔍 데이터 분석하기
+                            🔍 HTML 테이블 분석하기 (추천)
                         </button>
                     </div>
 
@@ -199,25 +201,29 @@ export async function importFromAppSheet() {
     closeBtn.onclick = closeModal;
 
     wrapToggle.onchange = (e) => {
+        // HTML 모드에서는 줄바꿈 토글이 큰 의미 없지만 유지
         if (e.target.checked) {
-            textarea.classList.remove('whitespace-pre', 'overflow-auto');
-            textarea.classList.add('whitespace-pre-wrap', 'overflow-y-auto');
+            textarea.style.whiteSpace = 'pre-wrap';
         } else {
-            textarea.classList.remove('whitespace-pre-wrap', 'overflow-y-auto');
-            textarea.classList.add('whitespace-pre', 'overflow-auto');
+            textarea.style.whiteSpace = 'normal';
         }
     };
 
     analyzeBtn.onclick = () => {
-        const text = textarea.value;
+        // HTML 파싱을 위해 innerHTML 사용 안함 (이미 DOM에 있으므로 쿼리 가능)
+        // 하지만 격리된 분석을 위해 클론을 만들거나, 직접 element를 넘김
+        const toggleBtn = document.getElementById('mode-toggle-btn');
         const targetMonth = monthInput.value;
-        if (!text.trim()) {
+
+        // 내용 확인
+        if (!textarea.innerText.trim() && !textarea.querySelector('table')) {
             alert('데이터를 붙여넣어주세요.');
             return;
         }
 
         try {
-            parsedDataResult = analyzePastedText(text, targetMonth);
+            // ✨ HTML 테이블 파싱 로직 호출
+            parsedDataResult = analyzePastedTable(textarea, targetMonth);
             renderPreview(parsedDataResult);
         } catch (err) {
             console.error(err);
@@ -242,14 +248,19 @@ export async function importFromAppSheet() {
 }
 
 /**
- * 텍스트 분석 로직
+ * ✨ HTML 테이블 분석 로직 (병합된 셀 지원)
  */
-function analyzePastedText(text, targetMonthStr) {
-    const lines = text.split('\n').map(l => l.trimEnd());
+function analyzePastedTable(containerEl, targetMonthStr) {
+    // 1. 테이블 찾기
+    const table = containerEl.querySelector('table');
+    if (!table) {
+        throw new Error('붙여넣은 데이터에서 표(Table)를 찾을 수 없습니다. 엑셀이나 구글 시트에서 복사해주세요.');
+    }
 
-    // 기준 월 설정 (사용자가 선택한 월)
+    const rows = Array.from(table.rows);
     const baseDate = dayjs(targetMonthStr + '-01');
 
+    // 직원 매핑 정보 생성
     const targetDeptNames = ['원장', '진료', '진료실', '진료팀', '진료부'];
     const empMap = new Map();
     state.management.employees.forEach(e => {
@@ -264,174 +275,190 @@ function analyzePastedText(text, targetMonthStr) {
         }
     });
 
-    let currentDates = {};
-    const schedules = [];
-    let headerRowIndex = -1;
-
-    // 날짜 헤더 감지를 위한 정규식
-    // 1. YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD (연도는 선택)
-    // 2. MM-DD, MM.DD, MM/DD
-    // 3. 1일, 1(월)
-    // const dateRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/; // Old
-
-    // 통합 Regex: (Group 1,2,3: Full Date) OR (Group 4: Simple Day)
-    // 주의: 단순 숫자(1, 2)는 날짜로 오인될 수 있으므로 구분자가 있거나 '일/요일'이 있어야 함
+    // Regex 설정
     const fullDateRegex = /^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/;
     const simpleDayRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
 
-    // 디버그용: 감지된 헤더 정보 저장
+    let headerRowIndex = -1;
+    let dateMap = new Map(); // colIndex -> Date String
+    const schedules = [];
     const detectedHeaders = [];
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim()) continue;
+    // =================================================================================
+    // 1단계: 헤더(날짜) 행 찾기 & 컬럼 매핑 (colspan 고려)
+    // =================================================================================
 
-        // 통계 라인 제외
-        if (line.includes('TO:') || line.includes('근무:') || line.includes('목표:')) continue;
+    // 가상 그리드로 생각: rows[r].cells[c]는 실제 DOM 위치지만, 논리적 컬럼 인덱스는 계산해야 함.
+    // 하지만 여기서는 "헤더 행"만 정확히 찾으면, 그 아래 데이터는 순차적으로 매핑됨.
+    // 엑셀 복사 시 rowspan은 드물지만 colspan은 흔함 (병합된 날짜/휴일).
 
-        const cells = line.split('\t');
+    for (let r = 0; r < rows.length; r++) {
+        const cells = Array.from(rows[r].cells);
+        let potentialDateCount = 0;
+        let colIndex = 0;
+        let tempDateMap = new Map();
 
-        // A. 날짜 행 판단
-        const potentialDates = [];
-        cells.forEach((cell, idx) => {
-            const trimmed = cell.trim();
-            if (!trimmed) return;
+        for (let c = 0; c < cells.length; c++) {
+            const cell = cells[c];
+            const text = cell.innerText.trim();
+            const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
 
-            // 1. Full Date Check (2024-05-01, 5/1 etc)
-            const fullMatch = trimmed.match(fullDateRegex);
-            if (fullMatch) {
-                // fullMatch[1]=Year(opt), [2]=Month, [3]=Day
-                let y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
-                let m = parseInt(fullMatch[2], 10);
-                let d = parseInt(fullMatch[3], 10);
+            if (text) {
+                // 날짜 패턴 확인
+                let matchedDate = null;
+                const fullMatch = text.match(fullDateRegex);
+                const simpleMatch = text.match(simpleDayRegex);
 
-                // 유효성 검사 (월 1~12, 일 1~31)
-                if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-                    potentialDates.push({ idx, year: y, month: m, day: d, text: trimmed, type: 'full' });
-                    return;
-                }
-            }
-
-            // 2. Simple Day Check (1일, 1(월))
-            const simpleMatch = trimmed.match(simpleDayRegex);
-            if (simpleMatch) {
-                const d = parseInt(simpleMatch[1], 10);
-                if (d >= 1 && d <= 31) {
-                    potentialDates.push({ idx, day: d, text: trimmed, type: 'simple' });
-                }
-            }
-        });
-
-        // 날짜 2개 이상일 때 헤더로 간주
-        if (potentialDates.length >= 2) {
-            currentDates = {};
-            headerRowIndex = i;
-
-            // ✨ 날짜 매핑 로직
-            for (let k = 0; k < potentialDates.length; k++) {
-                const item = potentialDates[k];
-                const nextItem = potentialDates[k + 1];
-
-                // 날짜 객체 생성
-                let resolvedDate;
-                if (item.type === 'full') {
-                    // 연/월/일이 명시된 경우
-                    // 만약 연도가 없으면 baseDate의 연도 사용 (위에서 처리됨)
-                    // 월이 다를 수 있으므로 dayjs(new Date(y, m-1, d)) 사용 권장
-                    // dayjs는 month가 0-indexed가 아님 ('YYYY-MM-DD' 포맷 권장)
-                    const mStr = String(item.month).padStart(2, '0');
-                    const dStr = String(item.day).padStart(2, '0');
-                    resolvedDate = dayjs(`${item.year}-${mStr}-${dStr}`);
-                } else {
-                    // 일만 있는 경우 -> baseDate의 월 사용
-                    resolvedDate = baseDate.clone().date(item.day);
-                }
-
-                const dateStr = resolvedDate.format('YYYY-MM-DD');
-
-                // 2. Col Span 계산
-                let span = 4; // 기본값
-                if (nextItem) {
-                    span = nextItem.idx - item.idx;
-                    // 비정상적으로 크거나 작으면 기본값 사용 (탭 누락 대비 등)
-                    if (span < 1 || span > 10) span = 4;
-                } else {
-                    const prevItem = potentialDates[k - 1];
-                    if (prevItem) {
-                        const prevSpan = item.idx - prevItem.idx;
-                        if (prevSpan >= 1 && prevSpan <= 10) span = prevSpan;
+                if (fullMatch) {
+                    let y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
+                    let m = parseInt(fullMatch[2], 10);
+                    let d = parseInt(fullMatch[3], 10);
+                    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                        // 연도 보정: 입력 연도가 없으면, baseDate의 해당 월과 비교해서 타당성 체크 가능하나 생략
+                        matchedDate = dayjs(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`).format('YYYY-MM-DD');
+                    }
+                } else if (simpleMatch) {
+                    const d = parseInt(simpleMatch[1], 10);
+                    if (d >= 1 && d <= 31) {
+                        matchedDate = baseDate.clone().date(d).format('YYYY-MM-DD');
                     }
                 }
 
-                detectedHeaders.push({
-                    date: dateStr,
-                    col: item.idx,
-                    span: span,
-                    raw: item.text
-                });
-
-                const info = { date: dateStr, startColIdx: item.idx, span: span };
-
-                for (let offset = 0; offset < span; offset++) {
-                    currentDates[item.idx + offset] = info;
-                }
-            }
-            continue;
-        }
-
-        // B. 데이터 행 처리
-        if (headerRowIndex === -1) continue;
-        const rowOffset = i - headerRowIndex - 1;
-        if (rowOffset < 0) continue;
-
-        cells.forEach((cell, idx) => {
-            const rawName = cell.trim();
-            if (!rawName) return;
-
-            const dateInfo = currentDates[idx];
-            if (!dateInfo) return;
-
-            if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => rawName.includes(k))) return;
-
-            let cleanName = rawName.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
-            const lookupName = cleanName.replace(/\s+/g, '');
-            if (lookupName.length < 2) return;
-
-            const emp = empMap.get(lookupName);
-            if (emp) {
-                const isTarget = targetDeptNames.some(k => emp.deptName.includes(k));
-                if (isTarget) {
-                    let colOffset = idx - dateInfo.startColIdx;
-                    if (colOffset >= 4) colOffset = 3;
-
-                    const gridPos = (rowOffset * 4) + colOffset;
-
-                    const exists = schedules.some(s => s.date === dateInfo.date && s.employee_id === emp.id);
-                    if (!exists) {
-                        schedules.push({
-                            date: dateInfo.date,
-                            name: emp.name,
-                            dept: emp.deptName,
-                            employee_id: emp.id,
-                            raw: rawName,
-                            grid_position: gridPos
+                if (matchedDate) {
+                    potentialDateCount++;
+                    // 이 셀이 차지하는 모든 컬럼 인덱스에 날짜 매핑
+                    for (let i = 0; i < colspan; i++) {
+                        tempDateMap.set(colIndex + i, {
+                            date: matchedDate,
+                            isMerged: colspan > 1,
+                            raw: text
                         });
                     }
+                    detectedHeaders.push({ date: matchedDate, col: colIndex, text });
                 }
             }
-        });
+            colIndex += colspan;
+        }
+
+        // 유효한 날짜가 2개 이상 발견되면 헤더로 확정
+        if (potentialDateCount >= 2) {
+            headerRowIndex = r;
+            dateMap = tempDateMap;
+            console.log(`✅ 헤더 발견 (Row ${r}):`, dateMap);
+            break;
+        }
     }
 
-    schedules.sort((a, b) => {
-        if (a.date !== b.date) return a.date.localeCompare(b.date);
-        return a.grid_position - b.grid_position;
+    if (headerRowIndex === -1) {
+        return { headerFound: false, schedules: [] };
+    }
+
+
+    // =================================================================================
+    // 2단계: 데이터 행 파싱 (colspan 고려하여 정확한 위치 매핑)
+    // =================================================================================
+
+    // 주의: Rowspan이 있는 경우 복잡해지나, 일반적인 스케줄 표는 날짜 헤더 아래에 직원 이름이 있음.
+    // 엑셀 -> HTML 붙여넣기 시 rowspan 정보도 오지만, 여기서는 "현재 행의 논리적 컬럼 위치"만 잘 추적하면 됨.
+
+    for (let r = headerRowIndex + 1; r < rows.length; r++) {
+        const row = rows[r];
+        // 통계 행 등 제외
+        if (row.innerText.includes('TO:') || row.innerText.includes('검수')) continue;
+
+        let colIndex = 0;
+        const cells = Array.from(row.cells);
+
+        for (let c = 0; c < cells.length; c++) {
+            const cell = cells[c];
+            const text = cell.innerText.trim();
+            const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
+
+            // 해당 컬럼 인덱스가 날짜 헤더에 매핑되어 있는지 확인
+            // colspan이 1보다 크면(병합된 셀), 그 범위 내의 날짜들에 대해 처리
+            // 보통 이름 칸은 병합되지 않으나, 만약 병합되었다면? -> 첫 번째 날짜에만 할당하거나 무시?
+            // "대체 공휴일" 등으로 병합된 칸은 이름이 아닐 확률이 높음.
+
+            if (text) {
+                // 제외 키워드 체크
+                if (!['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무'].some(k => text.includes(k))) {
+
+                    // 이름 추출 (숫자 제거, 괄호 제거)
+                    let cleanName = text.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
+                    const lookupName = cleanName.replace(/\s+/g, '');
+
+                    if (lookupName.length >= 2) {
+                        const emp = empMap.get(lookupName);
+                        // 부서 체크
+                        if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
+
+                            // 현재 colIndex에 해당하는 날짜 찾기
+                            const dateInfo = dateMap.get(colIndex);
+
+                            if (dateInfo) {
+                                // 스케줄 추가
+                                // 이미 같은 날짜-직원 조합이 있는지 체크 (한 행에 같은 사람이 중복될 일은 드묾)
+                                const exists = schedules.some(s => s.date === dateInfo.date && s.employee_id === emp.id);
+                                if (!exists) {
+                                    // Grid Position 계산 (같은 날짜 내 순서)
+                                    // 기존 로직: 날짜별로 grid_position을 관리해야 함.
+
+                                    // 임시 grid_position: 나중에 정렬 시 재할당
+                                    schedules.push({
+                                        date: dateInfo.date,
+                                        name: emp.name,
+                                        dept: emp.deptName,
+                                        employee_id: emp.id,
+                                        raw: text,
+                                        originalColIndex: colIndex // 정렬용
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 다음 셀을 위해 인덱스 증가
+            colIndex += colspan;
+        }
+    }
+
+    // =================================================================================
+    // 3단계: Grid Position 할당 (날짜별 로직)
+    // =================================================================================
+    // 날짜별로 모아서, 원본 등장 순서(Row -> Col)대로 grid_position 0, 1, 2... 할당
+
+    // 먼저 날짜순, 그 다음 원래 등작 순서(행 우선 탐색했으므로 배열 순서가 곧 순서임)
+    // 하지만 같은 날짜 내에서 grid_position을 0~3행, 4~7행 식으로 매핑하고 싶다면?
+    // 이전 텍스트 파싱 로직: (RowOffset * 4) + ColOffset 방식이었음.
+    // HTML 방식에서도 유사하게 위치를 잡고 싶다면, Row Index를 활용해야 함.
+
+    // 단순화: 그냥 날짜별로 리스트업하고 순서대로 채움 (빈칸 없이)
+    // 사용자가 "빈칸"을 의도했다면 HTML 파싱으로는 알기 어려움 (빈 셀인지 구조적 공백인지)
+    // -> "채워넣기" 식으로 구현 (빈칸 없이 앞에서부터)
+
+    // 그룹핑 후 포지션 재할당
+    const grouped = {};
+    schedules.forEach(s => {
+        if (!grouped[s.date]) grouped[s.date] = [];
+        grouped[s.date].push(s);
+    });
+
+    const finalSchedules = [];
+    Object.keys(grouped).forEach(date => {
+        const list = grouped[date];
+        // 정렬 불필요 (이미 파싱 순서대로 들어옴)
+        list.forEach((item, idx) => {
+            item.grid_position = idx;
+            finalSchedules.push(item);
+        });
     });
 
     return {
-        schedules,
-        dateCount: Object.keys(currentDates).length,
-        headerFound: headerRowIndex !== -1,
-        headers: detectedHeaders // 디버그용
+        schedules: finalSchedules,
+        headerFound: true,
+        headers: detectedHeaders
     };
 }
 
