@@ -88,8 +88,7 @@ export async function importFromAppSheet() {
     const currentMonthStr = dayjs(state.schedule.currentDate).format('YYYY-MM');
 
     // ✨ UI 개선: 
-    // - min-h-[400px] 추가로 텍스트 영역 사라짐 방지
-    // - Flex 구조 안정화
+    // - 텍스트 입력창 높이를 고정(h-96)하고 absolute 제거하여 확실히 보이게 함
     const modalHtml = `
         <div id="paste-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-70 flex items-center justify-center z-[9999]">
             <div class="bg-white rounded-xl shadow-2xl w-[95%] max-w-7xl h-[85vh] flex flex-col overflow-hidden">
@@ -126,13 +125,13 @@ export async function importFromAppSheet() {
                             </p>
                         </div>
 
-                        <!-- 텍스트 영역: 최소 높이 400px 보장 -->
-                        <div class="flex-1 relative border border-gray-300 rounded overflow-hidden shadow-inner min-h-[400px]">
-                            <textarea id="paste-area" class="absolute inset-0 w-full h-full p-3 font-mono text-xs outline-none resize-none whitespace-pre overflow-auto focus:bg-gray-50 transition-colors" placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></textarea>
+                        <!-- 텍스트 영역: 고정 높이 400px (h-96은 24rem=384px) -->
+                        <div class="mt-2 mb-4">
+                            <textarea id="paste-area" class="w-full h-96 p-3 border border-gray-300 rounded font-mono text-xs outline-none resize-none whitespace-pre overflow-auto focus:bg-gray-50 transition-colors shadow-inner" placeholder="여기에 엑셀/앱시트 데이터를 붙여넣으세요..."></textarea>
                         </div>
 
                         <!-- 분석 버튼 -->
-                        <button id="analyze-paste-btn" class="mt-4 w-full py-4 bg-purple-600 text-white rounded-lg font-bold text-lg hover:bg-purple-700 shadow-md transition-transform transform active:scale-95 flex-shrink-0">
+                        <button id="analyze-paste-btn" class="w-full py-4 bg-purple-600 text-white rounded-lg font-bold text-lg hover:bg-purple-700 shadow-md transition-transform transform active:scale-95 flex-shrink-0">
                             🔍 데이터 분석하기
                         </button>
                     </div>
