@@ -442,7 +442,11 @@ function analyzePastedTable(containerEl, targetMonthStr) {
 
             if (text) {
                 // 제외 키워드 체크
-                if (!['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무'].some(k => text.includes(k))) {
+                if (!['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => text.includes(k))) {
+
+                    // [수정] 사용자 요청에 따라 인위적인 키워드((휴), (연차) 등) 배제 로직 제거
+                    // "있는 그대로" 인식하되, DB에 없는 이름이면 매핑되지 않음.
+                    // 화면상 배치(Row 위치)를 그대로 보존하는 것이 핵심.
 
                     // 이름 추출 (숫자 제거, 괄호 제거)
                     let cleanName = text.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
@@ -458,69 +462,102 @@ function analyzePastedTable(containerEl, targetMonthStr) {
 
                             if (dateInfo) {
                                 // 스케줄 추가
-                                // 이미 같은 날짜-직원 조합이 있는지 체크 (한 행에 같은 사람이 중복될 일은 드묾)
-                                const exists = schedules.some(s => s.date === dateInfo.date && s.employee_id === emp.id);
-                                if (!exists) {
-                                    // Grid Position 계산 (같은 날짜 내 순서)
-                                    // 기존 로직: 날짜별로 grid_position을 관리해야 함.
+                                // Grid Position 계산: 날짜별 순서가 아니라, 원본 "행(Row)" 인덱스를 그대로 사용
+                                // 헤더 바로 다음 행이 0번 포지션.
+                                // 빈 행이 있으면 1, 2... 건너뛰고 3번 포지션에 들어감 -> 시각적 배치 보존
+                                const rowPos = r - headerRowIndex - 1;
 
-                                    // 임시 grid_position: 나중에 정렬 시 재할당
+                                // 기존 데이터 중복 체크 (혹시 모를 병합 셀 이슈 방지)
+                                const exists = schedules.some(s => s.date === dateInfo.date && s.grid_position === rowPos);
+                                if (!exists) {
                                     schedules.push({
                                         date: dateInfo.date,
                                         name: emp.name,
                                         dept: emp.deptName,
                                         employee_id: emp.id,
                                         raw: text,
-                                        originalColIndex: colIndex // 정렬용
+                                        grid_position: rowPos // ✨ 핵심: 행 인덱스 기반 포지셔닝
                                     });
                                 }
                             }
                         }
                     }
                 }
+                const lookupName = cleanName.replace(/\s+/g, '');
+
+                if (lookupName.length >= 2) {
+                    const emp = empMap.get(lookupName);
+                    // 부서 체크
+                    if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
+
+                        // 현재 colIndex에 해당하는 날짜 찾기
+                        const dateInfo = dateMap.get(colIndex);
+
+                        if (dateInfo) {
+                            // 스케줄 추가
+                            // 이미 같은 날짜-직원 조합이 있는지 체크 (한 행에 같은 사람이 중복될 일은 드묾)
+                            const exists = schedules.some(s => s.date === dateInfo.date && s.employee_id === emp.id);
+                            if (!exists) {
+                                // Grid Position 계산 (같은 날짜 내 순서)
+                                // 기존 로직: 날짜별로 grid_position을 관리해야 함.
+
+                                // 임시 grid_position: 나중에 정렬 시 재할당
+                                schedules.push({
+                                    date: dateInfo.date,
+                                    name: emp.name,
+                                    dept: emp.deptName,
+                                    employee_id: emp.id,
+                                    raw: text,
+                                    originalColIndex: colIndex // 정렬용
+                                });
+                            }
+                        }
+                    }
+                }
             }
-
-            // 다음 셀을 위해 인덱스 증가
-            colIndex += colspan;
         }
+
+        // 다음 셀을 위해 인덱스 증가
+        colIndex += colspan;
     }
+}
 
-    // =================================================================================
-    // 3단계: Grid Position 할당 (날짜별 로직)
-    // =================================================================================
-    // 날짜별로 모아서, 원본 등장 순서(Row -> Col)대로 grid_position 0, 1, 2... 할당
+// =================================================================================
+// 3단계: Grid Position 할당 (날짜별 로직)
+// =================================================================================
+// 날짜별로 모아서, 원본 등장 순서(Row -> Col)대로 grid_position 0, 1, 2... 할당
 
-    // 먼저 날짜순, 그 다음 원래 등작 순서(행 우선 탐색했으므로 배열 순서가 곧 순서임)
-    // 하지만 같은 날짜 내에서 grid_position을 0~3행, 4~7행 식으로 매핑하고 싶다면?
-    // 이전 텍스트 파싱 로직: (RowOffset * 4) + ColOffset 방식이었음.
-    // HTML 방식에서도 유사하게 위치를 잡고 싶다면, Row Index를 활용해야 함.
+// 먼저 날짜순, 그 다음 원래 등작 순서(행 우선 탐색했으므로 배열 순서가 곧 순서임)
+// 하지만 같은 날짜 내에서 grid_position을 0~3행, 4~7행 식으로 매핑하고 싶다면?
+// 이전 텍스트 파싱 로직: (RowOffset * 4) + ColOffset 방식이었음.
+// HTML 방식에서도 유사하게 위치를 잡고 싶다면, Row Index를 활용해야 함.
 
-    // 단순화: 그냥 날짜별로 리스트업하고 순서대로 채움 (빈칸 없이)
-    // 사용자가 "빈칸"을 의도했다면 HTML 파싱으로는 알기 어려움 (빈 셀인지 구조적 공백인지)
-    // -> "채워넣기" 식으로 구현 (빈칸 없이 앞에서부터)
+// 단순화: 그냥 날짜별로 리스트업하고 순서대로 채움 (빈칸 없이)
+// 사용자가 "빈칸"을 의도했다면 HTML 파싱으로는 알기 어려움 (빈 셀인지 구조적 공백인지)
+// -> "채워넣기" 식으로 구현 (빈칸 없이 앞에서부터)
 
-    // 그룹핑 후 포지션 재할당
-    const grouped = {};
-    schedules.forEach(s => {
-        if (!grouped[s.date]) grouped[s.date] = [];
-        grouped[s.date].push(s);
+// 그룹핑 후 포지션 재할당
+const grouped = {};
+schedules.forEach(s => {
+    if (!grouped[s.date]) grouped[s.date] = [];
+    grouped[s.date].push(s);
+});
+
+const finalSchedules = [];
+Object.keys(grouped).forEach(date => {
+    const list = grouped[date];
+    // 정렬 불필요 (이미 파싱 순서대로 들어옴)
+    list.forEach((item, idx) => {
+        item.grid_position = idx;
+        finalSchedules.push(item);
     });
+});
 
-    const finalSchedules = [];
-    Object.keys(grouped).forEach(date => {
-        const list = grouped[date];
-        // 정렬 불필요 (이미 파싱 순서대로 들어옴)
-        list.forEach((item, idx) => {
-            item.grid_position = idx;
-            finalSchedules.push(item);
-        });
-    });
-
-    return {
-        schedules: finalSchedules,
-        headerFound: true,
-        headers: detectedHeaders
-    };
+return {
+    schedules: finalSchedules,
+    headerFound: true,
+    headers: detectedHeaders
+};
 }
 
 /**
@@ -752,6 +789,11 @@ function analyzePastedText(text, targetMonthStr) {
             const dateInfo = currentDates[idx];
             if (!dateInfo) return;
             if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => rawName.includes(k))) return;
+
+            // ✨ (휴), (연차) 등 제외 로직 추가
+            const offKeywords = ['휴', '휴무', '연', '연차', '반', '반차', '오프', 'OFF', 'off'];
+            const isOffStatus = offKeywords.some(k => rawName.includes(`(${k}`) || rawName.includes(`[${k}`));
+            if (isOffStatus) return;
 
             let cleanName = rawName.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
             const lookupName = cleanName.replace(/\s+/g, '');
