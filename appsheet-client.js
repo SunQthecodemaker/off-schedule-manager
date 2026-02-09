@@ -15,6 +15,9 @@ export function setScriptUrl(url) {
 /**
  * 1. Supabase 데이터를 구글 시트로 전송
  */
+/**
+ * 1. Supabase 데이터를 구글 시트로 전송 (CORS 지원)
+ */
 export async function syncToAppSheet() {
     const scriptUrl = getScriptUrl();
     if (!scriptUrl) {
@@ -333,8 +336,17 @@ function analyzeGridData(grid, targetMonthStr) {
         }
     });
 
+    // 🔍 디버그: DB에 등록된 직원 목록 출력
+    console.log('📋 DB 직원 목록 (진료실):');
+    empMap.forEach((emp, key) => {
+        if (targetDeptNames.some(k => emp.deptName.includes(k))) {
+            console.log(`  - "${key}" → ${emp.name} (${emp.deptName})`);
+        }
+    });
+
     const schedules = [];
     const detectedHeaders = [];
+
 
     const fullDateRegex = /^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/;
     const simpleDayRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
@@ -388,8 +400,11 @@ function analyzeGridData(grid, targetMonthStr) {
                 const cell = row[c];
                 if (!cell) continue;
 
+                console.log(`    🔍 셀 검사 (열 ${c}):`, cell);
+
                 // 제외 키워드
                 if (['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:', 'TO', '근무:'].some(k => cell.includes(k))) {
+                    console.log(`      ⏭️ 제외 키워드 포함, 건너뜀`);
                     continue;
                 }
 
@@ -397,27 +412,38 @@ function analyzeGridData(grid, targetMonthStr) {
                 let cleanName = cell.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
                 const lookupName = cleanName.replace(/\s+/g, '');
 
+                console.log(`      📝 이름 추출: "${cell}" → "${cleanName}" → "${lookupName}"`);
+
                 if (lookupName.length >= 2) {
                     const emp = empMap.get(lookupName);
-                    if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
-                        // ✨ Grid Position: 열 인덱스 - 1 (0열은 날짜이므로)
-                        // 1열 → grid_position 0
-                        // 2열 → grid_position 1
-                        // 3열 → grid_position 2
-                        // 4열 → grid_position 3
-                        const gridPos = c - 1;
+                    console.log(`      🔎 DB 조회: "${lookupName}" →`, emp ? `✅ ${emp.name} (${emp.deptName})` : '❌ 없음');
 
-                        schedules.push({
-                            date: dateStr,
-                            name: emp.name,
-                            dept: emp.deptName,
-                            employee_id: emp.id,
-                            raw: cell,
-                            grid_position: gridPos
-                        });
+                    if (emp) {
+                        const deptMatch = targetDeptNames.some(k => emp.deptName.includes(k));
+                        console.log(`      🏥 부서 체크: "${emp.deptName}" →`, deptMatch ? '✅ 진료실' : '❌ 다른 부서');
 
-                        console.log(`  👤 직원 추가: ${emp.name} (열 ${c} → pos ${gridPos})`);
+                        if (deptMatch) {
+                            // ✨ Grid Position: 열 인덱스 - 1 (0열은 날짜이므로)
+                            // 1열 → grid_position 0
+                            // 2열 → grid_position 1
+                            // 3열 → grid_position 2
+                            // 4열 → grid_position 3
+                            const gridPos = c - 1;
+
+                            schedules.push({
+                                date: dateStr,
+                                name: emp.name,
+                                dept: emp.deptName,
+                                employee_id: emp.id,
+                                raw: cell,
+                                grid_position: gridPos
+                            });
+
+                            console.log(`      ✅ 직원 추가: ${emp.name} (열 ${c} → pos ${gridPos})`);
+                        }
                     }
+                } else {
+                    console.log(`      ⏭️ 이름이 너무 짧음 (${lookupName.length}자), 건너뜀`);
                 }
             }
         }
@@ -434,6 +460,9 @@ function analyzeGridData(grid, targetMonthStr) {
 
 /**
  * ✨ HTML 테이블 분석 로직 (병합된 셀 지원)
+ */
+/**
+ * ✨ HTML 테이블 분석 로직 (다중 주차/블록 지원, 병합된 셀 지원)
  */
 function analyzePastedTable(containerEl, targetMonthStr) {
     // 1. 테이블 찾기
@@ -464,24 +493,30 @@ function analyzePastedTable(containerEl, targetMonthStr) {
     const fullDateRegex = /^(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/;
     const simpleDayRegex = /(\d{1,2})\s*(?:일|\([월화수목금토일]\))/;
 
-    let headerRowIndex = -1;
-    let dateMap = new Map(); // colIndex -> Date String
     const schedules = [];
     const detectedHeaders = [];
 
-    // =================================================================================
-    // 1단계: 헤더(날짜) 행 찾기 & 컬럼 매핑 (colspan 고려)
-    // =================================================================================
+    // ✨ 데이터 파싱을 위한 상태 변수
+    let currentDateMap = null; // Map<colIndex, DateString>
+    let currentWeekDateCounts = new Map(); // Date -> Count (grid_position 계산용)
 
-    // 가상 그리드로 생각: rows[r].cells[c]는 실제 DOM 위치지만, 논리적 컬럼 인덱스는 계산해야 함.
-    // 하지만 여기서는 "헤더 행"만 정확히 찾으면, 그 아래 데이터는 순차적으로 매핑됨.
-    // 엑셀 복사 시 rowspan은 드물지만 colspan은 흔함 (병합된 날짜/휴일).
+    console.log(`📊 테이블 분석 시작: 총 ${rows.length}행`);
 
+    // 모든 행을 순회하며 "헤더(날짜)"와 "데이터(직원)"를 판별
     for (let r = 0; r < rows.length; r++) {
-        const cells = Array.from(rows[r].cells);
-        let potentialDateCount = 0;
+        const row = rows[r];
+        const cells = Array.from(row.cells);
+        const rowText = row.innerText.trim();
+
+        // 빈 행 또는 통계 행 건너뛰기
+        if (!rowText || rowText.includes('TO:') || rowText.includes('검수')) continue;
+
+        // -----------------------------------------------------------
+        // 1. 헤더 행 판별 (날짜 패턴이 2개 이상 있는가?)
+        // -----------------------------------------------------------
+        let potentialDateMap = new Map();
+        let validDateCount = 0;
         let colIndex = 0;
-        let tempDateMap = new Map();
 
         for (let c = 0; c < cells.length; c++) {
             const cell = cells[c];
@@ -489,156 +524,109 @@ function analyzePastedTable(containerEl, targetMonthStr) {
             const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
 
             if (text) {
-                // 날짜 패턴 확인
                 let matchedDate = null;
                 const fullMatch = text.match(fullDateRegex);
                 const simpleMatch = text.match(simpleDayRegex);
+
+                // 휴일 키워드만 있는 경우 등은 날짜로 보지 않음 (숫자 포함 필수)
 
                 if (fullMatch) {
                     let y = fullMatch[1] ? parseInt(fullMatch[1], 10) : baseDate.year();
                     let m = parseInt(fullMatch[2], 10);
                     let d = parseInt(fullMatch[3], 10);
                     if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-                        // 연도 보정: 입력 연도가 없으면, baseDate의 해당 월과 비교해서 타당성 체크 가능하나 생략
                         matchedDate = dayjs(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`).format('YYYY-MM-DD');
                     }
                 } else if (simpleMatch) {
                     const d = parseInt(simpleMatch[1], 10);
                     if (d >= 1 && d <= 31) {
-                        matchedDate = baseDate.clone().date(d).format('YYYY-MM-DD');
+                        // 월 추정: 타겟 월의 해당 일자로 가정
+                        matchedDate = baseDate.date(d).format('YYYY-MM-DD');
                     }
                 }
 
                 if (matchedDate) {
-                    potentialDateCount++;
-                    // 이 셀이 차지하는 모든 컬럼 인덱스에 날짜 매핑
+                    validDateCount++;
+                    // Colspan만큼 맵핑 (병합된 날짜 헤더 지원)
                     for (let i = 0; i < colspan; i++) {
-                        tempDateMap.set(colIndex + i, {
-                            date: matchedDate,
-                            isMerged: colspan > 1,
-                            raw: text
-                        });
+                        potentialDateMap.set(colIndex + i, matchedDate);
                     }
-                    detectedHeaders.push({ date: matchedDate, col: colIndex, text });
+                    detectedHeaders.push({ date: matchedDate, row: r, text });
                 }
             }
             colIndex += colspan;
         }
 
-        // 유효한 날짜가 2개 이상 발견되면 헤더로 확정
-        if (potentialDateCount >= 2) {
-            headerRowIndex = r;
-            dateMap = tempDateMap;
-            console.log(`✅ 헤더 발견 (Row ${r}):`, dateMap);
-            break;
+        // 헤더 행으로 판명되면 Map 갱신
+        if (validDateCount >= 2) { // 한 행에 날짜가 2개 이상이면 헤더로 간주
+            console.log(`✅ 날짜 헤더 감지 (Row ${r}):`, potentialDateMap);
+            currentDateMap = potentialDateMap;
+            // 새 주차 시작 시 포지션 카운터 초기화?
+            // 아니요, 날짜별로 grid_position은 독립적이므로 별도 관리 필요 없지만,
+            // 같은 날짜가 또 나오진 않으리라 가정 (주단위 블록)
+            continue; // 헤더 행은 데이터 파싱 스킵
         }
-    }
 
-    if (headerRowIndex === -1) {
-        return { headerFound: false, schedules: [] };
-    }
+        // -----------------------------------------------------------
+        // 2. 데이터 행 파싱 (현재 유효한 DateMap이 있을 때만)
+        // -----------------------------------------------------------
+        if (currentDateMap) {
+            colIndex = 0;
+            for (let c = 0; c < cells.length; c++) {
+                const cell = cells[c];
+                const text = cell.innerText.trim();
+                const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
 
+                if (text) {
+                    // 키워드 필터링
+                    if (!['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => text.includes(k))) {
 
-    // =================================================================================
-    // 2단계: 데이터 행 파싱 (colspan 고려하여 정확한 위치 매핑)
-    // =================================================================================
+                        // 현재 컬럼이 어떤 날짜에 속하는지 확인
+                        const dateStr = currentDateMap.get(colIndex);
 
-    // 주의: Rowspan이 있는 경우 복잡해지나, 일반적인 스케줄 표는 날짜 헤더 아래에 직원 이름이 있음.
-    // 엑셀 -> HTML 붙여넣기 시 rowspan 정보도 오지만, 여기서는 "현재 행의 논리적 컬럼 위치"만 잘 추적하면 됨.
+                        if (dateStr) {
+                            // 이름 추출
+                            let cleanName = text.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
+                            const lookupName = cleanName.replace(/\s+/g, '');
 
-    for (let r = headerRowIndex + 1; r < rows.length; r++) {
-        const row = rows[r];
-        // 통계 행 등 제외
-        if (row.innerText.includes('TO:') || row.innerText.includes('검수')) continue;
+                            if (lookupName.length >= 2) {
+                                const emp = empMap.get(lookupName);
+                                if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
 
-        let colIndex = 0;
-        const cells = Array.from(row.cells);
+                                    // 중복 체크 (같은 날짜, 같은 사람) -> 허용? (오전/오후?) 보통 하루 하나.
+                                    // 일단 중복 방지
+                                    const exists = schedules.some(s => s.date === dateStr && s.employee_id === emp.id);
 
-        for (let c = 0; c < cells.length; c++) {
-            const cell = cells[c];
-            const text = cell.innerText.trim();
-            const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
+                                    if (!exists) {
+                                        // Grid Position 결정:
+                                        // 해당 날짜에 이미 추가된 인원 수를 포지션으로 사용 (0, 1, 2...)
+                                        // 이렇게 하면 행(Row) -> 열(Col) 순서대로 차곡차곡 쌓임
+                                        const currentCount = currentWeekDateCounts.get(dateStr) || 0;
 
-            // 해당 컬럼 인덱스가 날짜 헤더에 매핑되어 있는지 확인
-            // colspan이 1보다 크면(병합된 셀), 그 범위 내의 날짜들에 대해 처리
-            // 보통 이름 칸은 병합되지 않으나, 만약 병합되었다면? -> 첫 번째 날짜에만 할당하거나 무시?
-            // "대체 공휴일" 등으로 병합된 칸은 이름이 아닐 확률이 높음.
+                                        schedules.push({
+                                            date: dateStr,
+                                            name: emp.name,
+                                            dept: emp.deptName,
+                                            employee_id: emp.id,
+                                            raw: text,
+                                            grid_position: currentCount // 순차적 할당
+                                        });
 
-            if (text) {
-                // 제외 키워드 체크
-                if (!['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => text.includes(k))) {
-
-                    // [수정] 사용자 요청에 따라 인위적인 키워드((휴), (연차) 등) 배제 로직 제거
-                    // "있는 그대로" 인식하되, DB에 없는 이름이면 매핑되지 않음.
-                    // 화면상 배치(Row 위치)를 그대로 보존하는 것이 핵심.
-
-                    // 이름 추출 (숫자 제거, 괄호 제거)
-                    let cleanName = text.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
-                    const lookupName = cleanName.replace(/\s+/g, '');
-
-                    if (lookupName.length >= 2) {
-                        const emp = empMap.get(lookupName);
-                        // 부서 체크
-                        if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
-
-                            // 현재 colIndex에 해당하는 날짜 찾기
-                            const dateInfo = dateMap.get(colIndex);
-
-                            if (dateInfo) {
-                                // 스케줄 추가
-                                // Grid Position 계산: 날짜별 순서가 아니라, 원본 "행(Row)" 인덱스를 그대로 사용
-                                // 헤더 바로 다음 행이 0번 포지션.
-                                // 빈 행이 있으면 1, 2... 건너뛰고 3번 포지션에 들어감 -> 시각적 배치 보존
-                                const rowPos = r - headerRowIndex - 1;
-
-                                // 기존 데이터 중복 체크 (혹시 모를 병합 셀 이슈 방지)
-                                const exists = schedules.some(s => s.date === dateInfo.date && s.grid_position === rowPos);
-                                if (!exists) {
-                                    schedules.push({
-                                        date: dateInfo.date,
-                                        name: emp.name,
-                                        dept: emp.deptName,
-                                        employee_id: emp.id,
-                                        raw: text,
-                                        grid_position: rowPos // ✨ 핵심: 행 인덱스 기반 포지셔닝
-                                    });
+                                        currentWeekDateCounts.set(dateStr, currentCount + 1);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-
-
+                colIndex += colspan;
             }
-
-            // 다음 셀을 위해 인덱스 증가
-            colIndex += colspan;
         }
     }
 
-    // =================================================================================
-    // 3단계: Grid Position 할당 (날짜별 로직)
-    // =================================================================================
-    // 날짜별로 모아서, 원본 등장 순서(Row -> Col)대로 grid_position 0, 1, 2... 할당
-
-    // 먼저 날짜순, 그 다음 원래 등작 순서(행 우선 탐색했으므로 배열 순서가 곧 순서임)
-    // 하지만 같은 날짜 내에서 grid_position을 0~3행, 4~7행 식으로 매핑하고 싶다면?
-    // 이전 텍스트 파싱 로직: (RowOffset * 4) + ColOffset 방식이었음.
-    // HTML 방식에서도 유사하게 위치를 잡고 싶다면, Row Index를 활용해야 함.
-
-    // 단순화: 그냥 날짜별로 리스트업하고 순서대로 채움 (빈칸 없이)
-    // 사용자가 "빈칸"을 의도했다면 HTML 파싱으로는 알기 어려움 (빈 셀인지 구조적 공백인지)
-    // -> "채워넣기" 식으로 구현 (빈칸 없이 앞에서부터)
-
-    // =================================================================================
-    // 3단계: 결과 반환
-    // =================================================================================
-    // "좌석 배치 보존"을 위해 위에서 계산한 rowPos를 그대로 유지함.
-    // 빈칸(Empty Row)을 유지하기 위함.
-
     return {
         schedules: schedules,
-        headerFound: true,
+        headerFound: detectedHeaders.length > 0,
         headers: detectedHeaders
     };
 }
