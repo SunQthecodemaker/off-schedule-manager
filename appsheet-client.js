@@ -212,7 +212,10 @@ export async function importFromAppSheet() {
     textarea.addEventListener('paste', (e) => {
         e.preventDefault();
 
-        // TSV 데이터 추출 (엑셀 복사 시 기본 형식)
+        // 1. HTML 데이터 추출 (병합된 셀 정보 보존을 위해 우선순위)
+        pastedRawHtml = e.clipboardData.getData('text/html');
+
+        // 2. TSV 데이터 추출 (엑셀 복사 시 기본 형식, HTML 실패 시 폴백)
         const clipboardText = e.clipboardData.getData('text/plain');
 
         if (!clipboardText || !clipboardText.trim()) {
@@ -220,14 +223,18 @@ export async function importFromAppSheet() {
             return;
         }
 
-        // TSV → 2D 배열 변환
+        // TSV → 2D 배열 변환 (미리보기용)
         pastedGrid = parseTSV(clipboardText);
 
-        // 그리드 시각화
+        // 그리드 시각화 (사용자 피드백용)
+        // 주의: HTML 파싱을 사용할 것이지만, 시각적으로는 TSV 그리드가 깔끔함
         const gridHtml = renderGridPreview(pastedGrid);
         textarea.innerHTML = gridHtml;
 
-        console.log('✅ Grid parsed:', pastedGrid.length, 'rows x', pastedGrid[0]?.length || 0, 'cols');
+        console.log('✅ Paste detected. Rows:', pastedGrid.length, 'HTML available:', !!pastedRawHtml);
+        if (pastedRawHtml) {
+            console.log('   -> HTML Table structure preserved for analysis.');
+        }
     });
 
     wrapToggle.onchange = (e) => {
@@ -239,17 +246,32 @@ export async function importFromAppSheet() {
     analyzeBtn.onclick = () => {
         const targetMonth = monthInput.value;
 
-        // 그리드 데이터 확인
-        if (!pastedGrid || pastedGrid.length === 0) {
+        // 데이터 존재 확인
+        if ((!pastedGrid || pastedGrid.length === 0) && !pastedRawHtml) {
             alert('데이터를 붙여넣어주세요.');
             return;
         }
 
         try {
-            // ✨ Grid 기반 파싱 (v3.0)
-            console.log('🔍 Grid 분석 시작:', pastedGrid.length, 'rows');
-            parsedDataResult = analyzeGridData(pastedGrid, targetMonth);
+            // ✨ 분석 로직 분기: HTML이 있으면 HTML 파서 우선 (병합 셀 지원)
+            console.log('🔍 분석 시작. HTML 모드:', !!pastedRawHtml);
+
+            if (pastedRawHtml) {
+                // 임시 컨테이너에 HTML 주입하여 DOM 파싱
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = pastedRawHtml;
+
+                // HTML 파서 호출 (v3.1)
+                parsedDataResult = analyzePastedTable(tempDiv, targetMonth);
+            } else {
+                // 폴백: 텍스트 그리드 파서 (v3.0)
+                // TSV는 병합 정보를 잃으므로, "가로 채우기(Fill-Right)" 로직이 보강된 파서 필요
+                console.warn('⚠️ HTML 데이터 없음. TSV 텍스트 기반 분석 시도.');
+                parsedDataResult = analyzeGridData(pastedGrid, targetMonth);
+            }
+
             renderPreview(parsedDataResult);
+
         } catch (err) {
             console.error('파싱 실패:', err);
             alert('분석 실패: ' + err.message + '\n\n데이터 형식을 확인해주세요.');
