@@ -288,9 +288,9 @@
 
 .schedule-grid {
     display: grid;
-    grid-template-columns: 1fr 180px;
-    /* ✅ 사이드바 240→180px 축소 (검수열 공간 확보) */
-    gap: 1rem;
+    grid-template-columns: 1fr 120px;
+    /* ✅ 사이드바 120px (네임카드 1열 크기, 달력 4열 배치 확보) */
+    gap: 0.5rem;
     align-items: start;
 }
 
