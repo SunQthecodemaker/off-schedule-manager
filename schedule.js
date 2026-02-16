@@ -2831,12 +2831,48 @@ async function handlePrintSchedule() {
         printBtn.disabled = true;
         printBtn.textContent = '캡쳐 중...';
 
+        // WHY: html2canvas는 CSS @media print를 무시하므로 직접 숨김/스타일 변경
+        // 1. 검수열 숨기기
+        const auditCells = calendarEl.querySelectorAll('.weekly-audit-cell');
+        auditCells.forEach(el => { el.style.display = 'none'; });
+
+        // 2. 달력 그리드를 7열(일~토, 검수 제외)로 변경
+        const calendarGrid = calendarEl.querySelector('.calendar-grid');
+        const originalGridStyle = calendarGrid ? calendarGrid.style.gridTemplateColumns : '';
+        if (calendarGrid) {
+            calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
+        }
+
+        // 3. 네임카드 텍스트 확대 (인쇄용)
+        const eventCards = calendarEl.querySelectorAll('.event-card');
+        eventCards.forEach(el => {
+            el.style.fontSize = '14px';
+            el.style.padding = '3px 5px';
+        });
+        const eventNames = calendarEl.querySelectorAll('.event-name');
+        eventNames.forEach(el => {
+            el.style.fontSize = '14px';
+        });
+
         // html2canvas로 달력 캡쳐
         const canvas = await html2canvas(calendarEl, {
             scale: 2, // 고해상도
             useCORS: true,
             backgroundColor: '#ffffff',
             logging: false,
+        });
+
+        // 4. 스타일 복원
+        auditCells.forEach(el => { el.style.display = ''; });
+        if (calendarGrid) {
+            calendarGrid.style.gridTemplateColumns = originalGridStyle;
+        }
+        eventCards.forEach(el => {
+            el.style.fontSize = '';
+            el.style.padding = '';
+        });
+        eventNames.forEach(el => {
+            el.style.fontSize = '';
         });
 
         // 새 창에 이미지 표시 및 인쇄
