@@ -2843,15 +2843,32 @@ async function handlePrintSchedule() {
             calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
         }
 
-        // 3. 네임카드 텍스트 확대 (인쇄용)
+        // 3. 네임카드 간격 제거 + 텍스트 확대 (인쇄용)
+        const dayEventsEls = calendarEl.querySelectorAll('.day-events');
+        dayEventsEls.forEach(el => {
+            el.style.gap = '0px';
+            el.style.padding = '0px';
+        });
+
         const eventCards = calendarEl.querySelectorAll('.event-card');
         eventCards.forEach(el => {
-            el.style.fontSize = '14px';
-            el.style.padding = '3px 5px';
+            el.style.border = 'none';
+            el.style.borderRadius = '0';
+            el.style.padding = '1px 2px';
+            el.style.fontSize = '13px';
+            el.style.gap = '1px';
         });
         const eventNames = calendarEl.querySelectorAll('.event-name');
         eventNames.forEach(el => {
-            el.style.fontSize = '14px';
+            el.style.fontSize = '13px';
+            el.style.fontWeight = '600';
+        });
+        // 부서 도트 약간 축소
+        const eventDots = calendarEl.querySelectorAll('.event-dot');
+        eventDots.forEach(el => {
+            el.style.width = '5px';
+            el.style.height = '5px';
+            el.style.minWidth = '5px';
         });
 
         // html2canvas로 달력 캡쳐
@@ -2867,12 +2884,25 @@ async function handlePrintSchedule() {
         if (calendarGrid) {
             calendarGrid.style.gridTemplateColumns = originalGridStyle;
         }
-        eventCards.forEach(el => {
-            el.style.fontSize = '';
+        dayEventsEls.forEach(el => {
+            el.style.gap = '';
             el.style.padding = '';
+        });
+        eventCards.forEach(el => {
+            el.style.border = '';
+            el.style.borderRadius = '';
+            el.style.padding = '';
+            el.style.fontSize = '';
+            el.style.gap = '';
         });
         eventNames.forEach(el => {
             el.style.fontSize = '';
+            el.style.fontWeight = '';
+        });
+        eventDots.forEach(el => {
+            el.style.width = '';
+            el.style.height = '';
+            el.style.minWidth = '';
         });
 
         // 새 창에 이미지 표시 및 인쇄
@@ -2893,42 +2923,32 @@ async function handlePrintSchedule() {
                 <style>
                     @page {
                         size: A4 landscape;
-                        margin: 10mm;
+                        margin: 5mm;
                     }
-                    * {
-                        margin: 0;
-                        padding: 0;
-                    }
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
                     body {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        min-height: 100vh;
                         background: white;
+                        padding: 5mm;
                     }
                     .print-header {
                         text-align: center;
-                        margin-bottom: 10px;
+                        margin-bottom: 3mm;
                     }
-                    h1 {
-                        font-size: 20pt;
+                    .print-header h1 {
+                        font-size: 14pt;
                         font-weight: bold;
-                        margin-bottom: 5px;
                     }
-                    p {
-                        font-size: 12pt;
+                    .print-header p {
+                        font-size: 9pt;
                         color: #666;
                     }
                     img {
-                        max-width: 100%;
+                        width: 100%;
                         height: auto;
                         display: block;
                     }
                     @media print {
-                        body {
-                            min-height: auto;
-                        }
+                        body { padding: 0; }
                     }
                 </style>
             </head>
@@ -2941,7 +2961,6 @@ async function handlePrintSchedule() {
                 <script>
                     window.onload = function() {
                         window.print();
-                        // 인쇄 완료 후 창 닫기
                         setTimeout(() => window.close(), 100);
                     };
                 </script>
