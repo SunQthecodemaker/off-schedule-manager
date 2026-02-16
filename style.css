@@ -55,6 +55,8 @@
     display: grid;
     grid-template-columns: 0.2fr repeat(6, 1fr) 110px;
     /* ✅ 일요일 20% + 월~토 1fr×6 + 검수열 110px */
+    grid-auto-rows: 1fr;
+    /* WHY: 모든 주(행)가 동일한 높이. 5주 기준 자동 배분 */
     gap: 1px;
     background-color: #e5e7eb;
     border: 1px solid #e5e7eb;
@@ -71,16 +73,15 @@
 
 .calendar-day {
     background-color: white;
-    min-height: 120px;
     padding: 0.25rem;
     position: relative;
     display: flex;
     flex-direction: column;
+    overflow: visible;
 }
 
 /* ✅ 일요일 칸 스타일 - 드래그 비활성화 */
 .calendar-day.sunday-col {
-    min-height: 120px;
     pointer-events: none;
     /* 드래그 불가 */
     opacity: 0.3;
@@ -132,11 +133,13 @@
 .day-events {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    grid-template-rows: repeat(7, minmax(18px, auto));
-    /* WHY: 최소 18px로 빈 행도 표시되어 항상 4×7 = 28칸 */
+    /* WHY: 4열 고정, 행은 내용에 따라 자동 */
     gap: 2px;
     padding: 2px;
     align-content: start;
+    flex-grow: 1;
+    /* WHY: 셀의 남은 세로 공간을 채워서 카드가 잘리지 않도록 */
+    overflow: visible;
 }
 
 /* ❌ Grid 관련 스타일 제거됨 (.doctors-grid, .other-depts-container) */
