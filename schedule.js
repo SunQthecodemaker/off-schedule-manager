@@ -1852,37 +1852,37 @@ async function renderScheduleSidebar() {
     }).join('');
 
     sidebar.innerHTML = `
-        <div class="flex flex-col h-full">
-            <div class="flex justify-between items-center mb-2 pb-2 border-b">
+        <div>
+            <div class="flex items-center gap-2 mb-2 pb-2 border-b flex-wrap">
                 <h3 class="font-bold text-sm">직원 목록</h3>
                 <button id="save-employee-order-btn" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold whitespace-nowrap">순서저장</button>
+                <button id="add-spacer-btn" class="text-xs px-2 py-1 border border-dashed rounded text-gray-600 hover:bg-gray-100 whitespace-nowrap">빈칸추가</button>
+                <button id="add-temp-staff-btn" class="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 font-bold whitespace-nowrap">+임시직원</button>
             </div>
-            <div class="flex-grow overflow-y-auto pr-2" id="employee-list-container">
+            <div id="employee-list-container">
                 <div class="employee-list">
                     ${employeeListHtml}
                 </div>
             </div>
-            <div class="mt-2 pt-2 border-t">
-                <button id="add-spacer-btn" class="w-full text-sm py-2 px-2 border border-dashed rounded-lg text-gray-600 hover:bg-gray-100">📄 빈 칸 추가</button>
-            </div>
-            
-            <div class="mt-2 pt-2 border-t">
-                <div class="flex justify-between items-center mb-1">
-                    <h3 class="font-bold text-xs text-purple-600">🧪 임시 직원 (배치 시뮬레이션)</h3>
-                    <button id="add-temp-staff-btn" class="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 font-bold">+</button>
-                </div>
-                <div class="temp-staff-list min-h-[40px] p-2 bg-purple-50 border border-purple-200 rounded-lg">
+            ${tempEmployees.length > 0 ? `
+            <div class="mt-1 pt-1 border-t">
+                <span class="text-xs text-purple-600 font-bold mr-1">임시:</span>
+                <div class="temp-staff-list" style="display:inline-flex; flex-wrap:wrap; gap:3px;">
                     ${tempListHtml}
                 </div>
-            </div>
-
-            <div class="mt-2 pt-2 border-t">
-                <h3 class="font-bold text-xs text-gray-500 mb-2">🚫 리셋 제외 목록</h3>
-                <div class="excluded-list min-h-[80px] p-2 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg">
+            </div>` : ''}
+            ${excludedEmployees.length > 0 ? `
+            <div class="mt-1 pt-1 border-t">
+                <span class="text-xs text-gray-500 font-bold mr-1">제외:</span>
+                <div class="excluded-list" style="display:inline-flex; flex-wrap:wrap; gap:3px; min-height:30px; padding:4px; background:#f9fafb; border:2px dashed #d1d5db; border-radius:8px;">
                     ${excludedListHtml}
                 </div>
-                <p class="text-xs text-gray-400 mt-1">여기로 드래그하면 리셋 시 제외됩니다</p>
-            </div>
+            </div>` : `
+            <div class="mt-1 pt-1 border-t">
+                <span class="text-xs text-gray-500 font-bold mr-1">제외:</span>
+                <div class="excluded-list" style="display:inline-flex; flex-wrap:wrap; gap:3px; min-height:30px; padding:4px; background:#f9fafb; border:2px dashed #d1d5db; border-radius:8px;">
+                </div>
+            </div>`}
         </div>`;
 
     _('#add-spacer-btn')?.addEventListener('click', handleAddSpacer);
