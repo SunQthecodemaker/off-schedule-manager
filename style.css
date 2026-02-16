@@ -53,8 +53,8 @@
 /* ✨ 순수 달력 스타일 - 일요일 폭 축소 */
 .calendar-grid {
     display: grid;
-    grid-template-columns: 0.4fr repeat(6, 1fr) 120px;
-    /* ✅ 일요일 40% + 월~토 1fr×6 + 검수열 120px */
+    grid-template-columns: 0.2fr repeat(6, 1fr) 80px;
+    /* ✅ 일요일 20% + 월~토 1fr×6 + 검수열 80px (4열 카드 배치 유지) */
     gap: 1px;
     background-color: #e5e7eb;
     border: 1px solid #e5e7eb;

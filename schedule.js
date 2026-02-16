@@ -2705,6 +2705,14 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         emp.department_id === medicalDeptId && !emp.is_temp && !(emp.email && emp.email.startsWith('temp-'))
     );
 
+    // WHY: 리셋 제외 목록에 있는 직원(휴직자 등)은 검수에서 제외
+    // savedLayout.members에 ID가 포함되어 있으면 활동 중인 직원
+    const savedLayout = state.schedule?.teamLayout?.data?.[0];
+    if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
+        const activeMembers = new Set(savedLayout.members.filter(id => id > 0));
+        targetEmployees = targetEmployees.filter(emp => activeMembers.has(emp.id));
+    }
+
     // 해당 주의 근무일 수 (이미 일요일은 제외됨)
     const weekdays = dates.length;
 
@@ -2741,7 +2749,9 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         const offText = offDays.length > 0 ? offDays.join(',') : '';
 
         return { emp, workCount, offDays, offText, status, bgColor, deptColor };
-    });
+    })
+        // WHY: 해당 주에 스케줄이 전혀 없는 직원(비활성/더미)은 검수 대상에서 제외
+        .filter(row => row.workCount > 0);
 
     // 경고/과다 카운트
     const warnCount = rows.filter(r => r.status === '⚠️').length;
