@@ -128,14 +128,14 @@
     background-color: rgba(59, 130, 246, 0.1);
 }
 
-/* ✅ 날짜 셀 내부: 4열 그리드 배치 */
+/* ✅ 날짜 셀 내부: 4열 × 7행 그리드 배치 */
 .day-events {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    /* WHY: 4열 고정 배치, 7행까지 수용 (28명) */
+    grid-template-rows: repeat(7, minmax(18px, auto));
+    /* WHY: 최소 18px로 빈 행도 표시되어 항상 4×7 = 28칸 */
     gap: 2px;
     padding: 2px;
-    min-height: 80px;
     align-content: start;
 }
 
@@ -779,8 +779,10 @@
     .day-events {
         max-height: none !important;
         overflow: visible !important;
-        display: block !important;
-        /* 인쇄 시 블록 처리 후 내부에서 그리드/리스트 분기 */
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        /* WHY: 인쇄에서도 4열 그리드 유지 */
+        gap: 1px !important;
     }
 
     .doctors-grid {
