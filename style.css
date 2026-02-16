@@ -53,8 +53,8 @@
 /* ✨ 순수 달력 스타일 - 일요일 폭 축소 */
 .calendar-grid {
     display: grid;
-    grid-template-columns: 0.4fr repeat(6, 1fr);
-    /* ✅ 일요일 40% 폭으로 축소 */
+    grid-template-columns: 0.4fr repeat(6, 1fr) 180px;
+    /* ✅ 일요일 40% + 월~토 1fr×6 + 검수열 180px */
     gap: 1px;
     background-color: #e5e7eb;
     border: 1px solid #e5e7eb;
@@ -288,7 +288,8 @@
 
 .schedule-grid {
     display: grid;
-    grid-template-columns: 1fr 240px;
+    grid-template-columns: 1fr 180px;
+    /* ✅ 사이드바 240→180px 축소 (검수열 공간 확보) */
     gap: 1rem;
     align-items: start;
 }
@@ -707,10 +708,15 @@
     .calendar-grid {
         display: grid !important;
         grid-template-columns: 0.4fr repeat(6, 1fr) !important;
-        /* 일요일 좁게 유지 */
+        /* ✅ 인쇄 시 검수열 제외한 7열 복원 */
         border: 2px solid #000;
         width: 100%;
         page-break-inside: avoid;
+    }
+
+    /* ✅ 인쇄 시 검수열 숨김 */
+    .weekly-audit-cell {
+        display: none !important;
     }
 
     .calendar-day {
