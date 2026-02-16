@@ -520,7 +520,8 @@ function analyzePastedTable(containerEl, targetMonthStr) {
 
     // ✨ 데이터 파싱을 위한 상태 변수
     let currentDateMap = null; // Map<colIndex, DateString>
-    let currentWeekDateCounts = new Map(); // Date -> Count (grid_position 계산용)
+    let headerRowIndex = -1; // 현재 적용 중인 헤더 행 인덱스 (grid_position 행 오프셋 계산용)
+    let currentDateColInfo = new Map(); // Date -> { startCol, span } (열 오프셋 계산용)
 
     console.log(`📊 테이블 분석 시작: 총 ${rows.length}행`);
 
@@ -573,7 +574,7 @@ function analyzePastedTable(containerEl, targetMonthStr) {
                     for (let i = 0; i < colspan; i++) {
                         potentialDateMap.set(colIndex + i, matchedDate);
                     }
-                    detectedHeaders.push({ date: matchedDate, row: r, text });
+                    detectedHeaders.push({ date: matchedDate, row: r, text, col: colIndex, span: colspan });
                 }
             }
             colIndex += colspan;
@@ -583,9 +584,24 @@ function analyzePastedTable(containerEl, targetMonthStr) {
         if (validDateCount >= 2) { // 한 행에 날짜가 2개 이상이면 헤더로 간주
             console.log(`✅ 날짜 헤더 감지 (Row ${r}):`, potentialDateMap);
             currentDateMap = potentialDateMap;
-            // 새 주차 시작 시 포지션 카운터 초기화?
-            // 아니요, 날짜별로 grid_position은 독립적이므로 별도 관리 필요 없지만,
-            // 같은 날짜가 또 나오진 않으리라 가정 (주단위 블록)
+            headerRowIndex = r; // ✨ 행 오프셋 계산의 기준점 저장
+
+            // ✨ 각 날짜의 시작 열(startCol)과 열 폭(span) 정보 갱신
+            // WHY: grid_position = (rowOffset * colsPerDate) + colOffset 공식에 필요
+            currentDateColInfo = new Map();
+            const dateStartCols = new Map(); // date -> 첫 등장 colIndex
+            potentialDateMap.forEach((dateStr, col) => {
+                if (!dateStartCols.has(dateStr)) {
+                    dateStartCols.set(dateStr, col);
+                }
+            });
+            dateStartCols.forEach((startCol, dateStr) => {
+                // 해당 날짜에 매핑된 열 수 = colspan (=colsPerDate)
+                let span = 0;
+                potentialDateMap.forEach((d) => { if (d === dateStr) span++; });
+                currentDateColInfo.set(dateStr, { startCol, span });
+            });
+
             continue; // 헤더 행은 데이터 파싱 스킵
         }
 
@@ -603,38 +619,55 @@ function analyzePastedTable(containerEl, targetMonthStr) {
                     // 키워드 필터링
                     if (!['부족', '여유', '적정', '목표', '검수', '휴일', '합계', '인원', '근무', 'TO:'].some(k => text.includes(k))) {
 
-                        // 현재 컬럼이 어떤 날짜에 속하는지 확인
-                        const dateStr = currentDateMap.get(colIndex);
+                        // ✨ (휴), (OFF) 등 휴무 표시 제외 로직 추가 (v3.2)
+                        // 사용자의 요청: "공휴일이라 휴무인데 배치된 걸로 인식한다" -> 휴무 표시는 스케줄에서 제외
+                        const offKeywords = ['휴', '휴무', '연', '연차', '반', '반차', '오프', 'OFF', 'off'];
+                        // 괄호나 대괄호로 감싸진 키워드 확인 (예: 박선규(휴), 김민재[OFF])
+                        const isOffStatus = offKeywords.some(k => text.includes(`(${k}`) || text.includes(`[${k}`));
 
-                        if (dateStr) {
-                            // 이름 추출
-                            let cleanName = text.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
-                            const lookupName = cleanName.replace(/\s+/g, '');
+                        if (isOffStatus) {
+                            console.log(`      ⏭️ 휴무 상태 감지: "${text}" -> 제외`);
+                        } else {
 
-                            if (lookupName.length >= 2) {
-                                const emp = empMap.get(lookupName);
-                                if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
+                            // 현재 컬럼이 어떤 날짜에 속하는지 확인
+                            const dateStr = currentDateMap.get(colIndex);
 
-                                    // 중복 체크 (같은 날짜, 같은 사람) -> 허용? (오전/오후?) 보통 하루 하나.
-                                    // 일단 중복 방지
-                                    const exists = schedules.some(s => s.date === dateStr && s.employee_id === emp.id);
+                            if (dateStr) {
+                                // 이름 추출
+                                let cleanName = text.replace(/\(.*\)/, '').replace(/[0-9.]/g, '').trim();
+                                const lookupName = cleanName.replace(/\s+/g, '');
 
-                                    if (!exists) {
-                                        // Grid Position 결정:
-                                        // 해당 날짜에 이미 추가된 인원 수를 포지션으로 사용 (0, 1, 2...)
-                                        // 이렇게 하면 행(Row) -> 열(Col) 순서대로 차곡차곡 쌓임
-                                        const currentCount = currentWeekDateCounts.get(dateStr) || 0;
+                                if (lookupName.length >= 2) {
+                                    const emp = empMap.get(lookupName);
+                                    if (emp && targetDeptNames.some(k => emp.deptName.includes(k))) {
 
-                                        schedules.push({
-                                            date: dateStr,
-                                            name: emp.name,
-                                            dept: emp.deptName,
-                                            employee_id: emp.id,
-                                            raw: text,
-                                            grid_position: currentCount // 순차적 할당
-                                        });
+                                        // 중복 체크 (같은 날짜, 같은 사람)
+                                        const exists = schedules.some(s => s.date === dateStr && s.employee_id === emp.id);
 
-                                        currentWeekDateCounts.set(dateStr, currentCount + 1);
+                                        if (!exists) {
+                                            // ✨ Grid Position 결정 (v3.3):
+                                            // WHY: 순차 할당(0,1,2...)은 시트 원본 배치를 파괴함.
+                                            // 행 오프셋(rowOffset)과 날짜 내 열 오프셋(colOffset)을 조합하여
+                                            // 시트의 시각적 레이아웃을 웹 그리드에 그대로 복원.
+                                            const rowOffset = r - headerRowIndex - 1;
+                                            const dateInfo = currentDateColInfo.get(dateStr);
+                                            const colsPerDate = dateInfo ? dateInfo.span : 4;
+                                            let colOffset = dateInfo ? (colIndex - dateInfo.startCol) : 0;
+                                            if (colOffset < 0) colOffset = 0;
+                                            if (colOffset >= colsPerDate) colOffset = colsPerDate - 1;
+                                            const gridPos = (rowOffset * colsPerDate) + colOffset;
+
+                                            schedules.push({
+                                                date: dateStr,
+                                                name: emp.name,
+                                                dept: emp.deptName,
+                                                employee_id: emp.id,
+                                                raw: text,
+                                                grid_position: gridPos
+                                            });
+
+                                            console.log(`      ✅ ${emp.name}: row${rowOffset} col${colOffset} → pos ${gridPos}`);
+                                        }
                                     }
                                 }
                             }
@@ -928,3 +961,68 @@ function analyzePastedText(text, targetMonthStr) {
     };
 }
 
+// =============================================================================
+// ✨ DB 적용 함수 (Targeted Overwrite)
+// =============================================================================
+
+/**
+ * 파싱된 스케줄 데이터를 DB에 적용합니다.
+ * WHY: 전체 삭제 대신 대상 직원(원장/진료실)만 해당 기간에서 삭제 후 삽입하여
+ *      타 부서(행정팀, 기공실 등)의 기존 데이터를 보호합니다.
+ */
+async function applyImportedSchedules(newSchedules) {
+    if (!newSchedules || newSchedules.length === 0) {
+        throw new Error('적용할 스케줄 데이터가 없습니다.');
+    }
+
+    // 1. 대상 직원 ID와 날짜 범위 추출
+    const targetEmpIds = [...new Set(newSchedules.map(s => s.employee_id))];
+    const dates = [...new Set(newSchedules.map(s => s.date))].sort();
+    const minDate = dates[0];
+    const maxDate = dates[dates.length - 1];
+
+    console.log(`📥 applyImportedSchedules: ${newSchedules.length}건`);
+    console.log(`   대상 직원: ${targetEmpIds.length}명, 기간: ${minDate} ~ ${maxDate}`);
+
+    // 2. 대상 직원만 해당 기간에서 삭제 (타 부서 데이터 보존)
+    const { error: deleteError } = await db.from('schedules')
+        .delete()
+        .gte('date', minDate)
+        .lte('date', maxDate)
+        .in('employee_id', targetEmpIds);
+
+    if (deleteError) {
+        console.error('❌ 기존 스케줄 삭제 실패:', deleteError);
+        throw deleteError;
+    }
+
+    console.log('✅ 기존 스케줄 삭제 완료 (대상 직원만)');
+
+    // 3. 새 데이터 삽입 (batch 50건 단위)
+    const insertData = newSchedules.map(s => ({
+        date: s.date,
+        employee_id: s.employee_id,
+        status: '근무',
+        sort_order: s.grid_position,
+        grid_position: s.grid_position
+    }));
+
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < insertData.length; i += BATCH_SIZE) {
+        const batch = insertData.slice(i, i + BATCH_SIZE);
+        const { error: insertError } = await db.from('schedules').insert(batch);
+        if (insertError) {
+            console.error(`❌ 배치 삽입 오류 (인덱스 ${i}):`, insertError);
+            throw insertError;
+        }
+    }
+
+    console.log('✅ 새 스케줄 삽입 완료');
+
+    // 4. 화면 갱신
+    if (window.loadAndRenderScheduleData) {
+        await window.loadAndRenderScheduleData(state.schedule.currentDate);
+    }
+
+    alert(`✅ ${newSchedules.length}건의 스케줄이 성공적으로 적용되었습니다.`);
+}

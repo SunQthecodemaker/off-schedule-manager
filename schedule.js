@@ -1,6 +1,6 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
-import { syncToAppSheet, importFromAppSheet, setScriptUrl, getScriptUrl } from './appsheet-client.js';
+// AppSheet 연동 제거됨 (2026-02-16)
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
 import { registerManualLeave, cancelManualLeave } from './management.js';
 
@@ -1243,6 +1243,9 @@ function renderCalendar() {
     initializeCalendarEvents();
 
     console.log('Calendar rendered successfully');
+
+    // ✨ 달력 갱신 시 주간 검수 패널도 자동 갱신
+    renderWeeklyAudit();
 }
 
 // ✨ 달력 클릭 핸들러 분리
@@ -1520,6 +1523,7 @@ function navigateMonth(direction) {
     else newDate = dayjs();
 
     state.schedule.currentDate = newDate.format('YYYY-MM-DD');
+    auditSelectedWeekIndex = 0; // ✨ 월 변경 시 주간 검수 1주차로 리셋
     loadAndRenderScheduleData(state.schedule.currentDate);
 }
 
@@ -2564,9 +2568,12 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         </div>`
     ).join('');
 
-    // Conditional sidebar HTML
+    // Conditional sidebar HTML - 접기/펼치기 토글 방식
     const sidebarHtml = isReadOnly ? '' : `
-        <div id="schedule-sidebar-area"></div>
+        <div id="schedule-sidebar-wrapper" style="width:40px; flex-shrink:0; transition:width 0.2s ease; overflow:hidden; border-left:1px solid #e5e7eb; border-right:1px solid #e5e7eb; background:#fff; position:relative;">
+            <button id="sidebar-toggle-btn" style="width:40px; height:40px; display:flex; align-items:center; justify-content:center; border:none; background:transparent; cursor:pointer; font-size:18px;" title="직원 목록 펼치기">☰</button>
+            <div id="schedule-sidebar-area" style="display:none; width:220px;"></div>
+        </div>
     `;
 
     // Conditional top control buttons HTML
@@ -2585,11 +2592,6 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
             </div>
             <div class="flex items-center gap-2">
                 <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
-                <!-- AppSheet Integration -->
-                <button id="sync-appsheet-btn" class="bg-indigo-600 text-white hover:bg-indigo-700" title="AppSheet로 데이터 전송">📤 동기화</button>
-                <button id="import-appsheet-btn" class="bg-purple-600 text-white hover:bg-purple-700" title="AppSheet 스케줄 가져오기">📥 가져오기</button>
-                <button id="appsheet-settings-btn" class="bg-gray-200 text-gray-700 hover:bg-gray-300" title="AppSheet 연동 설정">⚙️</button>
-                <!-- End AppSheet Integration -->
                 <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
@@ -2600,8 +2602,8 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     `;
 
     container.innerHTML = `
-        <div class="schedule-grid">
-            <div class="schedule-main-content">
+        <div class="schedule-layout" style="display:flex; gap:0; min-height:calc(100vh - 180px);">
+            <div class="schedule-main-content" style="flex:1; min-width:0; overflow:auto;">
                 ${topControlsHtml}
                 <div id="department-filters" class="flex items-center flex-wrap gap-4 my-4 text-sm">
                     <span class="font-semibold">부서 필터:</span>${deptFilterHtml}
@@ -2618,6 +2620,9 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <div id="pure-calendar"></div>
             </div>
             ${sidebarHtml}
+            <div id="weekly-audit-panel" style="width:300px; flex-shrink:0; overflow-y:auto; border-left:1px solid #e5e7eb; background:#fafbfc; padding:12px;">
+                <!-- renderWeeklyAudit()로 채워짐 -->
+            </div>
         </div>
     `;
 
@@ -2634,17 +2639,36 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
         _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
 
-        // AppSheet Handlers
-        _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
-        _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
-        _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
     _('#calendar-next')?.addEventListener('click', () => navigateMonth('next'));
     _('#calendar-today')?.addEventListener('click', () => navigateMonth('today'));
 
+    // ✨ 사이드바 접기/펼치기 토글
+    const sidebarToggle = _('#sidebar-toggle-btn');
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', () => {
+            const wrapper = _('#schedule-sidebar-wrapper');
+            const area = _('#schedule-sidebar-area');
+            if (!wrapper || !area) return;
 
+            const isExpanded = wrapper.style.width !== '40px';
+            if (isExpanded) {
+                // 접기
+                wrapper.style.width = '40px';
+                area.style.display = 'none';
+                sidebarToggle.textContent = '☰';
+                sidebarToggle.title = '직원 목록 펼치기';
+            } else {
+                // 펼치기
+                wrapper.style.width = '260px';
+                area.style.display = 'block';
+                sidebarToggle.textContent = '✕';
+                sidebarToggle.title = '직원 목록 접기';
+            }
+        });
+    }
     console.log('Event listeners attached');
 
     try {
@@ -2657,15 +2681,228 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     }
 }
 
-// ✨ AppSheet 설정 핸들러
-function handleAppSheetSettings() {
-    const currentUrl = getScriptUrl();
-    const newUrl = prompt('Google Apps Script 웹 앱 URL을 입력하세요:\n(배포된 웹 앱 URL)', currentUrl);
-    if (newUrl !== null) {
-        setScriptUrl(newUrl);
-        alert('연동 URL이 저장되었습니다.');
+
+// =============================================================================
+// ✨ 주간 검수 패널 (Weekly Audit)
+// WHY: 주 단위 근무 스케줄이 제대로 적용되었는지 한눈에 확인하기 위해 구현.
+//      직원별 근무일수/휴무요일을 자동 집계하여 부족·과다 근무를 경고합니다.
+// =============================================================================
+
+// 주간 검수의 현재 선택 주차 (0-indexed, 월 시작 기준)
+let auditSelectedWeekIndex = 0;
+
+/**
+ * 현재 월의 주차 정보를 계산합니다.
+ * @returns {Array<{label: string, startDate: string, endDate: string, dates: string[]}>}
+ */
+function getWeeksOfMonth() {
+    const currentDate = dayjs(state.schedule.currentDate);
+    const year = currentDate.year();
+    const month = currentDate.month();
+
+    const firstDay = dayjs(new Date(year, month, 1));
+    const lastDay = dayjs(new Date(year, month + 1, 0));
+
+    const weeks = [];
+    let weekStart = firstDay.startOf('week'); // 일요일 시작
+
+    while (weekStart.isBefore(lastDay) || weekStart.isSame(lastDay, 'day')) {
+        const weekEnd = weekStart.endOf('week'); // 토요일 끝
+        const dates = [];
+
+        let d = weekStart.clone();
+        while (d.isBefore(weekEnd) || d.isSame(weekEnd, 'day')) {
+            // 해당 월에 속하는 날짜만 수집
+            if (d.month() === month) {
+                dates.push(d.format('YYYY-MM-DD'));
+            }
+            d = d.add(1, 'day');
+        }
+
+        if (dates.length > 0) {
+            const startStr = dates[0];
+            const endStr = dates[dates.length - 1];
+            weeks.push({
+                label: `${weeks.length + 1}주차 (${dayjs(startStr).format('M/D')}~${dayjs(endStr).format('M/D')})`,
+                startDate: startStr,
+                endDate: endStr,
+                dates
+            });
+        }
+
+        weekStart = weekEnd.add(1, 'day');
     }
+
+    return weeks;
 }
+
+/**
+ * 주간 검수 패널을 렌더링합니다.
+ * 달력이 갱신될 때마다 자동으로 호출됩니다.
+ */
+function renderWeeklyAudit() {
+    const panel = _('#weekly-audit-panel');
+    if (!panel) return;
+
+    const weeks = getWeeksOfMonth();
+    if (weeks.length === 0) {
+        panel.innerHTML = '<p class="text-gray-400 text-sm">주차 데이터 없음</p>';
+        return;
+    }
+
+    // 유효한 인덱스 보정
+    if (auditSelectedWeekIndex >= weeks.length) auditSelectedWeekIndex = weeks.length - 1;
+    if (auditSelectedWeekIndex < 0) auditSelectedWeekIndex = 0;
+
+    const selectedWeek = weeks[auditSelectedWeekIndex];
+    const weekDayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+    // 부서 필터가 적용된 직원 목록 가져오기
+    const employees = state.management?.employees || [];
+    const savedLayout = state.schedule?.teamLayout?.data?.[0];
+
+    // 사이드바 순서에 포함된 직원만 (빈칸 제외), 없으면 전체 직원
+    let targetEmployees = [];
+    if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
+        savedLayout.members.forEach(memberId => {
+            if (memberId > 0) {
+                const emp = employees.find(e => e.id === memberId);
+                if (emp) targetEmployees.push(emp);
+            }
+        });
+    } else {
+        targetEmployees = employees.filter(e => !e.is_temp && !(e.email && e.email.startsWith('temp-')));
+    }
+
+    // 부서 필터 적용
+    if (state.schedule.activeDepartmentFilters && state.schedule.activeDepartmentFilters.size > 0) {
+        targetEmployees = targetEmployees.filter(emp =>
+            state.schedule.activeDepartmentFilters.has(emp.department_id)
+        );
+    }
+
+    // 각 직원별 근무일 집계
+    const auditRows = targetEmployees.map(emp => {
+        const workDates = [];
+        const offDayNames = [];
+
+        selectedWeek.dates.forEach(dateStr => {
+            const dayOfWeek = dayjs(dateStr).day();
+            const dayName = weekDayNames[dayOfWeek];
+
+            // 해당 날짜에 '근무' 상태인 스케줄이 있는지 확인
+            const hasSchedule = state.schedule.schedules.some(
+                s => s.date === dateStr && s.employee_id === emp.id && s.status === '근무'
+            );
+
+            if (hasSchedule) {
+                workDates.push(dateStr);
+            } else {
+                // 일요일은 기본 휴무이므로 별도 표기하지 않음
+                if (dayOfWeek !== 0) {
+                    offDayNames.push(dayName);
+                }
+            }
+        });
+
+        const workCount = workDates.length;
+        // 해당 주의 평일 수 (일요일 제외)
+        const weekdays = selectedWeek.dates.filter(d => dayjs(d).day() !== 0).length;
+
+        let status = '✅';
+        let statusClass = '';
+        if (workCount < weekdays && workCount < 5) {
+            status = '⚠️';
+            statusClass = 'background-color: #fef3c7;'; // 노란색 배경
+        }
+        if (workCount >= 6) {
+            status = '🔴';
+            statusClass = 'background-color: #fee2e2;'; // 빨간색 배경
+        }
+
+        return { emp, workCount, offDayNames, status, statusClass, weekdays };
+    });
+
+    // HTML 생성
+    const currentDate = dayjs(state.schedule.currentDate);
+    const monthTitle = currentDate.format('YYYY년 M월');
+
+    const tableRowsHtml = auditRows.map(row => {
+        const deptColor = getDepartmentColor(row.emp.departments?.id);
+        const offText = row.offDayNames.length > 0 ? row.offDayNames.join(', ') : '-';
+        const offStyle = row.offDayNames.length > 0 ? 'color: #ef4444; font-weight: 600;' : 'color: #9ca3af;';
+
+        return `
+            <tr style="${row.statusClass}">
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; white-space:nowrap;">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${deptColor}; margin-right:6px; vertical-align:middle;"></span>
+                    <span style="font-size:13px; vertical-align:middle;">${row.emp.name}</span>
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:center; font-weight:700; font-size:14px;">
+                    ${row.workCount}일
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:12px; ${offStyle}">
+                    ${offText}
+                </td>
+                <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb; text-align:center; font-size:14px;">
+                    ${row.status}
+                </td>
+            </tr>`;
+    }).join('');
+
+    // 요약 통계
+    const totalCount = auditRows.length;
+    const warningCount = auditRows.filter(r => r.status === '⚠️').length;
+    const overCount = auditRows.filter(r => r.status === '🔴').length;
+
+    panel.innerHTML = `
+        <div style="margin-bottom:12px;">
+            <h3 style="font-size:15px; font-weight:700; margin:0 0 4px 0; color:#1f2937;">📋 주간 검수</h3>
+            <p style="font-size:11px; color:#6b7280; margin:0;">${monthTitle}</p>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <button id="audit-prev-week" style="padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; background:#fff; cursor:pointer; font-size:12px;" ${auditSelectedWeekIndex === 0 ? 'disabled style="opacity:0.4; cursor:default;"' : ''}>◀</button>
+            <span style="font-size:13px; font-weight:600; color:#374151;">${selectedWeek.label}</span>
+            <button id="audit-next-week" style="padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; background:#fff; cursor:pointer; font-size:12px;" ${auditSelectedWeekIndex >= weeks.length - 1 ? 'disabled style="opacity:0.4; cursor:default;"' : ''}>▶</button>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-bottom:12px; font-size:11px;">
+            <span style="background:#f0fdf4; border:1px solid #bbf7d0; padding:2px 8px; border-radius:10px;">전체 ${totalCount}명</span>
+            ${warningCount > 0 ? `<span style="background:#fef3c7; border:1px solid #fde68a; padding:2px 8px; border-radius:10px;">⚠️ 부족 ${warningCount}</span>` : ''}
+            ${overCount > 0 ? `<span style="background:#fee2e2; border:1px solid #fecaca; padding:2px 8px; border-radius:10px;">🔴 과다 ${overCount}</span>` : ''}
+        </div>
+
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:6px 8px; text-align:left; font-size:11px; color:#6b7280; border-bottom:2px solid #d1d5db;">이름</th>
+                    <th style="padding:6px 8px; text-align:center; font-size:11px; color:#6b7280; border-bottom:2px solid #d1d5db;">근무</th>
+                    <th style="padding:6px 8px; text-align:left; font-size:11px; color:#6b7280; border-bottom:2px solid #d1d5db;">휴무일</th>
+                    <th style="padding:6px 4px; text-align:center; font-size:11px; color:#6b7280; border-bottom:2px solid #d1d5db;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${tableRowsHtml}
+            </tbody>
+        </table>
+    `;
+
+    // 주차 네비게이션 이벤트 바인딩
+    _('#audit-prev-week')?.addEventListener('click', () => {
+        if (auditSelectedWeekIndex > 0) {
+            auditSelectedWeekIndex--;
+            renderWeeklyAudit();
+        }
+    });
+    _('#audit-next-week')?.addEventListener('click', () => {
+        if (auditSelectedWeekIndex < weeks.length - 1) {
+            auditSelectedWeekIndex++;
+            renderWeeklyAudit();
+        }
+    });
+}
+
 
 // ✨ 인쇄 핸들러 - 캡쳐 방식으로 변경
 async function handlePrintSchedule() {
