@@ -2879,6 +2879,12 @@ async function handlePrintSchedule() {
         const imgData = canvas.toDataURL('image/png');
         const printWindow = window.open('', '_blank');
 
+        // WHY: 팝업 차단 시 window.open()이 null 반환
+        if (!printWindow) {
+            alert('팝업이 차단되었습니다. 브라우저에서 팝업을 허용해주세요.');
+            return;
+        }
+
         printWindow.document.write(`
             <!DOCTYPE html>
             <html>
