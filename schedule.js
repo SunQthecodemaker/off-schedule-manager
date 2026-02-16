@@ -2672,48 +2672,41 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
  * @returns {string} HTML 문자열
  */
 function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
-    // 해당 주에서 현재 월에 속하는 날짜만 수집
+    // 해당 주에서 현재 월에 속하는 날짜만 수집 (일요일 제외 - 진료일만)
     const dates = [];
     let d = weekStart.clone();
     while (d.isBefore(weekEnd) || d.isSame(weekEnd, 'day')) {
-        if (d.month() === currentMonth) {
+        // WHY: 일요일(day=0)은 진료 없으므로 근무일 계산에서 제외
+        if (d.month() === currentMonth && d.day() !== 0) {
             dates.push(d.format('YYYY-MM-DD'));
         }
         d = d.add(1, 'day');
     }
 
-    // 해당 월에 속하는 날이 없으면 빈 셀
+    // 해당 월에 속하는 평일이 없으면 빈 셀
     if (dates.length === 0) {
-        return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:4px;"></div>`;
+        return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px;"></div>`;
     }
 
     const weekDayNames = ['일', '월', '화', '수', '목', '금', '토'];
 
-    // 직원 목록 (사이드바 순서 우선, 없으면 전체)
+    // WHY: 검수 대상은 '진료실' 부서 직원만 (원장님 요청)
     const employees = state.management?.employees || [];
-    const savedLayout = state.schedule?.teamLayout?.data?.[0];
+    const medicalDept = state.management?.departments?.find(dept => dept.name === '진료실');
+    const medicalDeptId = medicalDept?.id;
 
-    let targetEmployees = [];
-    if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
-        savedLayout.members.forEach(memberId => {
-            if (memberId > 0) {
-                const emp = employees.find(e => e.id === memberId);
-                if (emp) targetEmployees.push(emp);
-            }
-        });
-    } else {
-        targetEmployees = employees.filter(e => !e.is_temp && !(e.email && e.email.startsWith('temp-')));
+    // 진료실 부서가 없으면 빈 셀
+    if (!medicalDeptId) {
+        return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px; font-size:9px; color:#9ca3af;">부서 없음</div>`;
     }
 
-    // 부서 필터 적용
-    if (state.schedule.activeDepartmentFilters && state.schedule.activeDepartmentFilters.size > 0) {
-        targetEmployees = targetEmployees.filter(emp =>
-            state.schedule.activeDepartmentFilters.has(emp.department_id)
-        );
-    }
+    // 진료실 직원만 필터링
+    let targetEmployees = employees.filter(emp =>
+        emp.department_id === medicalDeptId && !emp.is_temp && !(emp.email && emp.email.startsWith('temp-'))
+    );
 
-    // 해당 주의 평일 수 (일요일 제외)
-    const weekdays = dates.filter(d => dayjs(d).day() !== 0).length;
+    // 해당 주의 근무일 수 (이미 일요일은 제외됨)
+    const weekdays = dates.length;
 
     // 직원별 근무일 집계
     const rows = targetEmployees.map(emp => {
