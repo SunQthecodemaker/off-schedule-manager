@@ -2843,7 +2843,13 @@ async function handlePrintSchedule() {
             calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
         }
 
-        // 3. 네임카드 간격 제거 + 텍스트 확대 (인쇄용)
+        // 3. 달력 셀 높이 최대화 (A4 세로 공간 활용)
+        const calendarDays = calendarEl.querySelectorAll('.calendar-day');
+        calendarDays.forEach(el => {
+            el.style.minHeight = '230px';
+        });
+
+        // 4. 네임카드 간격 제거 + 텍스트 확대 (인쇄용)
         const dayEventsEls = calendarEl.querySelectorAll('.day-events');
         dayEventsEls.forEach(el => {
             el.style.gap = '0px';
@@ -2879,11 +2885,14 @@ async function handlePrintSchedule() {
             logging: false,
         });
 
-        // 4. 스타일 복원
+        // 스타일 복원
         auditCells.forEach(el => { el.style.display = ''; });
         if (calendarGrid) {
             calendarGrid.style.gridTemplateColumns = originalGridStyle;
         }
+        calendarDays.forEach(el => {
+            el.style.minHeight = '';
+        });
         dayEventsEls.forEach(el => {
             el.style.gap = '';
             el.style.padding = '';
