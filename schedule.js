@@ -1136,8 +1136,8 @@ function renderCalendar() {
 
         let eventsHTML = '';
         if (state.schedule.viewMode === 'working') {
-            // ✅ 항상 24칸 고정 렌더링
-            const GRID_SIZE = 24;
+            // ✅ 항상 28칸(4×7) 고정 렌더링
+            const GRID_SIZE = 28;
             const gridSlots = new Array(GRID_SIZE).fill(null);
 
             // 해당 날짜의 스케줄을 그리드 위치에 배치
@@ -1216,15 +1216,7 @@ function renderCalendar() {
                 </div>`;
             }).join('');
         }
-        // WHY: 4×7 = 28칸 고정. 카드가 부족하면 빈 placeholder로 채움
-        const totalSlots = 28;
-        const cardCount = (eventsHTML.match(/event-card/g) || []).length;
-        if (cardCount < totalSlots) {
-            const emptySlots = totalSlots - cardCount;
-            for (let s = 0; s < emptySlots; s++) {
-                eventsHTML += `<div class="event-card event-empty" style="visibility:hidden; border:1px dashed #e5e7eb; background:transparent; min-height:16px;"></div>`;
-            }
-        }
+
 
         calendarHTML += `
             <div class="${dayClasses}" data-date="${dateStr}">
