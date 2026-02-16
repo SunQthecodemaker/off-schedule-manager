@@ -142,24 +142,20 @@
 
 /* ❌ Grid 관련 스타일 제거됨 (.doctors-grid, .other-depts-container) */
 
-/* ✅ 이벤트 카드 - Flow Layout에 맞게 너비 자동 조정 */
+/* ✅ 이벤트 카드 - 4열 배치 강제 */
 .event-card {
-    /* flex-basis: calc(25% - 2px); -> 제거 */
+    flex-basis: calc(25% - 2px);
+    /* WHY: 4열 배치를 강제. 25% = 한 줄에 4개 */
     min-width: 0;
-    width: auto;
-    /* 내용에 맞게 */
-    max-width: 100%;
-    /* 부모 넘지 않게 */
+    max-width: calc(25% - 2px);
     background-color: white;
     border: 1px solid #e2e8f0;
     border-radius: 3px;
-    padding: 3px 5px;
-    /* ✅ 패딩 증가 */
-    font-size: 12px;
-    /* ✅ 11px → 12px */
+    padding: 2px 3px;
+    font-size: 11px;
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     position: relative;
     cursor: move;
     transition: all 0.15s ease;
@@ -289,9 +285,41 @@
 .schedule-grid {
     display: grid;
     grid-template-columns: 1fr 120px;
-    /* ✅ 사이드바 120px (네임카드 1열 크기, 달력 4열 배치 확보) */
+    /* ✅ 사이드바 120px (달력 4열 배치 확보) */
     gap: 0.5rem;
     align-items: start;
+}
+
+/* ✅ 사이드바 카드 크기 전체 축소 (120px 폭에 맞춤) */
+#schedule-sidebar-area .draggable-employee {
+    margin-bottom: 1px;
+}
+
+#schedule-sidebar-area .handle {
+    font-size: 8px;
+    padding: 0 1px;
+    line-height: 1;
+}
+
+#schedule-sidebar-area .fc-draggable-item {
+    padding: 2px 3px;
+    font-size: 10px;
+    gap: 3px;
+}
+
+#schedule-sidebar-area .department-dot {
+    width: 6px;
+    height: 6px;
+    min-width: 6px;
+}
+
+#schedule-sidebar-area h3 {
+    font-size: 11px;
+}
+
+#schedule-sidebar-area button#save-employee-order-btn {
+    font-size: 9px;
+    padding: 1px 4px;
 }
 
 .schedule-main-content {
