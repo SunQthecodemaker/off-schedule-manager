@@ -2672,77 +2672,80 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
  * @returns {string} HTML 문자열
  */
 function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
-    // 해당 주에서 현재 월에 속하는 날짜만 수집 (일요일 제외 - 진료일만)
+    // 해당 주에서 현재 월에 속하는 날짜만 수집 (일요일 제외)
     const dates = [];
     let d = weekStart.clone();
     while (d.isBefore(weekEnd) || d.isSame(weekEnd, 'day')) {
-        // WHY: 일요일(day=0)은 진료 없으므로 근무일 계산에서 제외
         if (d.month() === currentMonth && d.day() !== 0) {
             dates.push(d.format('YYYY-MM-DD'));
         }
         d = d.add(1, 'day');
     }
 
-    // 해당 월에 속하는 평일이 없으면 빈 셀
     if (dates.length === 0) {
         return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px;"></div>`;
     }
 
     const weekDayNames = ['일', '월', '화', '수', '목', '금', '토'];
 
-    // WHY: 검수 대상은 '진료실' 부서 직원만 (원장님 요청)
+    // WHY: 공휴일을 제외한 실제 영업일 수 산정
+    // 일요일은 이미 dates에서 제외됨, 여기서 공휴일도 추가 제외
+    const holidays = state.schedule.companyHolidays || new Set();
+    const businessDays = dates.filter(dateStr => !holidays.has(dateStr));
+    const businessDayCount = businessDays.length;
+
+    // WHY: 기대 근무일 = min(영업일, 5)
+    // 영업일 6일(정상주) → 5일 근무 (1일 휴무)
+    // 영업일 5일(공휴일1) → 5일 근무 (풀근무)
+    // 영업일 4일 이하(설날 등) → 전부 근무 (풀근무)
+    const expectedWorkDays = Math.min(businessDayCount, 5);
+
+    // 진료실 직원만 필터링
     const employees = state.management?.employees || [];
     const medicalDept = state.management?.departments?.find(dept => dept.name === '진료실');
     const medicalDeptId = medicalDept?.id;
 
-    // 진료실 부서가 없으면 빈 셀
     if (!medicalDeptId) {
         return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px; font-size:9px; color:#9ca3af;">부서 없음</div>`;
     }
 
-    // 진료실 직원만 필터링
     let targetEmployees = employees.filter(emp =>
         emp.department_id === medicalDeptId && !emp.is_temp && !(emp.email && emp.email.startsWith('temp-'))
     );
 
-    // WHY: 리셋 제외 목록에 있는 직원(휴직자 등)은 검수에서 제외
-    // savedLayout.members에 ID가 포함되어 있으면 활동 중인 직원
+    // 리셋 제외 목록(휴직자 등) 제외
     const savedLayout = state.schedule?.teamLayout?.data?.[0];
     if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
         const activeMembers = new Set(savedLayout.members.filter(id => id > 0));
         targetEmployees = targetEmployees.filter(emp => activeMembers.has(emp.id));
     }
 
-    // 해당 주의 근무일 수 (이미 일요일은 제외됨)
-    const weekdays = dates.length;
-
-    // 직원별 근무일 집계
+    // 직원별 근무일 집계 (영업일 기준)
     const rows = targetEmployees.map(emp => {
         let workCount = 0;
         const offDays = [];
 
-        dates.forEach(dateStr => {
+        businessDays.forEach(dateStr => {
             const dayOfWeek = dayjs(dateStr).day();
             const hasSchedule = state.schedule.schedules.some(
                 s => s.date === dateStr && s.employee_id === emp.id && s.status === '근무'
             );
             if (hasSchedule) {
                 workCount++;
-            } else if (dayOfWeek !== 0) {
-                // 일요일 제외, 근무 안 한 날 = 휴무
+            } else {
                 offDays.push(weekDayNames[dayOfWeek]);
             }
         });
 
-        // 상태 판정
-        let status = '';
+        // WHY: 기대 근무일(expectedWorkDays) 기준으로 판정
+        let status = '';  // 정상
         let bgColor = 'transparent';
-        if (workCount < weekdays && workCount < 5) {
-            status = '⚠️';
-            bgColor = '#fef3c7';
-        } else if (workCount >= 6) {
-            status = '🔴';
-            bgColor = '#fee2e2';
+        if (workCount < expectedWorkDays) {
+            status = '부족';
+            bgColor = '#fef3c7'; // 노란색
+        } else if (workCount > expectedWorkDays) {
+            status = '과다';
+            bgColor = '#fee2e2'; // 빨간색
         }
 
         const deptColor = getDepartmentColor(emp.departments?.id);
@@ -2750,34 +2753,36 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
         return { emp, workCount, offDays, offText, status, bgColor, deptColor };
     })
-        // WHY: 해당 주에 스케줄이 전혀 없는 직원(비활성/더미)은 검수 대상에서 제외
         .filter(row => row.workCount > 0);
 
-    // 경고/과다 카운트
-    const warnCount = rows.filter(r => r.status === '⚠️').length;
-    const overCount = rows.filter(r => r.status === '🔴').length;
+    // 경고 카운트
+    const shortCount = rows.filter(r => r.status === '부족').length;
+    const overCount = rows.filter(r => r.status === '과다').length;
 
-    // 컴팩트 HTML 생성 (180px 너비에 맞춤)
+    // HTML: 직원 목록
     let listHtml = rows.map(row => {
-        const offStyle = row.offText ? `color:#ef4444; font-size:9px;` : '';
-        return `<div style="display:flex; align-items:center; gap:2px; padding:1px 0; background:${row.bgColor}; border-radius:2px; ${row.bgColor !== 'transparent' ? 'padding:1px 3px;' : ''}">
-            <span style="width:5px; height:5px; border-radius:50%; background:${row.deptColor}; flex-shrink:0;"></span>
-            <span style="font-size:10px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.emp.name}</span>
-            <span style="font-size:10px; font-weight:700; min-width:14px; text-align:right;">${row.workCount}</span>
-            ${row.status ? `<span style="font-size:9px;">${row.status}</span>` : ''}
+        const offStyle = row.offText ? `color:#ef4444; font-size:8px;` : '';
+        const statusStyle = row.status === '부족' ? 'color:#b45309; font-size:8px; font-weight:600;'
+            : row.status === '과다' ? 'color:#dc2626; font-size:8px; font-weight:600;'
+                : '';
+        return `<div style="display:flex; align-items:center; gap:2px; padding:1px 2px; background:${row.bgColor}; border-radius:2px;">
+            <span style="width:4px; height:4px; border-radius:50%; background:${row.deptColor}; flex-shrink:0;"></span>
+            <span style="font-size:9px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.emp.name}</span>
+            <span style="font-size:9px; font-weight:700; min-width:10px; text-align:right;">${row.workCount}</span>
+            ${row.status ? `<span style="${statusStyle}">${row.status}</span>` : ''}
             ${row.offText ? `<span style="${offStyle}">${row.offText}</span>` : ''}
         </div>`;
     }).join('');
 
-    // 헤더 (요약 배지)
-    let headerBadges = '';
-    if (warnCount > 0) headerBadges += `<span style="background:#fef3c7; font-size:8px; padding:0 3px; border-radius:6px;">⚠${warnCount}</span>`;
-    if (overCount > 0) headerBadges += `<span style="background:#fee2e2; font-size:8px; padding:0 3px; border-radius:6px;">🔴${overCount}</span>`;
+    // 헤더: 영업일/기대근무일 + 경고 배지 (이모티콘 없이 텍스트만)
+    let headerInfo = `<span style="font-size:8px; color:#6b7280;">${businessDayCount}일중${expectedWorkDays}</span>`;
+    let badges = '';
+    if (shortCount > 0) badges += `<span style="background:#fef3c7; font-size:7px; padding:0 2px; border-radius:3px; color:#b45309;">부족${shortCount}</span>`;
+    if (overCount > 0) badges += `<span style="background:#fee2e2; font-size:7px; padding:0 2px; border-radius:3px; color:#dc2626;">과다${overCount}</span>`;
 
-    return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:4px; overflow-y:auto; font-size:10px;">
-        <div style="display:flex; align-items:center; gap:3px; margin-bottom:3px; padding-bottom:2px; border-bottom:1px solid #e5e7eb;">
-            <span style="font-weight:700; font-size:10px; color:#1e40af;">📋</span>
-            ${headerBadges}
+    return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:3px; overflow-y:auto; font-size:9px;">
+        <div style="display:flex; align-items:center; gap:2px; margin-bottom:2px; padding-bottom:2px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap;">
+            ${headerInfo}${badges}
         </div>
         ${listHtml}
     </div>`;
