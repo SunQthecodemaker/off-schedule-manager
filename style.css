@@ -128,26 +128,22 @@
     background-color: rgba(59, 130, 246, 0.1);
 }
 
-/* ✅ Flow Layout (Left-to-Right Wrapped) -> Hybrid Grid Layout */
-/* ✅ Flow Layout (Restored) */
+/* ✅ 날짜 셀 내부: 4열 그리드 배치 */
 .day-events {
-    display: flex;
-    flex-wrap: wrap;
-    /* 자연스럽게 줄바꿈 */
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    /* WHY: 4열 고정 배치, 7행까지 수용 (28명) */
     gap: 2px;
     padding: 2px;
     min-height: 80px;
-    align-content: flex-start;
+    align-content: start;
 }
 
 /* ❌ Grid 관련 스타일 제거됨 (.doctors-grid, .other-depts-container) */
 
-/* ✅ 이벤트 카드 - 4열 배치 강제 */
+/* ✅ 이벤트 카드 - 그리드 셀에 맞춤 */
 .event-card {
-    flex-basis: calc(25% - 2px);
-    /* WHY: 4열 배치를 강제. 25% = 한 줄에 4개 */
     min-width: 0;
-    max-width: calc(25% - 2px);
     background-color: white;
     border: 1px solid #e2e8f0;
     border-radius: 3px;
@@ -163,6 +159,7 @@
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
+    overflow: hidden;
 }
 
 .event-card:hover {
