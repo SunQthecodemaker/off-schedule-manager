@@ -1820,20 +1820,43 @@ async function renderScheduleSidebar() {
     console.log('🚫 제외된 직원 수:', excludedEmployees.length);
     console.log('🧪 임시 직원 수:', tempEmployees.length);
 
-    // HTML 생성 - 직원 목록
-    const employeeListHtml = orderedEmployees.map(item => {
+    // WHY: 부서별 그룹핑 (원장→진료실→경영지원실→기공실→기타 순)
+    const deptOrder = ['원장', '진료실', '경영지원실', '기공실'];
+    const departments = state.management?.departments || [];
+
+    // 부서 ID → 이름 매핑
+    const deptNameMap = {};
+    departments.forEach(d => { deptNameMap[d.id] = d.name; });
+
+    // 직원을 부서별로 분류
+    const deptGroups = {};
+    const spacers = [];
+    orderedEmployees.forEach(item => {
         if (item.isSpacer) {
-            // 빈칸: 배경색과 텍스트색 동일
-            return `<div class="draggable-employee" data-employee-id="${item.id}" data-type="employee">
-                <span class="handle">☰</span>
-                <div class="fc-draggable-item" style="background-color: #f3f4f6;">
-                    <span style="background-color: #f3f4f6;" class="department-dot"></span>
-                    <span class="flex-grow font-semibold" style="color: #f3f4f6;">${item.name}</span>
-                </div>
-            </div>`;
-        } else {
-            return getEmployeeHtml(item);
+            spacers.push(item);
+            return;
         }
+        const deptName = deptNameMap[item.department_id] || '기타';
+        if (!deptGroups[deptName]) deptGroups[deptName] = [];
+        deptGroups[deptName].push(item);
+    });
+
+    // 정렬된 부서 순서대로 HTML 생성
+    const allDeptNames = [...deptOrder];
+    Object.keys(deptGroups).forEach(name => {
+        if (!allDeptNames.includes(name)) allDeptNames.push(name);
+    });
+
+    const employeeListHtml = allDeptNames.map(deptName => {
+        const emps = deptGroups[deptName];
+        if (!emps || emps.length === 0) return '';
+        const dept = departments.find(d => d.name === deptName);
+        const deptColor = dept ? getDepartmentColor(dept.id) : '#9ca3af';
+        const empHtml = emps.map(emp => getEmployeeHtml(emp)).join('');
+        return `<div style="width:100%; display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-bottom:2px; padding:2px 0; border-bottom:1px solid #f0f0f0;">
+            <span style="font-size:9px; font-weight:700; color:${deptColor}; white-space:nowrap; min-width:40px;">${deptName}</span>
+            ${empHtml}
+        </div>`;
     }).join('');
 
     // HTML 생성 - 제외 목록
