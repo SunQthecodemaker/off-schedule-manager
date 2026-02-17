@@ -2836,26 +2836,52 @@ async function handlePrintSchedule() {
         const auditCells = calendarEl.querySelectorAll('.weekly-audit-cell');
         auditCells.forEach(el => { el.style.display = 'none'; });
 
-        // 2. 달력 그리드를 7열(일~토, 검수 제외)로 변경
+        // 2. 달력 그리드를 7열(일~토, 검수 제외)로 변경 + 그리드 갭 최소화
         const calendarGrid = calendarEl.querySelector('.calendar-grid');
         const originalGridStyle = calendarGrid ? calendarGrid.style.gridTemplateColumns : '';
+        const originalGridGap = calendarGrid ? calendarGrid.style.gap : '';
         if (calendarGrid) {
             calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
+            calendarGrid.style.gap = '1px'; // WHY: 그리드 셀 간 최소 간격
         }
 
-        // 3. 달력 셀 높이 최대화 (A4 세로 공간 활용)
+        // 3. 요일 헤더(calendar-header) 세로 공백 최소화
+        // WHY: 기본 0.75rem 패딩이 인쇄 영역에서 불필요하게 세로 공간을 차지
+        const calendarHeaders = calendarEl.querySelectorAll('.calendar-header');
+        calendarHeaders.forEach(el => {
+            el.style.padding = '2px 4px';     // 0.75rem → 2px (세로 공백 대폭 축소)
+            el.style.fontSize = '11px';        // 요일 글자 약간 축소
+        });
+
+        // 4. 날짜 셀 스타일 최적화
+        // WHY: 셀 내부 패딩/마진을 최소화하여 네임카드에 세로 공간을 더 할당
         const calendarDays = calendarEl.querySelectorAll('.calendar-day');
         calendarDays.forEach(el => {
-            el.style.minHeight = '230px';
+            el.style.minHeight = '230px';      // 최소 높이 유지
+            el.style.padding = '1px';          // 0.25rem → 1px (셀 내부 공백 최소화)
         });
 
-        // 4. 네임카드 간격 제거 + 텍스트 확대 (인쇄용)
+        // 5. 날짜 번호(day-header) 세로 공백 최소화
+        // WHY: 날짜 숫자와 네임카드 그리드 사이 불필요한 마진 제거
+        const dayHeaders = calendarEl.querySelectorAll('.day-header');
+        dayHeaders.forEach(el => {
+            el.style.marginBottom = '0px';     // 0.25rem → 0 (날짜와 카드 사이 간격 제거)
+        });
+        const dayNumbers = calendarEl.querySelectorAll('.day-number');
+        dayNumbers.forEach(el => {
+            el.style.padding = '0px';          // 날짜 숫자 패딩 제거
+            el.style.fontSize = '11px';        // 날짜 숫자 약간 축소
+        });
+
+        // 6. 네임카드 영역 - 갭 1% + 패딩 최소화
+        // WHY: 갭 0px는 카드끼리 겹침 위험, 1%로 미세 간격 확보하여 글씨 잘림 방지
         const dayEventsEls = calendarEl.querySelectorAll('.day-events');
         dayEventsEls.forEach(el => {
-            el.style.gap = '0px';
-            el.style.padding = '0px';
+            el.style.gap = '1%';               // 0px → 1% (네임카드 간 미세 간격)
+            el.style.padding = '0px';          // 그리드 영역 외부 패딩 제거
         });
 
+        // 7. 네임카드(event-card) 스타일 - 텍스트 확대 + border 제거
         const eventCards = calendarEl.querySelectorAll('.event-card');
         eventCards.forEach(el => {
             el.style.border = 'none';
@@ -2863,11 +2889,13 @@ async function handlePrintSchedule() {
             el.style.padding = '1px 2px';
             el.style.fontSize = '13px';
             el.style.gap = '1px';
+            el.style.lineHeight = '1.2';       // 텍스트 줄간격 약간 축소하여 공간 확보
         });
         const eventNames = calendarEl.querySelectorAll('.event-name');
         eventNames.forEach(el => {
             el.style.fontSize = '13px';
             el.style.fontWeight = '600';
+            el.style.lineHeight = '1.2';       // 이름 텍스트 줄간격도 축소
         });
         // 부서 도트 약간 축소
         const eventDots = calendarEl.querySelectorAll('.event-dot');
@@ -2885,13 +2913,26 @@ async function handlePrintSchedule() {
             logging: false,
         });
 
-        // 스타일 복원
+        // ===== 스타일 복원 =====
         auditCells.forEach(el => { el.style.display = ''; });
         if (calendarGrid) {
             calendarGrid.style.gridTemplateColumns = originalGridStyle;
+            calendarGrid.style.gap = originalGridGap;
         }
+        calendarHeaders.forEach(el => {
+            el.style.padding = '';
+            el.style.fontSize = '';
+        });
         calendarDays.forEach(el => {
             el.style.minHeight = '';
+            el.style.padding = '';
+        });
+        dayHeaders.forEach(el => {
+            el.style.marginBottom = '';
+        });
+        dayNumbers.forEach(el => {
+            el.style.padding = '';
+            el.style.fontSize = '';
         });
         dayEventsEls.forEach(el => {
             el.style.gap = '';
@@ -2903,10 +2944,12 @@ async function handlePrintSchedule() {
             el.style.padding = '';
             el.style.fontSize = '';
             el.style.gap = '';
+            el.style.lineHeight = '';
         });
         eventNames.forEach(el => {
             el.style.fontSize = '';
             el.style.fontWeight = '';
+            el.style.lineHeight = '';
         });
         eventDots.forEach(el => {
             el.style.width = '';
