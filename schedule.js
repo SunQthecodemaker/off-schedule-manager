@@ -2836,73 +2836,96 @@ async function handlePrintSchedule() {
         const auditCells = calendarEl.querySelectorAll('.weekly-audit-cell');
         auditCells.forEach(el => { el.style.display = 'none'; });
 
-        // 2. 달력 그리드를 7열(일~토, 검수 제외)로 변경 + 그리드 갭 최소화
+        // 2. ✨ 일요일 제거 및 그리드 확장 (6열: 월~토)
+        // WHY: 일요일 제외하여 가로 공간 확보 → 네임카드 확대
+        const sundayHeaders = calendarEl.querySelectorAll('.calendar-header:first-child'); // 첫 번째 헤더(일요일)
+        sundayHeaders.forEach(el => { el.style.display = 'none'; });
+        const sundayCells = calendarEl.querySelectorAll('.calendar-day.sunday-col');
+        sundayCells.forEach(el => { el.style.display = 'none'; });
+
         const calendarGrid = calendarEl.querySelector('.calendar-grid');
         const originalGridStyle = calendarGrid ? calendarGrid.style.gridTemplateColumns : '';
         const originalGridGap = calendarGrid ? calendarGrid.style.gap : '';
         if (calendarGrid) {
-            calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
-            calendarGrid.style.gap = '1px'; // WHY: 그리드 셀 간 최소 간격
+            calendarGrid.style.gridTemplateColumns = 'repeat(6, 1fr)'; // 7열 → 6열 (월~토 균등 분할)
+            calendarGrid.style.gap = '1px'; // 최소 갭
         }
 
-        // 3. 요일 헤더(calendar-header) 세로 공백 최소화
-        // WHY: 기본 0.75rem 패딩이 인쇄 영역에서 불필요하게 세로 공간을 차지
+        // 3. 요일 헤더(calendar-header) 스타일 - 폰트 확대
         const calendarHeaders = calendarEl.querySelectorAll('.calendar-header');
         calendarHeaders.forEach(el => {
-            el.style.padding = '2px 4px';     // 0.75rem → 2px (세로 공백 대폭 축소)
-            el.style.fontSize = '11px';        // 요일 글자 약간 축소
+            el.style.padding = '2px 4px';
+            el.style.fontSize = '12px';        // 11px → 12px
         });
 
-        // 4. 날짜 셀 스타일 최적화
-        // WHY: 셀 내부 패딩/마진을 최소화하여 네임카드에 세로 공간을 더 할당
+        // 4. 날짜 셀(calendar-day) 높이/패딩 최적화
         const calendarDays = calendarEl.querySelectorAll('.calendar-day');
         calendarDays.forEach(el => {
-            el.style.minHeight = '230px';      // 최소 높이 유지
-            el.style.padding = '1px';          // 0.25rem → 1px (셀 내부 공백 최소화)
+            el.style.minHeight = '230px';      // 높이 유지
+            el.style.padding = '1px';          // 패딩 최소화
+            el.style.display = 'flex';         // flex 유지 (세로 배치)
+            el.style.flexDirection = 'column';
         });
 
-        // 5. 날짜 번호(day-header) 세로 공백 최소화
-        // WHY: 날짜 숫자와 네임카드 그리드 사이 불필요한 마진 제거
+        // 5. 날짜 번호(day-header) 공백 제거
         const dayHeaders = calendarEl.querySelectorAll('.day-header');
         dayHeaders.forEach(el => {
-            el.style.marginBottom = '0px';     // 0.25rem → 0 (날짜와 카드 사이 간격 제거)
+            el.style.marginBottom = '0px';
+            el.style.flexShrink = '0';         // 헤더 크기 고정
         });
         const dayNumbers = calendarEl.querySelectorAll('.day-number');
         dayNumbers.forEach(el => {
-            el.style.padding = '0px';          // 날짜 숫자 패딩 제거
-            el.style.fontSize = '11px';        // 날짜 숫자 약간 축소
+            el.style.padding = '0px 2px';      // 좌우 패딩 약간
+            el.style.fontSize = '11px';
         });
 
-        // 6. 네임카드 영역 - 갭 1% + 패딩 최소화
-        // WHY: 갭 0px는 카드끼리 겹침 위험, 1%로 미세 간격 확보하여 글씨 잘림 방지
+        // 6. ✨ 네임카드 영역 - 4x7 고정 그리드 & 꽉 채우기
+        // WHY: 사용자 요청대로 4열 7행 고정 그리드로 변경, 셀 전체 높이 사용
         const dayEventsEls = calendarEl.querySelectorAll('.day-events');
         dayEventsEls.forEach(el => {
-            el.style.gap = '1%';               // 0px → 1% (네임카드 간 미세 간격)
-            el.style.padding = '0px';          // 그리드 영역 외부 패딩 제거
+            el.style.display = 'grid';
+            el.style.gridTemplateColumns = 'repeat(4, 1fr)'; // 4열
+            el.style.gridTemplateRows = 'repeat(7, 1fr)';    // 7행 고정 (총 28칸)
+            el.style.gridAutoRows = 'fr';                    // 자동 행도 비율로
+            el.style.flexGrow = '1';                         // 남은 공간 모두 차지
+            el.style.height = 'auto';                        // flex-grow로 채움
+            el.style.alignContent = 'stretch';               // 그리드 전체 늘림
+            el.style.gap = '1px';                            // 최소 간격
+            el.style.padding = '0px';
         });
 
-        // 7. 네임카드(event-card) 스타일 - 텍스트 확대 + border 제거
+        // 7. ✨ 네임카드(event-card) 스타일 - 폰트 대폭 확대 및 중앙 정렬
         const eventCards = calendarEl.querySelectorAll('.event-card');
         eventCards.forEach(el => {
             el.style.border = 'none';
             el.style.borderRadius = '0';
-            el.style.padding = '1px 2px';
-            el.style.fontSize = '13px';
+            el.style.padding = '0px';          // 패딩 0 (flex 정렬 사용)
+            el.style.fontSize = '15px';        // 14px → 15px (더 크게)
+            el.style.fontWeight = '700';       // 굵게
             el.style.gap = '1px';
-            el.style.lineHeight = '1.2';       // 텍스트 줄간격 약간 축소하여 공간 확보
+            el.style.lineHeight = '1.1';       // 줄간격 타이트하게
+            el.style.width = '100%';           // 가로 꽉 채움
+            el.style.height = '100%';          // 세로 꽉 채움
+            el.style.display = 'flex';         // 중앙 정렬용
+            el.style.alignItems = 'center';    // 수직 중앙
+            el.style.justifyContent = 'center';// 수평 중앙
+            el.style.overflow = 'hidden';      // 넘침 방지
         });
         const eventNames = calendarEl.querySelectorAll('.event-name');
         eventNames.forEach(el => {
-            el.style.fontSize = '13px';
-            el.style.fontWeight = '600';
-            el.style.lineHeight = '1.2';       // 이름 텍스트 줄간격도 축소
+            el.style.fontSize = '15px';        // 이름 폰트 15px
+            el.style.fontWeight = '700';       // 굵게
+            el.style.lineHeight = '1.1';
+            el.style.textAlign = 'center';     // 텍스트 중앙 정렬
+            el.style.whiteSpace = 'nowrap';    // 줄바꿈 방지
         });
-        // 부서 도트 약간 축소
+        // 부서 도트 - 약간 더 키움 (폰트 크기에 비례)
         const eventDots = calendarEl.querySelectorAll('.event-dot');
         eventDots.forEach(el => {
-            el.style.width = '5px';
-            el.style.height = '5px';
-            el.style.minWidth = '5px';
+            el.style.width = '6px';            // 5px → 6px
+            el.style.height = '6px';
+            el.style.minWidth = '6px';
+            el.style.marginRight = '2px';      // 간격 조정
         });
 
         // html2canvas로 달력 캡쳐
@@ -2915,6 +2938,11 @@ async function handlePrintSchedule() {
 
         // ===== 스타일 복원 =====
         auditCells.forEach(el => { el.style.display = ''; });
+
+        // 일요일 복원
+        sundayHeaders.forEach(el => { el.style.display = ''; });
+        sundayCells.forEach(el => { el.style.display = ''; });
+
         if (calendarGrid) {
             calendarGrid.style.gridTemplateColumns = originalGridStyle;
             calendarGrid.style.gap = originalGridGap;
@@ -2926,15 +2954,25 @@ async function handlePrintSchedule() {
         calendarDays.forEach(el => {
             el.style.minHeight = '';
             el.style.padding = '';
+            el.style.display = '';
+            el.style.flexDirection = '';
         });
         dayHeaders.forEach(el => {
             el.style.marginBottom = '';
+            el.style.flexShrink = '';
         });
         dayNumbers.forEach(el => {
             el.style.padding = '';
             el.style.fontSize = '';
         });
         dayEventsEls.forEach(el => {
+            el.style.display = '';
+            el.style.gridTemplateColumns = '';
+            el.style.gridTemplateRows = '';
+            el.style.gridAutoRows = '';
+            el.style.flexGrow = '';
+            el.style.height = '';
+            el.style.alignContent = '';        // align-content 복원
             el.style.gap = '';
             el.style.padding = '';
         });
@@ -2943,18 +2981,28 @@ async function handlePrintSchedule() {
             el.style.borderRadius = '';
             el.style.padding = '';
             el.style.fontSize = '';
+            el.style.fontWeight = '';
             el.style.gap = '';
             el.style.lineHeight = '';
+            el.style.width = '';
+            el.style.height = '';
+            el.style.display = '';
+            el.style.alignItems = '';
+            el.style.justifyContent = '';
+            el.style.overflow = '';
         });
         eventNames.forEach(el => {
             el.style.fontSize = '';
             el.style.fontWeight = '';
             el.style.lineHeight = '';
+            el.style.textAlign = '';
+            el.style.whiteSpace = '';
         });
         eventDots.forEach(el => {
             el.style.width = '';
             el.style.height = '';
             el.style.minWidth = '';
+            el.style.marginRight = '';
         });
 
         // 새 창에 이미지 표시 및 인쇄
