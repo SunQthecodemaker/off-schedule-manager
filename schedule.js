@@ -2558,127 +2558,392 @@ function handleGlobalKeydown(e) {
 
 // Old Undo implementation removed to avoid duplicates
 
+// ... (기존 코드 유지)
+
+/**
+ * ✨ 스케줄 관리 화면 렌더링 (Handsontable 버전)
+ */
 export async function renderScheduleManagement(container, isReadOnly = false) {
-    console.log('renderScheduleManagement called', { isReadOnly });
+    console.log('renderScheduleManagement (Sheet Mode) called', { isReadOnly });
 
     if (!state.schedule) {
         state.schedule = {
             currentDate: dayjs().format('YYYY-MM-DD'),
             viewMode: 'working',
-            teamLayout: { month: '', data: [] },
             schedules: [],
-            activeDepartmentFilters: new Set(),
-            companyHolidays: new Set(),
-            activeReorder: { date: null, sortable: null },
-            activeReorder: { date: null, sortable: null },
-            sortableInstances: [],
-            selectedSchedules: new Set(),
-            undoStack: [] // ✨ Undo 스택 초기화
+            // ... (기타 상태)
+            hotInstance: null // Handsontable 인스턴스 저장
         };
     }
+    state.schedule.isReadOnly = isReadOnly;
 
-    // ✨ 안전장치: 빈 state 객체가 넘어왔을 때 undoStack 보장
-    if (!state.schedule.undoStack) {
-        state.schedule.undoStack = [];
-    }
-    state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장
-
-    if (!state.management) {
-        console.error('state.management is not initialized');
-        container.innerHTML = '<div class="p-4 text-red-600">관리 데이터를 불러올 수 없습니다. 페이지를 새로고침해주세요.</div>';
-        return;
-    }
-
-    const departments = state.management.departments || [];
-    const deptFilterHtml = departments.map(dept =>
-        `<div class="flex items-center">
-            <input id="dept-${dept.id}" type="checkbox" value="${dept.id}" class="dept-filter-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-            <label for="dept-${dept.id}" class="ml-2 text-sm text-gray-700">${dept.name}</label>
-        </div>`
-    ).join('');
-
-    // Conditional sidebar HTML
-    const sidebarHtml = isReadOnly ? '' : `
-        <div id="schedule-sidebar-area"></div>
-    `;
-
-    // Conditional top control buttons HTML
-    const topControlsHtml = isReadOnly ? `
-        <div class="flex justify-between items-center mb-2 pb-2 border-b">
-            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
-                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
-                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
-            </div>
-        </div>
-    ` : `
-        <div class="flex justify-between items-center mb-2 pb-2 border-b">
-            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
-                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
-                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
-            </div>
+    // 상단 컨트롤 버튼 (인쇄 등)
+    const topControlsHtml = `
+        <div class="flex justify-between items-center mb-2 pb-2 border-b no-print">
+            <h2 id="calendar-title" class="text-2xl font-bold"></h2>
             <div class="flex items-center gap-2">
-                <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
-                <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
-                <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
-                <button id="print-schedule-btn">🖨️ 인쇄하기</button>
-                <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
-                <button id="save-schedule-btn" disabled>💾 스케줄 저장</button>
+                <button id="calendar-prev" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">◀</button>
+                <button id="calendar-today" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">오늘</button>
+                <button id="calendar-next" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">▶</button>
+                <div class="w-4"></div>
+                <button id="save-schedule-btn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-bold hidden">💾 저장</button>
+                <button id="print-schedule-btn" class="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black">🖨️ 시트 인쇄</button>
             </div>
         </div>
     `;
 
     container.innerHTML = `
-        <div class="schedule-grid">
-            <div class="schedule-main-content">
-                ${topControlsHtml}
-                <div id="department-filters" class="flex items-center flex-wrap gap-4 my-4 text-sm">
-                    <span class="font-semibold">부서 필터:</span>${deptFilterHtml}
-                </div>
-                <div class="calendar-controls flex items-center justify-between mb-4">
-                    <button id="calendar-prev" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">◀ 이전</button>
-                    <div class="flex items-center">
-                        <h2 id="calendar-title" class="text-2xl font-bold"></h2>
-                        <span id="schedule-status-badge" class="px-3 py-1 rounded-full text-sm font-bold ml-2 hidden"></span>
-                    </div>
-                    <button id="calendar-next" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">다음 ▶</button>
-                    <button id="calendar-today" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">오늘</button>
-                </div>
-                <div id="pure-calendar"></div>
-            </div>
-            ${sidebarHtml}
+        <div class="sheet-container flex flex-col h-full">
+            ${topControlsHtml}
+            <div id="handsontable-container" class="flex-grow overflow-hidden" style="width: 100%; height: 80vh;"></div>
         </div>
+        <style>
+            /* Handsontable 커스텀 스타일 */
+            .handsontable th { font-weight: bold; background-color: #f3f4f6; }
+            .handsontable td { vertical-align: middle; text-align: center; }
+            .htCommentCell { cursor: pointer; }
+            /* 주말 색상 */
+            .is-sunday { background-color: #fee2e2 !important; color: #ef4444; }
+            .is-saturday { background-color: #eff6ff !important; color: #3b82f6; }
+            /* 근무 상태 색상 */
+            .status-working { font-weight: bold; color: #1f2937; }
+            .status-off { color: #ef4444; background-color: #fef2f2; }
+            .status-leave { color: #059669; background-color: #ecfdf5; }
+        </style>
     `;
 
-    console.log('HTML rendered');
+    // 이벤트 리스너
+    _('#calendar-prev')?.addEventListener('click', () => navigateWait(-1));
+    _('#calendar-next')?.addEventListener('click', () => navigateWait(1));
+    _('#calendar-today')?.addEventListener('click', () => navigateWait(0));
+    _('#print-schedule-btn')?.addEventListener('click', () => window.print());
 
-    _('#schedule-view-toggle')?.addEventListener('click', handleViewModeChange);
-    _('#department-filters')?.addEventListener('change', handleDepartmentFilterChange);
-    _('#print-schedule-btn')?.addEventListener('click', handlePrintSchedule); // Always available
+    // 초기 렌더링
+    await renderHandsontableSchedule();
+}
 
-    // Only attach these if not read-only
-    if (!isReadOnly) {
-        _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
-        _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
-        _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
-        _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
+async function navigateWait(delta) {
+    if (delta === 0) state.schedule.currentDate = dayjs().format('YYYY-MM-DD');
+    else state.schedule.currentDate = dayjs(state.schedule.currentDate).add(delta, 'month').format('YYYY-MM-DD');
+    await renderHandsontableSchedule();
+}
 
+// ... (상단 코드 유지)
+
+async function renderHandsontableSchedule() {
+    const container = document.getElementById('handsontable-container');
+    if (!container) return;
+
+    const currentDate = dayjs(state.schedule.currentDate);
+    const yearMonthStr = currentDate.format('YYYY-MM');
+    document.getElementById('calendar-title').textContent = `${currentDate.format('YYYY년 M월')} 스케줄 (달력형 시트)`;
+
+    // 1. 직원 목록 및 스케줄 로드
+    const employees = state.management?.employees?.filter(e => !e.resignation_date) || [];
+    // 이름으로 id 찾기 위한 맵
+    const empNameMap = {};
+    const empIdMap = {};
+    const empNames = [];
+    employees.forEach(e => {
+        empNameMap[e.name] = e;
+        empIdMap[e.id] = e;
+        empNames.push(e.name);
+    });
+    empNames.sort();
+
+    // 월간 데이터 조회 (전월/익월 일부 포함)
+    const startOfMonth = currentDate.startOf('month');
+    const endOfMonth = currentDate.endOf('month');
+    // 달력 시작일: 월의 1일이 포함된 주의 월요일 (일요일 시작 기준이면 day(0)이지만, 여기선 월요일부터 표시하므로)
+    // 주의: 1일이 일요일이면 전주 월요일부터 시작
+    let startCalendar = startOfMonth.day(1); // 월요일로 설정
+    if (startOfMonth.day() === 0) { // 만약 1일이 일요일이면
+        startCalendar = startOfMonth.subtract(6, 'day'); // 전주 월요일로 이동
     }
 
-    _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
-    _('#calendar-next')?.addEventListener('click', () => navigateMonth('next'));
-    _('#calendar-today')?.addEventListener('click', () => navigateMonth('today'));
+    // 6주치 데이터 로드 (넉넉하게)
+    const endCalendar = startCalendar.add(41, 'day');
 
-    console.log('Event listeners attached');
+    const { data: schedules, error } = await db.from('schedules')
+        .select('*')
+        .gte('date', startCalendar.format('YYYY-MM-DD'))
+        .lte('date', endCalendar.format('YYYY-MM-DD')); // 넉넉하게
 
-    try {
-        await loadAndRenderScheduleData(state.schedule.currentDate);
-        updateViewModeButtons();
-        console.log('Initial render complete');
-    } catch (error) {
-        console.error('Error in initial render:', error);
-        alert('초기 데이터 로딩에 실패했습니다: ' + error.message);
+    if (error) {
+        console.error('Error loading schedules:', error);
+        return;
+    }
+
+    state.schedule.schedules = schedules;
+
+    // 2. 그리드 매트릭스 구성 (Row x Col)
+    // 6주 * 7행 = 42행
+    // 6일(월~토) * 4열 = 24열
+    const maxRows = 42;
+    const maxCols = 24;
+    const gridData = Array(maxRows).fill(null).map(() => Array(maxCols).fill(''));
+    const cellMeta = []; // 날짜 정보 등 저장
+
+    // 날짜 매핑
+    let currentDay = startCalendar.clone();
+    for (let w = 0; w < 6; w++) { // 6주
+        for (let d = 0; d < 7; d++) { // 7일 (일~토)
+            const dateStr = currentDay.format('YYYY-MM-DD');
+            const dayNum = currentDay.date();
+            const dayOfWeek = currentDay.day(); // 0(일)~6(토)
+
+            // 일요일 건너뛰기
+            if (dayOfWeek === 0) {
+                currentDay = currentDay.add(1, 'day');
+                continue;
+            }
+
+            // 월~토 매핑 (월=0, 화=4, ... 토=20)
+            const colIdx = (dayOfWeek - 1) * 4;
+            const rowIdx = w * 7;
+
+            // 해당 날짜의 스케줄 (정렬: sort_order, or created_at)
+            let daySchedules = schedules.filter(s => s.date === dateStr);
+            // sort_order가 있으면 정렬, 없으면 그냥 둠
+            daySchedules.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+            // 4x7 = 28칸 채우기
+            for (let i = 0; i < 28; i++) {
+                const r = rowIdx + Math.floor(i / 4); // 0~6
+                const c = colIdx + (i % 4);           // 0~3
+
+                if (r >= maxRows) break;
+
+                // 데이터 채우기
+                if (i < daySchedules.length) {
+                    const sch = daySchedules[i];
+                    const emp = empIdMap[sch.employee_id];
+                    // 셀 값: 이름 (상태가 '근무' 외에는 괄호 표시?)
+                    // 사용자 요청: 이름만 씀 -> 근무.
+                    // 만약 '휴무'면? -> 시각적으로 구분? 렌더러 처리.
+                    // 텍스트는 이름만 넣음. (복잡도 감소)
+                    gridData[r][c] = emp ? emp.name : '';
+
+                    // 상태 메타데이터 저장 (렌더링용)
+                    // if (sch.status !== '근무') ...
+                } else {
+                    gridData[r][c] = '';
+                }
+
+                // 메타데이터 저장 (모든 셀에 날짜 정보 심음 -> 수정 시 역추적용)
+                if (!cellMeta[r]) cellMeta[r] = [];
+                if (!cellMeta[r][c]) cellMeta[r][c] = {};
+
+                cellMeta[r][c] = {
+                    date: dateStr,
+                    isDateStart: (i === 0), // 날짜 표시용 플래그
+                    dayNum: dayNum // 날짜 숫자
+                };
+            }
+
+            currentDay = currentDay.add(1, 'day');
+        }
+    }
+
+    // 3. Handsontable 초기화
+    if (state.schedule.hotInstance) {
+        state.schedule.hotInstance.destroy();
+    }
+
+    state.schedule.hotInstance = new Handsontable(container, {
+        data: gridData,
+        // 헤더: 월(4칸) 화(4칸)...
+        colHeaders: false, // 커스텀 헤더 사용 예정 (Nested)
+        nestedHeaders: [
+            [
+                { label: '월', colspan: 4 },
+                { label: '화', colspan: 4 },
+                { label: '수', colspan: 4 },
+                { label: '목', colspan: 4 },
+                { label: '금', colspan: 4 },
+                { label: '토', colspan: 4 }
+            ]
+        ],
+        width: '100%',
+        height: '100%',
+        rowHeights: 30, // 적당한 높이
+        colWidths: 60,  // 적당한 너비
+
+        // ✨ Autocomplete (직원 이름)
+        columns: Array(24).fill({
+            type: 'autocomplete',
+            source: empNames,
+            strict: false, // 없는 이름 허용 (메모 등)
+            trimDropdown: false
+        }),
+
+        manualColumnResize: true,
+        manualRowResize: true,
+        contextMenu: true,
+        mergeCells: [], // 필요 시
+        customBorders: [], // 보더 설정 (아래에서 계산)
+
+        // 렌더러
+        cells: function (row, col) {
+            const cp = {};
+            const meta = cellMeta[row]?.[col];
+            if (meta) {
+                cp._date = meta.date;
+                cp._isDateStart = meta.isDateStart;
+                cp._dayNum = meta.dayNum;
+            }
+            // 4열, 7행 단위 보더 처리는 customBorders로 하는 게 좋음
+            return cp;
+        },
+
+        renderer: function (instance, td, row, col, prop, value, cellProperties) {
+            Handsontable.renderers.AutocompleteRenderer.apply(this, arguments);
+
+            td.style.textAlign = 'center';
+            td.style.verticalAlign = 'middle';
+            td.style.fontSize = '13px';
+            td.style.fontWeight = 'bold';
+
+            // 날짜 표시 (좌상단 셀)
+            if (cellProperties._isDateStart) {
+                td.style.position = 'relative';
+                // 기존 내용 유지하면서 날짜 오버레이
+                // 주의: Handsontable은 innerHTML을 덮어씀.
+                // 배경으로 처리하거나, value 앞에 붙임? -> value는 데이터임.
+                // CSS class로 처리.
+                td.classList.add('date-header-cell');
+                td.setAttribute('data-date', cellProperties._dayNum);
+            }
+
+            // 테두리 스타일 (CSS로 처리 추천: 4n 컬럼 우측, 7n 로우 하단)
+        },
+
+        // ✨ 데이터 저장
+        afterChange: async function (changes, source) {
+            if (!changes || source === 'loadData') return;
+
+            // 변경된 셀들의 날짜를 수집 (중복 제거)
+            const changedDates = new Set();
+            changes.forEach(([row, prop, oldVal, newVal]) => {
+                if (oldVal === newVal) return;
+                // row, col(prop)로 날짜 찾기
+                // prop은 col index (0~23)
+                const col = parseInt(prop, 10);
+                const meta = cellMeta[row]?.[col];
+                if (meta && meta.date) {
+                    changedDates.add(meta.date);
+                }
+            });
+
+            if (changedDates.size === 0) return;
+
+            // 각 날짜별로 전체 재저장 (Delete -> Insert)
+            // 이유: 위치(순서)가 중요하므로, 하나하나 upsert하기보다 통으로 갈아끼우는 게 정확함.
+            // (sort_order 재정렬 효과)
+
+            for (const dateStr of changedDates) {
+                console.log('Syncing date:', dateStr);
+                const dayOfWeek = dayjs(dateStr).day();
+                if (dayOfWeek === 0) continue; // 일요일 무시
+
+                // 그리드에서 해당 날짜의 4x7 영역 찾기
+                // 날짜 역산이 어려우므로 cellMeta 스캔? -> 비효율적.
+                // 역산 공식:
+                // startOfMonth 부터 dateStr까지 diffDays 계산 -> 주차, 요일 계산
+                // 하지만 이미 cellMeta에 date 정보가 있음.
+                // 해당 날짜를 가진 모든 셀을 찾아서 순서대로 수집.
+
+                const empList = [];
+                for (let r = 0; r < maxRows; r++) {
+                    for (let c = 0; c < maxCols; c++) {
+                        if (cellMeta[r]?.[c]?.date === dateStr) {
+                            const val = state.schedule.hotInstance.getDataAtCell(r, c);
+                            if (val && val.trim()) {
+                                empList.push(val.trim());
+                            }
+                        }
+                    }
+                }
+
+                // DB Transaction 불가 (Supabase REST).
+                // 순차 실행: Delete -> Insert
+                try {
+                    // 1. Delete All for this date
+                    await db.from('schedules').delete().eq('date', dateStr);
+
+                    // 2. Insert new list
+                    if (empList.length > 0) {
+                        const rowsToInsert = empList.map((name, idx) => {
+                            const emp = empNameMap[name];
+                            // 이름이 매칭되면 ID 저장, 아니면?
+                            // 유저가 임의 텍스트를 쓸 수도 있음 (메모).
+                            // 하지만 스케줄 테이블은 employee_id FK가 있을 수 있음.
+                            // 없는 이름이면 저장 불가 또는 에러.
+                            if (!emp) {
+                                console.warn(`Unknown employee: ${name}`);
+                                return null;
+                            }
+                            return {
+                                date: dateStr,
+                                employee_id: emp.id,
+                                status: '근무', // 기본값
+                                sort_order: idx, // 순서 저장
+                                created_at: new Date().toISOString()
+                            };
+                        }).filter(r => r !== null);
+
+                        if (rowsToInsert.length > 0) {
+                            const { error } = await db.from('schedules').insert(rowsToInsert);
+                            if (error) throw error;
+                        }
+                    }
+                    console.log(`Saved ${dateStr}: ${empList.length} employees`);
+                } catch (err) {
+                    console.error(`Failed to save ${dateStr}:`, err);
+                    alert(`저장 실패 (${dateStr}): ${err.message}`);
+                }
+            }
+        }
+    });
+
+    // CSS 추가 (날짜 표시용)
+    const styleId = 'sheet-calendar-style';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+            .date-header-cell::before {
+                content: attr(data-date);
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                font-size: 10px;
+                color: #888;
+                font-weight: normal;
+                pointer-events: none;
+                z-index: 10;
+            }
+            .handsontable td {
+                border-right: 1px solid #eee;
+                border-bottom: 1px solid #eee;
+            }
+            /* 4열마다 굵은 선 (날짜 구분) */
+            .handsontable tr td:nth-child(4n) {
+                border-right: 2px solid #ccc !important;
+            }
+            /* 7행마다 굵은 선 (주 구분) -> CSS로는 nth-child로 row 구분 어려움 (TR 단위).
+               Handsontable은 TR을 그림. */
+            .handsontable tr:nth-child(7n) td {
+                border-bottom: 2px solid #ccc !important;
+            }
+        `;
+        document.head.appendChild(style);
     }
 }
+
+// 기존 FullCalendar 함수들은 하위 호환성을 위해 유지하거나 필요 시 삭제
+// ...
+
 
 
 // =============================================================================
