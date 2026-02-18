@@ -2558,255 +2558,127 @@ function handleGlobalKeydown(e) {
 
 // Old Undo implementation removed to avoid duplicates
 
-// ... (기존 코드 유지)
-
-/**
- * ✨ 스케줄 관리 화면 렌더링 (Handsontable 버전)
- */
-async function renderScheduleManagement(container, isReadOnly = false) {
-    console.log('renderScheduleManagement (Luckysheet Mode) called', { isReadOnly });
+export async function renderScheduleManagement(container, isReadOnly = false) {
+    console.log('renderScheduleManagement called', { isReadOnly });
 
     if (!state.schedule) {
         state.schedule = {
             currentDate: dayjs().format('YYYY-MM-DD'),
-            schedules: []
+            viewMode: 'working',
+            teamLayout: { month: '', data: [] },
+            schedules: [],
+            activeDepartmentFilters: new Set(),
+            companyHolidays: new Set(),
+            activeReorder: { date: null, sortable: null },
+            activeReorder: { date: null, sortable: null },
+            sortableInstances: [],
+            selectedSchedules: new Set(),
+            undoStack: [] // ✨ Undo 스택 초기화
         };
     }
 
-    // 상단 컨트롤
-    const topControlsHtml = `
-        <div class="flex justify-between items-center mb-2 pb-2 border-b no-print" style="z-index: 1000; position: relative; background: white;">
-            <h2 id="calendar-title" class="text-2xl font-bold"></h2>
+    // ✨ 안전장치: 빈 state 객체가 넘어왔을 때 undoStack 보장
+    if (!state.schedule.undoStack) {
+        state.schedule.undoStack = [];
+    }
+    state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장
+
+    if (!state.management) {
+        console.error('state.management is not initialized');
+        container.innerHTML = '<div class="p-4 text-red-600">관리 데이터를 불러올 수 없습니다. 페이지를 새로고침해주세요.</div>';
+        return;
+    }
+
+    const departments = state.management.departments || [];
+    const deptFilterHtml = departments.map(dept =>
+        `<div class="flex items-center">
+            <input id="dept-${dept.id}" type="checkbox" value="${dept.id}" class="dept-filter-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+            <label for="dept-${dept.id}" class="ml-2 text-sm text-gray-700">${dept.name}</label>
+        </div>`
+    ).join('');
+
+    // Conditional sidebar HTML
+    const sidebarHtml = isReadOnly ? '' : `
+        <div id="schedule-sidebar-area"></div>
+    `;
+
+    // Conditional top control buttons HTML
+    const topControlsHtml = isReadOnly ? `
+        <div class="flex justify-between items-center mb-2 pb-2 border-b">
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
+                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
+            </div>
+        </div>
+    ` : `
+        <div class="flex justify-between items-center mb-2 pb-2 border-b">
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
+                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
+            </div>
             <div class="flex items-center gap-2">
-                <button id="calendar-prev" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">◀</button>
-                <button id="calendar-today" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">오늘</button>
-                <button id="calendar-next" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300">▶</button>
-                <div class="w-4"></div>
-                <button id="save-luckysheet-btn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-bold">💾 저장 (Local)</button>
+                <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
+                <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
+                <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
+                <button id="print-schedule-btn">🖨️ 인쇄하기</button>
+                <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
+                <button id="save-schedule-btn" disabled>💾 스케줄 저장</button>
             </div>
         </div>
     `;
 
-    // Luckysheet 컨테이너 (absolute로 전체 채움)
     container.innerHTML = `
-        <div class="sheet-container flex flex-col h-full relative">
-            ${topControlsHtml}
-            <div id="luckysheet" style="margin:0px;padding:0px;position:absolute;width:100%;top:50px;bottom:0px;left:0px;"></div>
+        <div class="schedule-grid">
+            <div class="schedule-main-content">
+                ${topControlsHtml}
+                <div id="department-filters" class="flex items-center flex-wrap gap-4 my-4 text-sm">
+                    <span class="font-semibold">부서 필터:</span>${deptFilterHtml}
+                </div>
+                <div class="calendar-controls flex items-center justify-between mb-4">
+                    <button id="calendar-prev" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">◀ 이전</button>
+                    <div class="flex items-center">
+                        <h2 id="calendar-title" class="text-2xl font-bold"></h2>
+                        <span id="schedule-status-badge" class="px-3 py-1 rounded-full text-sm font-bold ml-2 hidden"></span>
+                    </div>
+                    <button id="calendar-next" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">다음 ▶</button>
+                    <button id="calendar-today" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">오늘</button>
+                </div>
+                <div id="pure-calendar"></div>
+            </div>
+            ${sidebarHtml}
         </div>
     `;
 
-    // 이벤트 리스너
-    _('#calendar-prev')?.addEventListener('click', () => navigateWait(-1));
-    _('#calendar-next')?.addEventListener('click', () => navigateWait(1));
-    _('#calendar-today')?.addEventListener('click', () => navigateWait(0));
-    _('#save-luckysheet-btn')?.addEventListener('click', handleSaveLuckysheet);
+    console.log('HTML rendered');
 
-    await renderLuckysheetSchedule();
-}
+    _('#schedule-view-toggle')?.addEventListener('click', handleViewModeChange);
+    _('#department-filters')?.addEventListener('change', handleDepartmentFilterChange);
+    _('#print-schedule-btn')?.addEventListener('click', handlePrintSchedule); // Always available
 
-async function navigateWait(delta) {
-    if (delta === 0) state.schedule.currentDate = dayjs().format('YYYY-MM-DD');
-    else state.schedule.currentDate = dayjs(state.schedule.currentDate).add(delta, 'month').format('YYYY-MM-DD');
-    await renderLuckysheetSchedule();
-}
+    // Only attach these if not read-only
+    if (!isReadOnly) {
+        _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
+        _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
+        _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
+        _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
 
-async function renderLuckysheetSchedule() {
-    // 이미 생성된 경우 destroy 필요하지만 Luckysheet는 destroy API가 불안정할 수 있음.
-    // 보통 window.luckysheet.destroy() 사용.
-    if (window.luckysheet) {
-        // window.luckysheet.destroy(); // 에러 발생 가능성 있음
-        // 컨테이너 초기화
-        // document.getElementById('luckysheet').innerHTML = '';
-        // Luckysheet는 전역 객체를 쓰므로 그냥 재로드하면 됨.
     }
 
-    const currentDate = dayjs(state.schedule.currentDate);
-    document.getElementById('calendar-title').textContent = `${currentDate.format('YYYY년 M월')} 근무표`;
+    _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
+    _('#calendar-next')?.addEventListener('click', () => navigateMonth('next'));
+    _('#calendar-today')?.addEventListener('click', () => navigateMonth('today'));
 
-    // 1. 데이터 로드 (DB or LocalStorage)
-    const storageKey = `luckysheet_data_${currentDate.format('YYYY-MM')}`;
-    const savedData = localStorage.getItem(storageKey);
+    console.log('Event listeners attached');
 
-    let sheetData = [];
-
-    if (savedData) {
-        console.log('Loaded from LocalStorage');
-        sheetData = JSON.parse(savedData);
-    } else {
-        // DB에서 가져와서 마이그레이션 (초기화)
-        console.log('Migrating from DB...');
-        sheetData = await generateSheetFromDB(currentDate);
+    try {
+        await loadAndRenderScheduleData(state.schedule.currentDate);
+        updateViewModeButtons();
+        console.log('Initial render complete');
+    } catch (error) {
+        console.error('Error in initial render:', error);
+        alert('초기 데이터 로딩에 실패했습니다: ' + error.message);
     }
-
-    // 2. Luckysheet 생성
-    luckysheet.create({
-        container: 'luckysheet',
-        lang: 'ko',
-        allowUpdate: true,
-        showinfobar: false, // 상단 정보바 숨김
-        data: sheetData,
-        title: '근무표',
-        userInfo: '<div style="font-size:14px;padding:10px;">스케줄 관리자</div>',
-        myFolderUrl: '/',
-    });
 }
-
-// DB 데이터를 Luckysheet 포맷(celldata)으로 변환
-async function generateSheetFromDB(currentDate) {
-    const startOfMonth = currentDate.startOf('month');
-    const endOfMonth = currentDate.endOf('month');
-
-    // 직원 목록
-    const employees = state.management?.employees?.filter(e => !e.resignation_date) || [];
-    const empIdMap = {};
-    employees.forEach(e => empIdMap[e.id] = e);
-
-    // 날짜 계산 (달력형)
-    let startCalendar = startOfMonth.day(1); // 월요일 시작
-    if (startOfMonth.day() === 0) startCalendar = startOfMonth.subtract(6, 'day');
-    const endCalendar = startCalendar.add(41, 'day');
-
-    // DB 조회
-    const { data: schedules } = await db.from('schedules')
-        .select('*')
-        .gte('date', startCalendar.format('YYYY-MM-DD'))
-        .lte('date', endCalendar.format('YYYY-MM-DD'));
-
-    // Celldata 생성
-    const celldata = [];
-    const config = {
-        colhidden: {},
-        rowhidden: {},
-        borderInfo: []
-    };
-
-    // 1. 헤더 (월~토)
-    const headers = ['월', '화', '수', '목', '금', '토'];
-    headers.forEach((h, idx) => {
-        // 4칸씩 병합
-        const c = idx * 4;
-        // 병합 설정은 config.merge에 넣어야 함. 근데 celldata 'mc' 속성으로도 됨.
-        celldata.push({
-            r: 0, c: c,
-            v: { m: h, v: h, mc: { r: 0, c: c, rs: 1, cs: 4 }, ht: 2, vt: 1, bl: 1, bg: '#f3f4f6' }
-        });
-        // 나머지 칸은 빈칸 (병합되므로)
-    });
-
-    // 2. 바디 (날짜별 4x7)
-    let currentDay = startCalendar.clone();
-    for (let w = 0; w < 6; w++) {
-        for (let d = 0; d < 7; d++) { // 일~토
-            const dateStr = currentDay.format('YYYY-MM-DD');
-            const dayNum = currentDay.date();
-            const dayOfWeek = currentDay.day(); // 0~6
-
-            if (dayOfWeek === 0) { // 일요일 Skip
-                currentDay = currentDay.add(1, 'day');
-                continue;
-            }
-
-            const colBase = (dayOfWeek - 1) * 4;
-            const rowBase = (w * 7) + 1; // 헤더 1행 제외
-
-            // 날짜 표시 (좌상단)
-            celldata.push({
-                r: rowBase, c: colBase,
-                v: { m: String(dayNum), v: dayNum, fc: '#999', fs: 10, ht: 1, vt: 0 } // 상단 좌측 정렬
-            });
-
-            // 스케줄 데이터 채우기
-            let daySchedules = schedules.filter(s => s.date === dateStr);
-            daySchedules.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-            for (let i = 0; i < 28; i++) {
-                // 첫칸(0)은 날짜가 있지만 덮어써도 됨? -> 날짜는 겹쳐서 표시 어려움.
-                // 엑셀은 하나의 값만 가짐. 
-                // 날짜는 배경? 아니면 첫칸에 '1 (홍길동)'?
-                // 그냥 첫칸도 데이터 칸으로 씀. 날짜는... 
-                // -> 전용 '날짜 행'을 만들지 않았으므로, (0,0) 셀에 날짜 텍스트를 넣으면 데이터 입력 방해됨.
-                // 해결: 날짜용 '메모(ps)' 기능 사용?
-                // Luckysheet 메모: celldata[].v.ps = { value: '날짜' }
-
-                const r = rowBase + Math.floor(i / 4);
-                const c = colBase + (i % 4);
-
-                // 날짜 메모 추가 (첫칸만)
-                let cellVal = null;
-                if (i === 0) {
-                    // 메모로 날짜 표시
-                    // ps: {value: '1일', isshow: true} -> 항상 표시
-                }
-
-                if (i < daySchedules.length) {
-                    const sch = daySchedules[i];
-                    const emp = empIdMap[sch.employee_id];
-                    if (emp) {
-                        // 기존 값이 있으면(날짜 등) 덮어씀.
-                        // Luckysheet 셀 객체 { v: 값, m: 표시값, bg: 배경 ... }
-                        const cell = {
-                            r: r, c: c,
-                            v: { m: emp.name, v: emp.name, ht: 1, vt: 1, fs: 13, bl: 1 }
-                        };
-                        // 첫 칸이면 날짜 메모 추가
-                        if (i === 0) {
-                            cell.v.ps = { value: `${dayNum}일`, isshow: true };
-                        }
-                        celldata.push(cell);
-                        cellVal = true;
-                    }
-                }
-
-                if (!cellVal && i === 0) {
-                    // 데이터 없어도 날짜는 표시해야 함
-                    celldata.push({
-                        r: r, c: c,
-                        v: { ps: { value: `${dayNum}일`, isshow: true } }
-                    });
-                }
-            }
-
-            // 테두리 (borderInfo)
-            // Luckysheet borderInfo 구조 복잡함. rangeType으로 설정.
-            config.borderInfo.push({
-                rangeType: "range",
-                borderType: "border-outside",
-                style: "3", // 굵은선
-                color: "#cccccc",
-                range: [{ row: [rowBase, rowBase + 6], column: [colBase, colBase + 3] }]
-            });
-
-            currentDay = currentDay.add(1, 'day');
-        }
-    }
-
-    return [{
-        "name": "Sheet1",
-        "color": "",
-        "status": 1,
-        "order": 0,
-        "data": [], // celldata로 로드 시 비우고, celldata 필드 사용? 
-        // Luckysheet 초기화 데이터 포맷: celldata (sparse) or data (2d array)
-        // celldata 추천.
-        "celldata": celldata,
-        "config": config,
-        "frozen": { type: 'row', range: { row_focus: 0, column_focus: 0 } }, // 헤더 고정
-    }];
-}
-
-async function handleSaveLuckysheet() {
-    const sheetData = luckysheet.getAllSheets();
-    const currentDate = dayjs(state.schedule.currentDate);
-    const storageKey = `luckysheet_data_${currentDate.format('YYYY-MM')}`;
-
-    // JSON 문자열로 저장
-    localStorage.setItem(storageKey, JSON.stringify(sheetData));
-    alert('브라우저(Local)에 저장되었습니다.\n(주의: 쿠키 삭제 시 사라질 수 있습니다)');
-}
-
-// 기존 FullCalendar 함수들은 하위 호환성을 위해 유지하거나 필요 시 삭제
-// ...
-
 
 
 // =============================================================================
@@ -2964,96 +2836,73 @@ async function handlePrintSchedule() {
         const auditCells = calendarEl.querySelectorAll('.weekly-audit-cell');
         auditCells.forEach(el => { el.style.display = 'none'; });
 
-        // 2. ✨ 일요일 제거 및 그리드 확장 (6열: 월~토)
-        // WHY: 일요일 제외하여 가로 공간 확보 → 네임카드 확대
-        const sundayHeaders = calendarEl.querySelectorAll('.calendar-header:first-child'); // 첫 번째 헤더(일요일)
-        sundayHeaders.forEach(el => { el.style.display = 'none'; });
-        const sundayCells = calendarEl.querySelectorAll('.calendar-day.sunday-col');
-        sundayCells.forEach(el => { el.style.display = 'none'; });
-
+        // 2. 달력 그리드를 7열(일~토, 검수 제외)로 변경 + 그리드 갭 최소화
         const calendarGrid = calendarEl.querySelector('.calendar-grid');
         const originalGridStyle = calendarGrid ? calendarGrid.style.gridTemplateColumns : '';
         const originalGridGap = calendarGrid ? calendarGrid.style.gap : '';
         if (calendarGrid) {
-            calendarGrid.style.gridTemplateColumns = 'repeat(6, 1fr)'; // 7열 → 6열 (월~토 균등 분할)
-            calendarGrid.style.gap = '1px'; // 최소 갭
+            calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
+            calendarGrid.style.gap = '1px'; // WHY: 그리드 셀 간 최소 간격
         }
 
-        // 3. 요일 헤더(calendar-header) 스타일 - 폰트 확대
+        // 3. 요일 헤더(calendar-header) 세로 공백 최소화
+        // WHY: 기본 0.75rem 패딩이 인쇄 영역에서 불필요하게 세로 공간을 차지
         const calendarHeaders = calendarEl.querySelectorAll('.calendar-header');
         calendarHeaders.forEach(el => {
-            el.style.padding = '2px 4px';
-            el.style.fontSize = '12px';        // 11px → 12px
+            el.style.padding = '2px 4px';     // 0.75rem → 2px (세로 공백 대폭 축소)
+            el.style.fontSize = '11px';        // 요일 글자 약간 축소
         });
 
-        // 4. 날짜 셀(calendar-day) 높이/패딩 최적화
+        // 4. 날짜 셀 스타일 최적화
+        // WHY: 셀 내부 패딩/마진을 최소화하여 네임카드에 세로 공간을 더 할당
         const calendarDays = calendarEl.querySelectorAll('.calendar-day');
         calendarDays.forEach(el => {
-            el.style.minHeight = '230px';      // 높이 유지
-            el.style.padding = '1px';          // 패딩 최소화
-            el.style.display = 'flex';         // flex 유지 (세로 배치)
-            el.style.flexDirection = 'column';
+            el.style.minHeight = '230px';      // 최소 높이 유지
+            el.style.padding = '1px';          // 0.25rem → 1px (셀 내부 공백 최소화)
         });
 
-        // 5. 날짜 번호(day-header) 공백 제거
+        // 5. 날짜 번호(day-header) 세로 공백 최소화
+        // WHY: 날짜 숫자와 네임카드 그리드 사이 불필요한 마진 제거
         const dayHeaders = calendarEl.querySelectorAll('.day-header');
         dayHeaders.forEach(el => {
-            el.style.marginBottom = '0px';
-            el.style.flexShrink = '0';         // 헤더 크기 고정
+            el.style.marginBottom = '0px';     // 0.25rem → 0 (날짜와 카드 사이 간격 제거)
         });
         const dayNumbers = calendarEl.querySelectorAll('.day-number');
         dayNumbers.forEach(el => {
-            el.style.padding = '0px 2px';      // 좌우 패딩 약간
-            el.style.fontSize = '11px';
+            el.style.padding = '0px';          // 날짜 숫자 패딩 제거
+            el.style.fontSize = '11px';        // 날짜 숫자 약간 축소
         });
 
-        // 6. ✨ 네임카드 영역 - 4x7 고정 그리드 & 꽉 채우기
-        // WHY: 사용자 요청대로 4열 7행 고정 그리드로 변경, 셀 전체 높이 사용
+        // 6. 네임카드 영역 - 갭 1% + 패딩 최소화
+        // WHY: 갭 0px는 카드끼리 겹침 위험, 1%로 미세 간격 확보하여 글씨 잘림 방지
         const dayEventsEls = calendarEl.querySelectorAll('.day-events');
         dayEventsEls.forEach(el => {
-            el.style.display = 'grid';
-            el.style.gridTemplateColumns = 'repeat(4, 1fr)'; // 4열
-            el.style.gridTemplateRows = 'repeat(7, 1fr)';    // 7행 고정 (총 28칸)
-            el.style.gridAutoRows = 'fr';                    // 자동 행도 비율로
-            el.style.flexGrow = '1';                         // 남은 공간 모두 차지
-            el.style.height = 'auto';                        // flex-grow로 채움
-            el.style.alignContent = 'stretch';               // 그리드 전체 늘림
-            el.style.gap = '1px';                            // 최소 간격
-            el.style.padding = '0px';
+            el.style.gap = '1%';               // 0px → 1% (네임카드 간 미세 간격)
+            el.style.padding = '0px';          // 그리드 영역 외부 패딩 제거
         });
 
-        // 7. ✨ 네임카드(event-card) 스타일 - 폰트 대폭 확대 및 중앙 정렬
+        // 7. 네임카드(event-card) 스타일 - 텍스트 확대 + border 제거
         const eventCards = calendarEl.querySelectorAll('.event-card');
         eventCards.forEach(el => {
             el.style.border = 'none';
             el.style.borderRadius = '0';
-            el.style.padding = '0px';          // 패딩 0 (flex 정렬 사용)
-            el.style.fontSize = '15px';        // 14px → 15px (더 크게)
-            el.style.fontWeight = '700';       // 굵게
+            el.style.padding = '1px 2px';
+            el.style.fontSize = '13px';
             el.style.gap = '1px';
-            el.style.lineHeight = '1.1';       // 줄간격 타이트하게
-            el.style.width = '100%';           // 가로 꽉 채움
-            el.style.height = '100%';          // 세로 꽉 채움
-            el.style.display = 'flex';         // 중앙 정렬용
-            el.style.alignItems = 'center';    // 수직 중앙
-            el.style.justifyContent = 'center';// 수평 중앙
-            el.style.overflow = 'hidden';      // 넘침 방지
+            el.style.lineHeight = '1.2';       // 텍스트 줄간격 약간 축소하여 공간 확보
         });
         const eventNames = calendarEl.querySelectorAll('.event-name');
         eventNames.forEach(el => {
-            el.style.fontSize = '15px';        // 이름 폰트 15px
-            el.style.fontWeight = '700';       // 굵게
-            el.style.lineHeight = '1.1';
-            el.style.textAlign = 'center';     // 텍스트 중앙 정렬
-            el.style.whiteSpace = 'nowrap';    // 줄바꿈 방지
+            el.style.fontSize = '13px';
+            el.style.fontWeight = '600';
+            el.style.lineHeight = '1.2';       // 이름 텍스트 줄간격도 축소
         });
-        // 부서 도트 - 약간 더 키움 (폰트 크기에 비례)
+        // 부서 도트 약간 축소
         const eventDots = calendarEl.querySelectorAll('.event-dot');
         eventDots.forEach(el => {
-            el.style.width = '6px';            // 5px → 6px
-            el.style.height = '6px';
-            el.style.minWidth = '6px';
-            el.style.marginRight = '2px';      // 간격 조정
+            el.style.width = '5px';
+            el.style.height = '5px';
+            el.style.minWidth = '5px';
         });
 
         // html2canvas로 달력 캡쳐
@@ -3066,11 +2915,6 @@ async function handlePrintSchedule() {
 
         // ===== 스타일 복원 =====
         auditCells.forEach(el => { el.style.display = ''; });
-
-        // 일요일 복원
-        sundayHeaders.forEach(el => { el.style.display = ''; });
-        sundayCells.forEach(el => { el.style.display = ''; });
-
         if (calendarGrid) {
             calendarGrid.style.gridTemplateColumns = originalGridStyle;
             calendarGrid.style.gap = originalGridGap;
@@ -3082,25 +2926,15 @@ async function handlePrintSchedule() {
         calendarDays.forEach(el => {
             el.style.minHeight = '';
             el.style.padding = '';
-            el.style.display = '';
-            el.style.flexDirection = '';
         });
         dayHeaders.forEach(el => {
             el.style.marginBottom = '';
-            el.style.flexShrink = '';
         });
         dayNumbers.forEach(el => {
             el.style.padding = '';
             el.style.fontSize = '';
         });
         dayEventsEls.forEach(el => {
-            el.style.display = '';
-            el.style.gridTemplateColumns = '';
-            el.style.gridTemplateRows = '';
-            el.style.gridAutoRows = '';
-            el.style.flexGrow = '';
-            el.style.height = '';
-            el.style.alignContent = '';        // align-content 복원
             el.style.gap = '';
             el.style.padding = '';
         });
@@ -3109,28 +2943,18 @@ async function handlePrintSchedule() {
             el.style.borderRadius = '';
             el.style.padding = '';
             el.style.fontSize = '';
-            el.style.fontWeight = '';
             el.style.gap = '';
             el.style.lineHeight = '';
-            el.style.width = '';
-            el.style.height = '';
-            el.style.display = '';
-            el.style.alignItems = '';
-            el.style.justifyContent = '';
-            el.style.overflow = '';
         });
         eventNames.forEach(el => {
             el.style.fontSize = '';
             el.style.fontWeight = '';
             el.style.lineHeight = '';
-            el.style.textAlign = '';
-            el.style.whiteSpace = '';
         });
         eventDots.forEach(el => {
             el.style.width = '';
             el.style.height = '';
             el.style.minWidth = '';
-            el.style.marginRight = '';
         });
 
         // 새 창에 이미지 표시 및 인쇄
