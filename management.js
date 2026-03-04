@@ -2402,7 +2402,7 @@ window.handleSaveRegularHoliday = async function (employeeId) {
 // 직원별 연차 사용 내역 상세 모달 (추가)
 // -----------------------------------------------------------------------------------------
 window.openLeaveHistoryModal = function (employeeId) {
-    const emp = window.employees.find(e => e.id === employeeId);
+    const emp = state.management.employees.find(e => e.id === employeeId);
     if (!emp) return;
 
     // 모달 타이틀/기간 세팅
