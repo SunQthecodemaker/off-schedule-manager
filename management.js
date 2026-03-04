@@ -1554,11 +1554,48 @@ export function getLeaveStatusHTML() {
         const pStart = dayjs(leaveDetails.periodStart);
         const pEnd = dayjs(leaveDetails.periodEnd);
 
+        // --- 작년도(직전 갱신 주기) 연차 당겨쓰기(초과분) 자동 계산 로직 ---
+        const lastYearStart = pStart.subtract(1, 'year');
+        const lastYearEnd = pEnd.subtract(1, 'year');
+
+        // 작년도 기준 할당량 계산 (기준일을 작년 주기 내 임의의 날로 전달)
+        // 수동 carried_over_leave는 제외하고 순수 할당+조정만 계산하기 위해 0으로 만듦
+        const lastYearDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, lastYearStart.add(1, 'day').toDate());
+
+        // 작년도 사용량 계산 (날짜 정보 포함)
+        const lastYearRequests = leaveRequests
+            .filter(req => req.employee_id === emp.id && req.status === 'approved');
+
+        let lastYearDates = [];
+        lastYearRequests.forEach(req => {
+            (req.dates || []).forEach(dateStr => {
+                const d = dayjs(dateStr);
+                if ((d.isSame(lastYearStart, 'day') || d.isAfter(lastYearStart, 'day')) && (d.isSame(lastYearEnd, 'day') || d.isBefore(lastYearEnd, 'day'))) {
+                    lastYearDates.push({
+                        date: dateStr,
+                        type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
+                        requestId: req.id,
+                        isBorrowedFromPast: true // 식별 플래그
+                    });
+                }
+            });
+        });
+
+        // 시간순 정렬
+        lastYearDates.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        // 작년 할당량(final)을 초과한 날짜들만 추출 = 당겨쓰기한 실제 날짜들
+        let borrowedPastDates = [];
+        if (lastYearDates.length > lastYearDetails.final) {
+            borrowedPastDates = lastYearDates.slice(lastYearDetails.final);
+        }
+        // ----------------------------------------------------------------
+
         const usedRequests = leaveRequests
             .filter(req => req.employee_id === emp.id && req.status === 'approved');
 
-        // 사용한 날짜들을 모두 수집하여 평탄화 및 정렬
-        let usedDates = usedRequests
+        // 사용한 날짜들을 모두 수집하여 평탄화 및 정렬 (올해분)
+        let currentDates = usedRequests
             .flatMap(req => {
                 return (req.dates || [])
                     .filter(dateStr => {
@@ -1567,20 +1604,36 @@ export function getLeaveStatusHTML() {
                     })
                     .map(date => ({
                         date: date,
-                        // '수동'이라는 단어가 포함되어 있으면 manual로 처리 (유연성 확보)
                         type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
                         requestId: req.id
                     }));
             })
             .sort((a, b) => new Date(a.date) - new Date(b.date));
 
+        // 올해 사용한 날짜 배열의 맨 앞에, 작년 당겨쓰기 날짜들을 그대로 삽입
+        let usedDates = [...borrowedPastDates, ...currentDates];
         const usedDays = usedDates.length;
-        const remainingDays = leaveDetails.final - usedDays;
-        const usagePercent = leaveDetails.final > 0 ? Math.round((usedDays / leaveDetails.final) * 100) : 0;
+
+        // 수동 이월값(마이너스)이 있다면 무시하고 최소 0으로 방어 (자동 추출하므로 충돌 방지)
+        let actualCarriedOverCnt = leaveDetails.carriedOverCnt;
+        if (actualCarriedOverCnt < 0) {
+            actualCarriedOverCnt = 0;
+        }
+
+        // 최종 한도는 수동 이월된 걸 제외한 원래 한도 + 양수 이월분
+        const finalSansManual = leaveDetails.final - leaveDetails.carriedOverCnt;
+        const newFinalLeaves = finalSansManual + actualCarriedOverCnt;
+
+        const remainingDays = newFinalLeaves - usedDays;
+        const usagePercent = newFinalLeaves > 0 ? Math.round((usedDays / newFinalLeaves) * 100) : 0;
 
         return {
             ...emp,
-            leaveDetails,
+            leaveDetails: {
+                ...leaveDetails,
+                carriedOverCnt: actualCarriedOverCnt,
+                final: newFinalLeaves                // 재계산된 최종 연차 한도
+            },
             usedDays,
             remainingDays,
             usagePercent,
@@ -1627,7 +1680,7 @@ export function getLeaveStatusHTML() {
             .leave-box:hover {
                 transform: translateY(-1px);
                 box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            }
+        </style>
             
             /* 이월 연차 스타일 (보라) */
             .leave-box.type-carried {
@@ -1709,7 +1762,7 @@ export function getLeaveStatusHTML() {
                                 <div class="flex gap-2 text-xs font-normal">
                                     <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월</span>
                                     <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 border border-blue-400 rounded"></span>금년</span>
-                                    <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>당겨쓰기(초과)</span>
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>올해 초과(당겨쓰기)</span>
                                 </div>
                             </div>
                         </th>
@@ -1730,10 +1783,10 @@ function getLeaveStatusRow(emp) {
     const deptName = emp.dept || emp.departments?.name || '-';
 
     // 그리드 생성 로직
-    // 확정 연차 개수
+    // 확정 연차 개수 (이월/조정 등이 적용된 실제 잔여 한도)
     const finalLeaves = emp.leaveDetails.final;
     const carriedCnt = emp.leaveDetails.carriedOverCnt || 0; // 이월된 개수
-    const usedCnt = emp.usedDays; // 총 사용 개수
+    const usedCnt = emp.usedDays; // 올해 실제 총 사용 개수
 
     // 그리드 총 칸 수 = Max(확정 연차, 실제 사용량)
     // 당겨쓰기를 표현하기 위해 사용량이 더 많으면 그만큼 더 그린다.
@@ -1752,15 +1805,12 @@ function getLeaveStatusRow(emp) {
 
         if (i < carriedCnt) {
             boxType = 'carried';
-            boxLabel = `이${boxIndex} `; // 이1, 이2 ...
+            boxLabel = `이${boxIndex}`; // 이1, 이2 ...
         } else if (i < finalLeaves) {
             // 금년 연차 구간
-            // 이월이 2개라면, i=2는 3번째 칸이지만 금년 연차로는 1번째임.
-            // boxLabel = boxIndex - carriedCnt; (옵션: 금년 연차만 1부터 다시 셀지, 통산으로 할지)
-            // 통산 번호로 유지하는 게 깔끔함. 대신 색상으로 구분.
             boxType = 'regular';
         } else {
-            // 초과(당겨쓰기) 구간
+            // 이번년도의 초과(당겨쓰기) 구간
             boxType = 'borrowed';
             boxLabel = `-${boxIndex - finalLeaves}`; // -1, -2 ...
         }
@@ -1781,6 +1831,8 @@ function getLeaveStatusRow(emp) {
 
                 displayText = dayjs(dateVal).format('M.D');
 
+                // 작년 당겨쓰기 분이 첫 칸에 배치되더라도, 스타일링이나 로직상 금년 사용과 완벽히 동일하게 취급됨
+
                 if (type === 'manual') {
                     boxClass += ' manual-entry';
                 }
@@ -1792,7 +1844,6 @@ function getLeaveStatusRow(emp) {
         else {
             dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
         }
-
 
         gridHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
     }

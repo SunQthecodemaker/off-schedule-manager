@@ -1,8 +1,10 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
-// AppSheet 연동 제거됨 (2026-02-16)
+// AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
 import { registerManualLeave, cancelManualLeave } from './management.js';
+import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
+import { ScheduleGenerator } from './schedule-generator.js';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
@@ -925,6 +927,102 @@ function initializeDayDragDrop(dayEl, dateStr) {
             updateSaveButtonState();
         },
     });
+}
+
+// =========================================================================================
+// [기능 복구] 자동 배정 및 AppSheet 관련 로직
+// =========================================================================================
+
+export async function handleAutoSchedule() {
+    if (!confirm('현재 보고 있는 달의 스케줄을 자동으로 생성하시겠습니까?\n\n주의: 현재 화면의 기존 근무 스케줄은 모두 삭제되고 새로 생성됩니다.\n(결과는 저장하기 전까지 확정되지 않습니다)')) return;
+
+    const generator = new ScheduleGenerator();
+    const currentDate = dayjs(state.schedule.currentDate);
+
+    // 1. 필요한 데이터 준비
+    const year = currentDate.year();
+    const month = currentDate.month(); // 0-indexed
+    const employees = state.management.employees;
+
+    // 연차 정보 가져오기 (승인된 것만)
+    const leaves = state.management.leaveRequests
+        .filter(req => req.status === 'approved' || req.final_manager_status === 'approved')
+        .map(req => ({
+            employee_id: req.employee_id,
+            dates: req.dates || []
+        }));
+
+    const companyHolidays = state.schedule.companyHolidays;
+
+    try {
+        const btn = _('#auto-schedule-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '생성 중...';
+        }
+
+        // 2. 로직 실행
+        const newSchedules = generator.generate(year, month, employees, leaves, companyHolidays);
+
+        console.log(`✅ ${newSchedules.length}개의 스케줄이 생성되었습니다.`);
+
+        // 3. 기존 스케줄 삭제 처리 (Local State & UnsavedChanges)
+        const startOfMonth = currentDate.startOf('month').format('YYYY-MM-DD');
+        const endOfMonth = currentDate.endOf('month').format('YYYY-MM-DD');
+
+        // 삭제 대상 식별: 해당 월의 '근무' 스케줄
+        const schedulesToRemove = state.schedule.schedules.filter(s =>
+            s.date >= startOfMonth && s.date <= endOfMonth && s.status === '근무'
+        );
+
+        schedulesToRemove.forEach(s => {
+            // DB에 있는 데이터라면 삭제 목록에 추가
+            if (!s.id.toString().startsWith('temp-')) {
+                unsavedChanges.set(s.id, { type: 'delete', data: s });
+            } else {
+                unsavedChanges.delete(s.id);
+            }
+        });
+
+        // State에서 제거
+        state.schedule.schedules = state.schedule.schedules.filter(s =>
+            !(s.date >= startOfMonth && s.date <= endOfMonth && s.status === '근무')
+        );
+
+        // 4. 새 스케줄 추가 처리 (Local State & UnsavedChanges)
+        newSchedules.forEach(s => {
+            const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const scheduleWithId = { ...s, id: tempId };
+
+            state.schedule.schedules.push(scheduleWithId);
+            unsavedChanges.set(tempId, { type: 'new', data: scheduleWithId });
+        });
+
+        // 5. 화면 갱신
+        renderCalendar();
+        updateSaveButtonState();
+
+        alert(`자동 배정이 완료되었습니다.\n총 ${newSchedules.length}건이 생성되었습니다.\n\n내용을 확인하고 [스케줄 저장] 버튼을 눌러 확정하세요.`);
+
+    } catch (e) {
+        console.error('자동 배정 실패:', e);
+        alert('자동 배정 중 오류가 발생했습니다: ' + e.message);
+    } finally {
+        const btn = _('#auto-schedule-btn');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '🤖 자동 배정';
+        }
+    }
+}
+
+function handleAppSheetSettings() {
+    const currentUrl = getScriptUrl();
+    const newUrl = prompt('AppSheet 연동 스크립트(Google Apps Script) URL을 입력하세요:\n(배포된 웹앱 URL)', currentUrl);
+    if (newUrl !== null) {
+        setScriptUrl(newUrl);
+        alert('AppSheet 연동 URL이 저장되었습니다.');
+    }
 }
 
 function getWorkingEmployeesOnDate(dateStr) {
@@ -2617,8 +2715,14 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
+                <span class="text-gray-300">|</span>
+                <button id="sync-appsheet-btn" class="bg-gray-500 text-white hover:bg-gray-600 px-2 py-1 text-sm rounded" title="직원/연차 정보 전송">📤 동기화</button>
+                <button id="import-appsheet-btn" class="bg-gray-500 text-white hover:bg-gray-600 px-2 py-1 text-sm rounded" title="스케줄 가져오기">📥 가져오기</button>
+                <button id="appsheet-settings-btn" class="text-gray-400 hover:text-gray-600" title="AppSheet 연동 설정">⚙️</button>
+                <span class="text-gray-300">|</span>
                 <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
                 <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
+                <button id="auto-schedule-btn" class="bg-indigo-600 text-white hover:bg-indigo-700">🤖 자동 배정</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
                 <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
@@ -2661,7 +2765,10 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
         _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
-
+        _('#auto-schedule-btn')?.addEventListener('click', handleAutoSchedule);
+        _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
+        _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
+        _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
