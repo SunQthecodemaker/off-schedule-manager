@@ -1220,11 +1220,11 @@ export function getLeaveManagementHTML() {
 
         // 다음 갱신일 계산
         const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate).add(1, 'year');
-        const renewalThisYear = dayjs(`${dayjs().year()} -${baseDate.format('MM-DD')} `);
+        const renewalThisYear = dayjs(`${dayjs().year()}-${baseDate.format('MM-DD')}`);
         const nextRenewalDate = renewalThisYear.isAfter(dayjs()) ? renewalThisYear.format('YYYY-MM-DD') : renewalThisYear.add(1, 'year').format('YYYY-MM-DD');
 
         const entryDateValue = emp.entryDate ? dayjs(emp.entryDate).format('YYYY-MM-DD') : '';
-        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('YYYY-MM-DD') : '';
+        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : '';
         const workDaysValue = emp.work_days_per_week || 5;
 
         return `<tr class="border-t" >
@@ -1243,7 +1243,7 @@ export function getLeaveManagementHTML() {
             </td>
                 </select>
             </td>
-            <td class="p-2"><input type="date" id="leave-renewal-${emp.id}" value="${renewalDateValue}" class="table-input text-xs"></td>
+            <td class="p-2"><input type="text" id="leave-renewal-${emp.id}" value="${renewalDateValue}" placeholder="MM-DD" maxlength="5" class="table-input text-center text-xs w-16"></td>
             <td class="p-2 text-sm text-center" id="leave-next-renewal-${emp.id}">${nextRenewalDate}</td>
             <td class="p-2 text-sm text-center">${leaveData.legal}</td>
             <td class="p-2"><input type="number" id="leave-carried-${emp.id}" value="${leaveData.carriedOverCnt || 0}" step="0.5" class="table-input text-center text-xs w-16"></td>
@@ -1499,7 +1499,14 @@ _('#close-settlement-modal-btn')?.addEventListener('click', window.closeSettleme
 // 연차 현황 기능
 // =========================================================================================
 window.handleUpdateLeave = async function (id) {
-    const leave_renewal_date = _(`#leave-renewal-${id}`).value || null;
+    let leave_renewal_date = _(`#leave-renewal-${id}`).value || null;
+
+    // MM-DD 형식으로 입력된 경우, DB Date 타입 에러 방지를 위해 임의의 연도(2000)를 붙여서 저장
+    // 어차피 계산 로직(leave-utils.js 등)에서는 연도를 제외하고 월/일만 추출하여 기준일로 사용함.
+    if (leave_renewal_date && /^\d{2}-\d{2}$/.test(leave_renewal_date)) {
+        leave_renewal_date = `2000-${leave_renewal_date}`;
+    }
+
     const leave_adjustment = parseFloat(_(`#leave-adj-${id}`).value) || 0;
     const carried_over_leave = parseFloat(_(`#leave-carried-${id}`).value) || 0;
     const work_days_per_week = parseInt(_(`#leave-workdays-${id}`).value) || 5;

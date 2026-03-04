@@ -58,9 +58,10 @@ export function getLeaveDetails(employee, referenceDate = null) {
             }
             // 입사 1주년이 이미 지난 경우
             else {
-                // 현재 주기 시작일로부터 경과 연수
-                const yearsFromPeriodStart = today.diff(periodStart, 'year');
-                legalLeaves = 15 + Math.floor(yearsFromPeriodStart / 2);
+                // 현재 주기 시작일 시점에 입사 1주년으로부터 몇 년이 지났는지 계산
+                let yearsFromAnniversary = periodStart.diff(firstAnniversary, 'year');
+                if (yearsFromAnniversary < 0) yearsFromAnniversary = 0; // 예외 방어
+                legalLeaves = 15 + Math.floor(yearsFromAnniversary / 2);
             }
         }
         // 연차 기준일이 없는 경우 (입사일 기준)
