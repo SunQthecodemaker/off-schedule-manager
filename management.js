@@ -1552,21 +1552,42 @@ window.handleUpdateLeave = async function (id) {
 // 연차 현황 기능
 // =========================================================================================
 
+window.periodOffsets = window.periodOffsets || {};
+
+export function changeLeavePeriod(employeeId, delta) {
+    if (!window.periodOffsets[employeeId]) window.periodOffsets[employeeId] = 0;
+    window.periodOffsets[employeeId] += delta;
+    window.loadAndRenderManagement();
+}
+// 전역 사용을 위해 window에 할당
+window.changeLeavePeriod = changeLeavePeriod;
+
 export function getLeaveStatusHTML() {
+    window.periodOffsets = window.periodOffsets || {};
     const { employees, leaveRequests } = state.management;
 
     // 각 직원의 연차 데이터 수집
     const employeeLeaveData = employees.map(emp => {
-        const leaveDetails = getLeaveDetails(emp);
+        const offset = window.periodOffsets[emp.id] || 0;
+
+        // 현재 주기(offset=0) 기준 계산
+        const baseCurrentDetails = getLeaveDetails(emp);
+
+        // offset 만큼 이동한 기준일(simDate) 생성
+        const simDate = dayjs(baseCurrentDetails.periodStart).add(offset, 'year').add(1, 'day').toDate();
+
+        // 타겟 주기 계산 (offset !== 0 인 과거/미래 주기는 수동 이월분을 미반영하여 순수 발생량만 계측)
+        const targetEmp = { ...emp, carried_over_leave: offset === 0 ? emp.carried_over_leave : 0 };
+        const leaveDetails = getLeaveDetails(targetEmp, simDate);
+
         const pStart = dayjs(leaveDetails.periodStart);
         const pEnd = dayjs(leaveDetails.periodEnd);
 
-        // --- 작년도(직전 갱신 주기) 연차 당겨쓰기(초과분) 자동 계산 로직 ---
+        // --- 작년도(타겟 주기의 직전 주기) 연차 당겨쓰기(초과분) 산출 ---
         const lastYearStart = pStart.subtract(1, 'year');
         const lastYearEnd = pEnd.subtract(1, 'year');
 
-        // 작년도 기준 할당량 계산 (기준일을 작년 주기 내 임의의 날로 전달)
-        // 수동 carried_over_leave는 제외하고 순수 할당+조정만 계산하기 위해 0으로 만듦
+        // 직전 주기 기준 할당량 계산
         const lastYearDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, lastYearStart.add(1, 'day').toDate());
 
         // 작년도 사용량 계산 (날짜 정보 포함)
@@ -1644,7 +1665,10 @@ export function getLeaveStatusHTML() {
             usedDays,
             remainingDays,
             usagePercent,
-            usedDates
+            usedDates,
+            periodOffset: offset, // 렌더링을 위한 오프셋 기록
+            periodStart: pStart,
+            periodEnd: pEnd
         };
     });
 
@@ -1799,7 +1823,18 @@ function getLeaveStatusRow(emp) {
     // 당겨쓰기를 표현하기 위해 사용량이 더 많으면 그만큼 더 그린다.
     const totalBoxes = Math.max(finalLeaves, usedCnt);
 
-    let gridHTML = '<div class="leave-grid-container">';
+    const isCurrentPeriod = emp.periodOffset === 0;
+    const periodLabel = isCurrentPeriod ? '현재 주기' : `${emp.periodStart.format('YYYY')}년 주기`;
+    const labelColor = isCurrentPeriod ? 'text-gray-500' : 'text-blue-600 font-bold';
+
+    let gridHTML = `
+        <div class="flex items-center gap-1">
+            <button onclick="window.changeLeavePeriod('${emp.id}', -1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+            </button>
+            <div class="text-[10px] w-14 text-center leading-tight ${labelColor} truncate" title="${emp.periodStart.format('YY.MM.DD')} ~ ${emp.periodEnd.format('YY.MM.DD')}">${periodLabel}</div>
+            <div class="leave-grid-container flex-1 ml-1" style="max-width: 500px;">
+    `;
 
     for (let i = 0; i < totalBoxes; i++) {
         const isUsed = i < usedCnt; // 앞에서부터 순차적으로 채움
@@ -1854,14 +1889,18 @@ function getLeaveStatusRow(emp) {
 
         gridHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
     }
-    gridHTML += '</div>';
+    gridHTML += `
+            </div>
+            <button onclick="window.changeLeavePeriod('${emp.id}', 1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="다음 주기">
+                ▶
+            </button>
+        </div>
+    `;
 
     return `
-        <tr class="leave-status-row border-b hover:bg-gray-50" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
+        <tr class="leave-status-row border-b hover:bg-gray-50 transition-colors" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
             <td class="p-2 text-center font-semibold">
-                <button type="button" class="text-blue-600 hover:text-blue-800 underline focus:outline-none" onclick="window.openLeaveHistoryModal(${emp.id})">
-                    ${emp.name}
-                </button>
+                ${emp.name}
             </td>
             <td class="p-2 text-center text-gray-600">${deptName}</td>
             <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>

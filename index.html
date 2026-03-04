@@ -274,51 +274,6 @@
         </div>
     </div>
 
-    <!-- 직원 연차 상세 내역 모달 -->
-    <div id="leave-history-modal" class="modal-overlay hidden">
-        <div class="modal-content-lg">
-            <div class="flex justify-between items-center border-b pb-3 mb-4">
-                <div>
-                    <h2 id="history-modal-title" class="text-2xl font-bold">연차 사용 상세 내역</h2>
-                    <p id="history-modal-period" class="text-sm text-gray-500 mt-1"></p>
-                </div>
-                <button id="close-history-modal-btn"
-                    class="text-3xl hover:text-red-500 transition-colors">&times;</button>
-            </div>
-            <div class="overflow-y-auto max-h-[60vh] border rounded p-4 bg-gray-50">
-                <div id="leave-history-box-container" class="space-y-6">
-                    <!-- JS에서 3단 박스 렌더링 -->
-                </div>
-            </div>
-            <div class="flex justify-end pt-4 mt-4 border-t">
-                <button type="button" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold"
-                    onclick="document.getElementById('leave-history-modal').classList.add('hidden')">닫기</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- [직원 전용] 연차 사용 상세 내역 모달 -->
-    <div id="employee-leave-history-modal" class="modal-overlay hidden">
-        <div class="modal-content-lg">
-            <div class="flex justify-between items-center border-b pb-3 mb-4">
-                <div>
-                    <h2 id="emp-history-modal-title" class="text-2xl font-bold">내 연차 사용 상세 내역</h2>
-                    <p id="emp-history-modal-period" class="text-sm text-gray-500 mt-1"></p>
-                </div>
-                <button id="close-emp-history-modal-btn" class="text-3xl hover:text-red-500 transition-colors"
-                    onclick="document.getElementById('employee-leave-history-modal').classList.add('hidden')">&times;</button>
-            </div>
-            <div class="overflow-y-auto max-h-[60vh] border rounded p-4 bg-gray-50">
-                <div id="emp-leave-history-box-container" class="space-y-6">
-                    <!-- JS에서 3단 박스 렌더링 -->
-                </div>
-            </div>
-            <div class="flex justify-end pt-4 mt-4 border-t">
-                <button type="button" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold"
-                    onclick="document.getElementById('employee-leave-history-modal').classList.add('hidden')">닫기</button>
-            </div>
-        </div>
-    </div>
 
     <style>
         @media print {

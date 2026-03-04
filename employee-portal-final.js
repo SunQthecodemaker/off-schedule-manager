@@ -78,14 +78,11 @@ export async function renderEmployeePortal() {
             <div class="grid grid-cols-4 gap-2 sm:gap-4 mb-6">
                 <div class="bg-blue-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">확정 연차</p>
-                    <p class="text-xl sm:text-2xl font-bold">${leaveDetails.final}일</p>
+                    <p class="text-xl sm:text-2xl font-bold" id="final-leaves">${leaveDetails.final}일</p>
                 </div>
                 <div class="bg-green-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">사용 연차</p>
-                    <p class="text-xl sm:text-2xl font-bold mb-1" id="used-leaves">계산 중...</p>
-                    <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline focus:outline-none" onclick="window.openMyLeaveHistoryModal()">
-                        🔍 상세 보기
-                    </button>
+                    <p class="text-xl sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
                 </div>
                 <div class="bg-yellow-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">잔여 연차</p>
@@ -95,6 +92,11 @@ export async function renderEmployeePortal() {
                     <p class="text-[10px] sm:text-sm text-gray-700 font-semibold whitespace-nowrap">갱신일</p>
                     <p class="text-xl sm:text-2xl font-medium whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
+            </div>
+
+            <!-- 직원 본인 인라인 연차 박스 그리드 -->
+            <div id="employee-leave-grid-container" class="mb-6 bg-white shadow rounded p-4 overflow-x-auto">
+                <div class="text-center text-gray-500 text-sm">연차 정보를 불러오는 중입니다...</div>
             </div>
 
             <!-- 탭 버튼 -->
@@ -549,13 +551,23 @@ async function loadEmployeeData() {
         state.employee.documentRequests = docRequestsRes.data || [];
         state.employee.submittedDocuments = submittedDocsRes.data || [];
 
-        const leaveDetails = getLeaveDetails(state.currentUser);
+        const offset = state.currentUser.periodOffset || 0;
+
+        // 현재 주기(offset=0) 기준 계산
+        const baseCurrentDetails = getLeaveDetails(state.currentUser);
+
+        // offset 만큼 이동한 기준일(simDate) 생성
+        const simDate = dayjs(baseCurrentDetails.periodStart).add(offset, 'year').add(1, 'day').toDate();
+
+        // 타겟 주기 계산 (offset !== 0 인 과거/미래 주기는 수동 이월분을 미반영하여 순수 발생량만 계측)
+        const targetUser = { ...state.currentUser, carried_over_leave: offset === 0 ? state.currentUser.carried_over_leave : 0 };
+        const leaveDetails = getLeaveDetails(targetUser, simDate);
         const pStart = dayjs(leaveDetails.periodStart);
         const pEnd = dayjs(leaveDetails.periodEnd);
 
         const approved = requests.filter(r => r.status === 'approved');
 
-        // --- 작년도 당겨쓰기(초과분) 추출 로직 ---
+        // --- 작년도(타겟 주기의 직전 주기) 연차 당겨쓰기(초과분) 추출 범위 산출 ---
         const lastYearStart = pStart.subtract(1, 'year');
         const lastYearEnd = pEnd.subtract(1, 'year');
         const lastYearDetails = getLeaveDetails({ ...state.currentUser, carried_over_leave: 0 }, lastYearStart.add(1, 'day').toDate());
@@ -612,6 +624,12 @@ async function loadEmployeeData() {
 
         _('#used-leaves').textContent = `${usedDays}일`;
         _('#remaining-leaves').textContent = `${newFinalLeaves - usedDays}일`;
+
+        // 렌더링 당시의 오프셋 반영용 UI 업데이트 (상단 요약 박스에도 오프셋 주기 라벨 추가를 원할시 추가 작업, 여기서는 잔여수 그대로 표기)
+        _('#final-leaves').textContent = `${newFinalLeaves}일`; // id 추가했던 확정연차 업데이트 (타겟 주기의 순수 분량)
+
+        // 인라인 연차 박스 컨테이너 렌더링
+        renderEmployeeLeaveGrid(newFinalLeaves, actualCarriedOverCnt, usedDays, state.currentUser.usedDates, offset, pStart, pEnd);
 
         renderMyLeaveRequests(requests);
         initializeEmployeeCalendar(approved);
@@ -1356,129 +1374,108 @@ async function handleDocumentSubmit() {
     }
 }
 
-// =========================================================================================
-// [직원 전용] 연차 현황 상세 모달
-// =========================================================================================
-window.openMyLeaveHistoryModal = async function () {
-    const user = state.currentUser;
-    if (!user) return;
+window.changeMyLeavePeriod = function (delta) {
+    if (!state.currentUser.periodOffset) state.currentUser.periodOffset = 0;
+    state.currentUser.periodOffset += delta;
+    loadEmployeeData(); // 다시 로딩하여 해당 주기로 렌더링
+};
 
-    // 모달 타이틀 세팅
-    document.getElementById('emp-history-modal-title').textContent = `${user.name} 님의 최근 3년 연차 내역`;
-    document.getElementById('emp-history-modal-period').textContent = `(기준일: ${user.leave_renewal_date || user.entryDate})`;
+function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr, offset, periodStart, periodEnd) {
+    const container = document.getElementById('employee-leave-grid-container');
+    if (!container) return;
 
-    const container = document.getElementById('emp-leave-history-box-container');
-    container.innerHTML = ''; // 초기화
+    const totalBoxes = Math.max(finalLeaves, usedCnt);
+    const isCurrentPeriod = offset === 0;
+    const periodLabel = isCurrentPeriod ? '현재' : `${periodStart.format('YYYY')}년`;
+    const labelColor = isCurrentPeriod ? 'bg-gray-100 text-gray-500 border-gray-200' : 'bg-blue-100 text-blue-700 border-blue-200 font-bold';
 
-    // 기준 주기 계산 (getLeaveDetails 활용)
-    const currentDetails = getLeaveDetails(user);
-    const pStart = dayjs(currentDetails.periodStart);
-    const pEnd = dayjs(currentDetails.periodEnd);
-
-    // 3개년 주기 배열 생성
-    const periods = [
-        { label: '당해년도', start: pStart, end: pEnd },
-        { label: '작년도', start: pStart.subtract(1, 'year'), end: pEnd.subtract(1, 'year') },
-        { label: '재작년도', start: pStart.subtract(2, 'year'), end: pEnd.subtract(2, 'year') }
-    ];
-
-    // 본인의 전체 승인된 연차 내역 가져오기 (이미 로드된 데이터 활용 또는 재조회)
-    const { data: requestsData, error } = await db
-        .from('leave_requests')
-        .select('*')
-        .eq('employee_id', user.id)
-        .eq('status', 'approved');
-
-    if (error) {
-        console.error('연차 내역 조회 실패', error);
-        alert('데이터 조회 중 오류가 발생했습니다.');
-        return;
-    }
-    const requests = requestsData || [];
-
-    periods.forEach((period, index) => {
-        // 해당 주기 시작일 + 1일 시점 기준으로 부여될 연차 한도 계산 시뮬레이션
-        const simDate = period.start.add(1, 'day').toDate();
-        const periodDetails = getLeaveDetails({ ...user, carried_over_leave: 0 }, simDate);
-        let periodLimit = periodDetails.final;
-
-        // 해당 주기에 사용된 연차 추출 (평탄화 후 필터링)
-        let usedDates = [];
-        requests.forEach(req => {
-            (req.dates || []).forEach(dateStr => {
-                const d = dayjs(dateStr);
-                if (d.isSameOrAfter(period.start, 'day') && d.isSameOrBefore(period.end, 'day')) {
-                    usedDates.push({
-                        date: dateStr,
-                        type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
-                        reason: req.reason || ''
-                    });
-                }
-            });
-        });
-
-        usedDates.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        // UI 생성
-        const section = document.createElement('div');
-        section.className = 'bg-white p-4 rounded shadow-sm border border-gray-200';
-
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'flex justify-between items-center mb-3 mb-2 border-b pb-2';
-        headerDiv.innerHTML = `
-            <h3 class="font-bold text-gray-800">${period.label} <span class="text-xs text-gray-500 font-normal ml-2">(${period.start.format('YY.MM.DD')} ~ ${period.end.format('YY.MM.DD')})</span></h3>
-            <span class="text-sm font-semibold ${index === 0 ? 'text-green-600' : 'text-gray-600'}">총 ${periodLimit}일 중 ${usedDates.length}일 사용</span>
-        `;
-        section.appendChild(headerDiv);
-
-        const gridDiv = document.createElement('div');
-        gridDiv.className = 'grid grid-cols-5 gap-2 sm:grid-cols-8 md:grid-cols-10';
-
-        const totalBoxCount = Math.max(periodLimit, usedDates.length);
-
-        for (let i = 0; i < totalBoxCount; i++) {
-            const box = document.createElement('div');
-            box.className = 'flex flex-col items-center justify-center p-2 rounded border text-center h-16 relative group';
-
-            const usage = usedDates[i];
-
-            if (usage) {
-                // 사용한 연차
-                const d = dayjs(usage.date);
-                let bgColor = 'bg-green-50 border-green-200';
-                let textColor = 'text-green-700';
-                let label = '';
-
-                if (usage.type === 'manual') {
-                    bgColor = 'bg-purple-50 border-purple-200';
-                    textColor = 'text-purple-700';
-                    label = '<span class="text-[8px] bg-purple-100 px-1 rounded absolute top-1 right-1">수동</span>';
-                }
-
-                if (i >= periodLimit) {
-                    bgColor = 'bg-red-50 border-red-200';
-                    textColor = 'text-red-700';
-                    label = '<span class="text-[8px] bg-red-100 px-1 rounded absolute top-1 right-1">초과</span>';
-                }
-
-                box.className += ` ${bgColor}`;
-                box.innerHTML = `
-                    ${label}
-                    <span class="text-xs font-bold ${textColor}">${d.format('MM.DD')}</span>
-                    ${usage.reason ? `<div class="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 z-10 w-32 p-1 text-[10px] bg-gray-800 text-white rounded shadow-lg whitespace-normal leading-tight">${usage.reason}</div>` : ''}
-                `;
-            } else {
-                // 미사용 연차
-                box.className += ' bg-gray-50 border-gray-200 border-dashed';
-                box.innerHTML = `<span class="text-lg font-bold text-gray-300">${i + 1}</span>`;
+    let gridHTML = `
+        <style>
+            .leave-grid-container {
+                display: flex;
+                flex-wrap: nowrap;
+                gap: 4px;
+                overflow-x: auto;
+                padding-bottom: 4px;
             }
+            .leave-box {
+                flex: 0 0 42px; width: 42px; height: 32px;
+                border: 1px solid #e5e7eb; border-radius: 4px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 11px; background-color: #ffffff; color: #9ca3af;
+                position: relative;
+            }
+            .leave-box.type-regular { border-color: #93c5fd; color: #3b82f6; background-color: #eff6ff; }
+            .leave-box.type-regular.used { background-color: #93c5fd; color: #1e40af; font-weight: bold; }
+            .leave-box.type-carried { border-color: #d8b4fe; color: #a855f7; background-color: #faf5ff; }
+            .leave-box.type-carried.used { background-color: #d8b4fe; color: #6b21a8; font-weight: bold; }
+            .leave-box.type-borrowed { border-color: #fca5a5; color: #ef4444; background-color: #fef2f2; font-weight: bold; }
+            .leave-box.type-borrowed.used { background-color: #fca5a5; color: #991b1b; }
+            .leave-box.manual-entry::after {
+                content: ''; position: absolute; top: 2px; right: 2px;
+                width: 4px; height: 4px; border-radius: 50%; background-color: #eab308;
+            }
+            .leave-box:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        </style>
+        <div class="flex items-center gap-1">
+            <button onclick="window.changeMyLeavePeriod(-1)" class="p-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
+                ◀
+            </button>
+            <div class="text-xs w-[60px] shrink-0 text-center leading-tight border rounded py-1 ${labelColor}" title="${periodStart.format('YY.MM.DD')} ~ ${periodEnd.format('YY.MM.DD')}">${periodLabel}</div>
+            <div class="leave-grid-container flex-1 mx-2">
+    `;
 
-            gridDiv.appendChild(box);
+    let boxHTML = '';
+    for (let i = 0; i < totalBoxes; i++) {
+        const isUsed = i < usedCnt;
+        const boxIndex = i + 1;
+
+        let boxType = 'regular';
+        let boxLabel = boxIndex;
+
+        if (i < carriedCnt) {
+            boxType = 'carried'; boxLabel = `이${boxIndex}`;
+        } else if (i < finalLeaves) {
+            boxType = 'regular';
+        } else {
+            boxType = 'borrowed'; boxLabel = `-${boxIndex - finalLeaves}`;
         }
 
-        section.appendChild(gridDiv);
-        container.appendChild(section);
-    });
+        let boxClass = `leave-box type-${boxType}`;
+        let dataAttrs = '';
+        let displayText = boxLabel;
 
-    document.getElementById('employee-leave-history-modal').classList.remove('hidden');
-};
+        if (isUsed) {
+            boxClass += ' used';
+            const usedDateObj = usedDatesArr[i];
+            if (usedDateObj) {
+                const dateVal = usedDateObj.date || usedDateObj;
+                const type = usedDateObj.type || 'formal';
+                displayText = dayjs(dateVal).format('M.D');
+                if (type === 'manual') boxClass += ' manual-entry';
+                dataAttrs = `title="${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal} ${usedDateObj.reason || ''}"`;
+            }
+        } else {
+            dataAttrs = `title="${boxType === 'carried' ? '이월 연차' : '금년 연차'} (미사용)"`;
+        }
+
+        boxHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
+    }
+
+    gridHTML += boxHTML + `
+            </div>
+            <button onclick="window.changeMyLeavePeriod(1)" class="p-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="다음 주기">
+                ▶
+            </button>
+        </div>
+        <div class="flex flex-wrap gap-3 mt-2 text-xs text-gray-500 justify-end">
+            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월 연차</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 border border-blue-400 rounded"></span>금년 연차</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>올해 당겨쓰기</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-white border border-gray-200 rounded relative"><span class="w-1.5 h-1.5 bg-yellow-500 rounded-full absolute top-[1px] right-[1px]"></span></span>수동 차감건</span>
+        </div>
+    `;
+
+    container.innerHTML = gridHTML;
+}
+
