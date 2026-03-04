@@ -1680,7 +1680,7 @@ export function getLeaveStatusHTML() {
             .leave-box:hover {
                 transform: translateY(-1px);
                 box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        </style>
+            }
             
             /* 이월 연차 스타일 (보라) */
             .leave-box.type-carried {
@@ -1728,7 +1728,7 @@ export function getLeaveStatusHTML() {
                 border-radius: 50%;
                 background-color: #eab308; /* yellow-500 */
             }
-        </style >
+        </style>
     <div class="leave-status-container">
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-2xl font-bold">연차 현황</h2>
