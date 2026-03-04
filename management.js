@@ -1858,7 +1858,11 @@ function getLeaveStatusRow(emp) {
 
     return `
         <tr class="leave-status-row border-b hover:bg-gray-50" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
-            <td class="p-2 text-center font-semibold">${emp.name}</td>
+            <td class="p-2 text-center font-semibold">
+                <button type="button" class="text-blue-600 hover:text-blue-800 underline focus:outline-none" onclick="window.openLeaveHistoryModal(${emp.id})">
+                    ${emp.name}
+                </button>
+            </td>
             <td class="p-2 text-center text-gray-600">${deptName}</td>
             <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
             <td class="p-2 text-center font-bold">${emp.leaveDetails.final}</td>
@@ -2392,4 +2396,68 @@ window.handleSaveRegularHoliday = async function (employeeId) {
         console.error('정기 휴무 저장 실패:', error);
         alert(`저장 실패: ${error.message}\n(Tip: employees 테이블에 regular_holiday_rules jsonb 컬럼이 있는지 확인하세요)`);
     }
+};
+
+// -----------------------------------------------------------------------------------------
+// 직원별 연차 사용 내역 상세 모달 (추가)
+// -----------------------------------------------------------------------------------------
+window.openLeaveHistoryModal = function (employeeId) {
+    const emp = window.employees.find(e => e.id === employeeId);
+    if (!emp) return;
+
+    // 모달 타이틀/기간 세팅
+    document.getElementById('history-modal-title').textContent = `${emp.name} 님의 연차 사용 상세 내역`;
+    const periodStart = emp.leaveDetails?.periodStart || '-';
+    const periodEnd = emp.leaveDetails?.periodEnd || '-';
+    document.getElementById('history-modal-period').textContent = `해당 주기: ${periodStart} ~ ${periodEnd}`;
+
+    const tbody = document.getElementById('leave-history-tbody');
+    tbody.innerHTML = ''; // 초기화
+
+    // 당겨쓰기를 포함한 올해 총 사용 내역 집합 (미사용 빈 배열 고려)
+    const usedDates = emp.usedDates || [];
+
+    if (usedDates.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">이 기간에 사용한 연차 내역이 없습니다.</td></tr>`;
+    } else {
+        usedDates.forEach(dateObj => {
+            const dateVal = dateObj.date || dateObj;
+            let typeText = '일반 연차';
+            let reasonText = '';
+
+            // 날짜 객체가 단순 문자열이 아니라면 부가 정보(type, reason 등) 추출
+            if (typeof dateObj === 'object') {
+                if (dateObj.type === 'manual') typeText = '수동 등록분';
+                else if (dateObj.type === 'morning_half') typeText = '오전 반차';
+                else if (dateObj.type === 'afternoon_half') typeText = '오후 반차';
+
+                if (dateObj.isBorrowedFromPast) typeText = '당겨쓰기 (작년 선차감분)';
+
+                // 원본 데이터를 참조하여 사유를 가져올 수 있다면
+                reasonText = dateObj.reason || '';
+
+                // DB 원본 레코드를 찾아 사유를 매핑 시도
+                if (dateObj.requestId) {
+                    const req = window.leaveRequests.find(r => r.id === dateObj.requestId);
+                    if (req && req.reason) {
+                        reasonText = req.reason;
+                    }
+                }
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = 'border-b hover:bg-gray-50';
+            tr.innerHTML = `
+                <td class="p-3 text-center font-medium">${dateVal}</td>
+                <td class="p-3 text-center">
+                    <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${typeText}</span>
+                </td>
+                <td class="p-3 text-left text-gray-600 text-sm whitespace-pre-wrap">${reasonText}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 모달 표시
+    document.getElementById('leave-history-modal').classList.remove('hidden');
 };

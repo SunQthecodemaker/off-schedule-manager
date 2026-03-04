@@ -82,7 +82,10 @@ export async function renderEmployeePortal() {
                 </div>
                 <div class="bg-green-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">사용 연차</p>
-                    <p class="text-xl sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
+                    <p class="text-xl sm:text-2xl font-bold mb-1" id="used-leaves">계산 중...</p>
+                    <button type="button" class="text-xs text-blue-600 hover:text-blue-800 underline focus:outline-none" onclick="window.openMyLeaveHistoryModal()">
+                        🔍 상세 보기
+                    </button>
                 </div>
                 <div class="bg-yellow-100 p-2 sm:p-4 rounded shadow flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm text-gray-700 whitespace-nowrap">잔여 연차</p>
@@ -552,17 +555,63 @@ async function loadEmployeeData() {
 
         const approved = requests.filter(r => r.status === 'approved');
 
-        // 기간에 맞는 사용량만 계산
-        const usedDays = approved.reduce((sum, r) => {
-            const validDates = (r.dates || []).filter(dateStr => {
+        // --- 작년도 당겨쓰기(초과분) 추출 로직 ---
+        const lastYearStart = pStart.subtract(1, 'year');
+        const lastYearEnd = pEnd.subtract(1, 'year');
+        const lastYearDetails = getLeaveDetails({ ...state.currentUser, carried_over_leave: 0 }, lastYearStart.add(1, 'day').toDate());
+
+        let lastYearDates = [];
+        approved.forEach(req => {
+            (req.dates || []).forEach(dateStr => {
                 const d = dayjs(dateStr);
-                return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
+                if (d.isSameOrAfter(lastYearStart, 'day') && d.isSameOrBefore(lastYearEnd, 'day')) {
+                    lastYearDates.push({
+                        date: dateStr,
+                        type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
+                        requestId: req.id,
+                        reason: req.reason || '',
+                        isBorrowedFromPast: true
+                    });
+                }
             });
-            return sum + validDates.length;
-        }, 0);
+        });
+
+        lastYearDates.sort((a, b) => new Date(a.date) - new Date(b.date));
+        let borrowedPastDates = [];
+        if (lastYearDates.length > lastYearDetails.final) {
+            borrowedPastDates = lastYearDates.slice(lastYearDetails.final);
+        }
+
+        // --- 금년 정상 사용분 추출 ---
+        let currentDates = approved.flatMap(req => {
+            return (req.dates || [])
+                .filter(dateStr => {
+                    const d = dayjs(dateStr);
+                    return d.isSameOrAfter(pStart, 'day') && d.isSameOrBefore(pEnd, 'day');
+                })
+                .map(dateStr => ({
+                    date: dateStr,
+                    type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
+                    requestId: req.id,
+                    reason: req.reason || ''
+                }));
+        });
+        currentDates.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        // 전체 사용 배열 조립 및 저장
+        const usedDates = [...borrowedPastDates, ...currentDates];
+        state.currentUser.usedDates = usedDates;
+
+        const usedDays = usedDates.length;
+
+        // 수동 마이너스 이월값 방어 후 잔여 산출
+        let actualCarriedOverCnt = leaveDetails.carriedOverCnt;
+        if (actualCarriedOverCnt < 0) actualCarriedOverCnt = 0;
+        const finalSansManual = leaveDetails.final - leaveDetails.carriedOverCnt;
+        const newFinalLeaves = finalSansManual + actualCarriedOverCnt;
 
         _('#used-leaves').textContent = `${usedDays}일`;
-        _('#remaining-leaves').textContent = `${leaveDetails.final - usedDays}일`;
+        _('#remaining-leaves').textContent = `${newFinalLeaves - usedDays}일`;
 
         renderMyLeaveRequests(requests);
         initializeEmployeeCalendar(approved);
@@ -1306,3 +1355,59 @@ async function handleDocumentSubmit() {
         }
     }
 }
+
+// =========================================================================================
+// [직원 전용] 연차 현황 상세 모달
+// =========================================================================================
+window.openMyLeaveHistoryModal = function () {
+    const user = state.currentUser;
+    if (!user) return;
+
+    const leaveDetails = getLeaveDetails(user);
+
+    // 모달 타이틀/기간 세팅
+    document.getElementById('emp-history-modal-title').textContent = `${user.name} 님의 연차 사용 상세 내역`;
+    const periodStart = leaveDetails.periodStart || '-';
+    const periodEnd = leaveDetails.periodEnd || '-';
+    document.getElementById('emp-history-modal-period').textContent = `해당 주기: ${periodStart} ~ ${periodEnd}`;
+
+    const tbody = document.getElementById('emp-leave-history-tbody');
+    tbody.innerHTML = ''; // 초기화
+
+    // 당겨쓰기를 포함한 올해 총 사용 내역 집합
+    const usedDates = state.currentUser.usedDates || [];
+
+    if (usedDates.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">이 기간에 사용한 연차 내역이 없습니다.</td></tr>`;
+    } else {
+        usedDates.forEach(dateObj => {
+            const dateVal = dateObj.date || dateObj;
+            let typeText = '일반 연차';
+            let reasonText = '';
+
+            if (typeof dateObj === 'object') {
+                if (dateObj.type === 'manual') typeText = '수동 등록분';
+                else if (dateObj.type === 'morning_half') typeText = '오전 반차';
+                else if (dateObj.type === 'afternoon_half') typeText = '오후 반차';
+
+                if (dateObj.isBorrowedFromPast) typeText = '당겨쓰기 (작년 선차감분)';
+
+                reasonText = dateObj.reason || '';
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = 'border-b hover:bg-gray-50';
+            tr.innerHTML = `
+                <td class="p-3 text-center font-medium">${dateVal}</td>
+                <td class="p-3 text-center">
+                    <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${typeText}</span>
+                </td>
+                <td class="p-3 text-left text-gray-600 text-sm whitespace-pre-wrap">${reasonText}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 모달 표시
+    document.getElementById('employee-leave-history-modal').classList.remove('hidden');
+};
