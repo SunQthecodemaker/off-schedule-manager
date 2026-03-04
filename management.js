@@ -409,8 +409,8 @@ export function getManagementHTML() {
 
     // Filter employees
     const filteredEmployees = employees.filter(emp => {
-        // ✨ 임시직원(is_temp)은 관리 목록에서 제외
-        if (emp.is_temp) return false;
+        // ✨ 임시직원(is_temp 또는 temp- 이메일)은 관리 목록에서 제외
+        if (emp.is_temp || (emp.email && emp.email.startsWith('temp-'))) return false;
 
         if (filter === 'active') return !emp.resignation_date;
         if (filter === 'retired') return emp.resignation_date;
@@ -1197,7 +1197,9 @@ export function getLeaveManagementHTML() {
 
     const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
 
-    const rows = employees.map(emp => {
+    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+
+    const rows = validEmployees.map(emp => {
         const leaveData = getLeaveDetails(emp);
 
         // 중요: 현재 연차 주기에 해당하는 승인된 연차만 합산
@@ -1566,8 +1568,11 @@ export function getLeaveStatusHTML() {
     window.periodOffsets = window.periodOffsets || {};
     const { employees, leaveRequests } = state.management;
 
+    // 임시 직원 필터링
+    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+
     // 각 직원의 연차 데이터 수집
-    const employeeLeaveData = employees.map(emp => {
+    const employeeLeaveData = validEmployees.map(emp => {
         const offset = window.periodOffsets[emp.id] || 0;
 
         // 현재 주기(offset=0) 기준 계산
@@ -1673,7 +1678,7 @@ export function getLeaveStatusHTML() {
     });
 
     // 부서별 필터링을 위한 부서 목록
-    const departments = [...new Set(employees.map(e => e.dept || e.departments?.name).filter(Boolean))];
+    const departments = [...new Set(validEmployees.map(e => e.dept || e.departments?.name).filter(Boolean))];
 
     return `
         <style>

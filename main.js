@@ -136,8 +136,12 @@ function renderManagementTabs() {
 
 function renderAdminSummary() {
     const { employees, leaveRequests } = state.management;
+
+    // 임시 직원 필터링 (알바 등)
+    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+
     let total = 0, used = 0, pending = 0;
-    employees.forEach(emp => { total += getLeaveDetails(emp).final; });
+    validEmployees.forEach(emp => { total += getLeaveDetails(emp).final; });
     leaveRequests.forEach(req => {
         if (req.status === 'approved') used += (req.dates?.length || 0);
         else if (req.status === 'pending') pending++;
@@ -147,7 +151,7 @@ function renderAdminSummary() {
         <div class="bg-green-100 p-4 rounded"><p>전체 사용 연차</p><p class="text-xl font-bold">${used}일</p></div>
         <div class="bg-red-100 p-4 rounded"><p>전체 잔여 연차</p><p class="text-xl font-bold">${total - used}일</p></div>
         <div class="bg-yellow-100 p-4 rounded"><p>승인 대기</p><p class="text-xl font-bold">${pending}건</p></div>
-        <div class="bg-indigo-100 p-4 rounded"><p>이 직원 수</p><p class="text-xl font-bold">${employees.length}명</p></div>
+        <div class="bg-indigo-100 p-4 rounded"><p>이 직원 수</p><p class="text-xl font-bold">${validEmployees.length}명</p></div>
     `;
 }
 
