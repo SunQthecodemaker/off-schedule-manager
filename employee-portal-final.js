@@ -561,7 +561,7 @@ async function loadEmployeeData() {
 
         // 타겟 주기 계산 (offset !== 0 인 과거/미래 주기는 수동 이월분을 미반영하여 순수 발생량만 계측)
         const targetUser = { ...state.currentUser, carried_over_leave: offset === 0 ? state.currentUser.carried_over_leave : 0 };
-        const leaveDetails = getLeaveDetails(targetUser, simDate);
+        const leaveDetails = (offset === 0) ? baseCurrentDetails : getLeaveDetails(targetUser, simDate);
         const pStart = dayjs(leaveDetails.periodStart);
         const pEnd = dayjs(leaveDetails.periodEnd);
 
