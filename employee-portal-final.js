@@ -1386,7 +1386,7 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
 
     const totalBoxes = Math.max(finalLeaves, usedCnt);
     const isCurrentPeriod = offset === 0;
-    const periodLabel = `${periodStart.format('YY.MM.DD')}<br>~<br>${periodEnd.format('YY.MM.DD')}`;
+    const periodLabel = `${periodStart.format('YY.MM.DD')} ~`;
     const labelColor = isCurrentPeriod ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-blue-100 text-blue-700 font-bold border-blue-200';
 
     let gridHTML = `
@@ -1415,11 +1415,11 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
             }
             .leave-box:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
         </style>
-        <div class="flex items-start gap-1">
-            <button onclick="window.changeMyLeavePeriod(-1)" class="mt-2 p-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
+        <div class="flex items-center gap-1">
+            <button onclick="window.changeMyLeavePeriod(-1)" class="p-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
                 ◀
             </button>
-            <div class="text-[10px] w-16 shrink-0 text-center leading-tight border rounded py-1 mt-1 ${labelColor}" title="해당 주기 기준일">${periodLabel}</div>
+            <div class="text-[10px] w-auto px-1 shrink-0 text-center border rounded py-1 whitespace-nowrap ${labelColor}" title="해당 주기 기준일">${periodLabel}</div>
             <div class="leave-grid-container flex-1 mx-2">
     `;
 
