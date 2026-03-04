@@ -1679,10 +1679,8 @@ export function getLeaveStatusHTML() {
         <style>
             .leave-grid-container {
                 display: flex;
-                flex-wrap: nowrap; /* 줄바꿈 방지 */
+                flex-wrap: wrap;
                 gap: 4px;
-                overflow-x: auto; /* 내용이 넘치면 스크롤 */
-                padding-bottom: 4px; /* 스크롤바 공간 확보 */
             }
             .leave-box {
                 flex: 0 0 42px; /* 크기 고정 */
@@ -1824,16 +1822,16 @@ function getLeaveStatusRow(emp) {
     const totalBoxes = Math.max(finalLeaves, usedCnt);
 
     const isCurrentPeriod = emp.periodOffset === 0;
-    const periodLabel = isCurrentPeriod ? '현재 주기' : `${emp.periodStart.format('YYYY')}년 주기`;
-    const labelColor = isCurrentPeriod ? 'text-gray-500' : 'text-blue-600 font-bold';
+    const periodLabel = `${emp.periodStart.format('YY.MM.DD')}<br>~<br>${emp.periodEnd.format('YY.MM.DD')}`;
+    const labelColor = isCurrentPeriod ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-blue-100 text-blue-700 font-bold border-blue-200';
 
     let gridHTML = `
-        <div class="flex items-center gap-1">
-            <button onclick="window.changeLeavePeriod('${emp.id}', -1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+        <div class="flex items-start gap-1">
+            <button onclick="window.changeLeavePeriod('${emp.id}', -1)" class="mt-2 p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
+                ◀
             </button>
-            <div class="text-[10px] w-14 text-center leading-tight ${labelColor} truncate" title="${emp.periodStart.format('YY.MM.DD')} ~ ${emp.periodEnd.format('YY.MM.DD')}">${periodLabel}</div>
-            <div class="leave-grid-container flex-1 ml-1" style="max-width: 500px;">
+            <div class="text-[10px] w-16 shrink-0 text-center leading-tight border rounded p-1 mt-1 ${labelColor}" title="해당 주기 기준일">${periodLabel}</div>
+            <div class="leave-grid-container flex-1 mx-1">
     `;
 
     for (let i = 0; i < totalBoxes; i++) {
