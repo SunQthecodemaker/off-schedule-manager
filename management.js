@@ -2405,59 +2405,115 @@ window.openLeaveHistoryModal = function (employeeId) {
     const emp = state.management.employees.find(e => e.id === employeeId);
     if (!emp) return;
 
-    // 모달 타이틀/기간 세팅
-    document.getElementById('history-modal-title').textContent = `${emp.name} 님의 연차 사용 상세 내역`;
-    const periodStart = emp.leaveDetails?.periodStart || '-';
-    const periodEnd = emp.leaveDetails?.periodEnd || '-';
-    document.getElementById('history-modal-period').textContent = `해당 주기: ${periodStart} ~ ${periodEnd}`;
+    // 모달 타이틀 세팅
+    document.getElementById('history-modal-title').textContent = `${emp.name} 님의 최근 3년 연차 내역`;
+    document.getElementById('history-modal-period').textContent = `(기준일: ${emp.leave_renewal_date || emp.entryDate})`;
 
-    const tbody = document.getElementById('leave-history-tbody');
-    tbody.innerHTML = ''; // 초기화
+    const container = document.getElementById('leave-history-box-container');
+    container.innerHTML = ''; // 초기화
 
-    // 당겨쓰기를 포함한 올해 총 사용 내역 집합 (미사용 빈 배열 고려)
-    const usedDates = emp.usedDates || [];
+    // 기준 주기 계산 (getLeaveDetails 활용)
+    const currentDetails = getLeaveDetails(emp);
+    const pStart = dayjs(currentDetails.periodStart);
+    const pEnd = dayjs(currentDetails.periodEnd);
 
-    if (usedDates.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">이 기간에 사용한 연차 내역이 없습니다.</td></tr>`;
-    } else {
-        usedDates.forEach(dateObj => {
-            const dateVal = dateObj.date || dateObj;
-            let typeText = '일반 연차';
-            let reasonText = '';
+    // 3개년 주기 배열 생성
+    const periods = [
+        { label: '당해년도', start: pStart, end: pEnd },
+        { label: '작년도', start: pStart.subtract(1, 'year'), end: pEnd.subtract(1, 'year') },
+        { label: '재작년도', start: pStart.subtract(2, 'year'), end: pEnd.subtract(2, 'year') }
+    ];
 
-            // 날짜 객체가 단순 문자열이 아니라면 부가 정보(type, reason 등) 추출
-            if (typeof dateObj === 'object') {
-                if (dateObj.type === 'manual') typeText = '수동 등록분';
-                else if (dateObj.type === 'morning_half') typeText = '오전 반차';
-                else if (dateObj.type === 'afternoon_half') typeText = '오후 반차';
+    const requests = state.management.leaveRequests.filter(req => req.employee_id === emp.id && req.status === 'approved');
 
-                if (dateObj.isBorrowedFromPast) typeText = '당겨쓰기 (작년 선차감분)';
+    periods.forEach((period, index) => {
+        // 해당 주기 시작일 + 1일 시점 기준으로 부여될 연차 한도 계산 시뮬레이션
+        const simDate = period.start.add(1, 'day').toDate();
+        // 과거이월 분을 0으로 만들어 순수 해당 주기에 발생한 기본한도+조정 한도만 산출
+        const periodDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, simDate);
+        let periodLimit = periodDetails.final;
 
-                // 원본 데이터를 참조하여 사유를 가져올 수 있다면
-                reasonText = dateObj.reason || '';
-
-                // DB 원본 레코드를 찾아 사유를 매핑 시도
-                if (dateObj.requestId) {
-                    const req = window.leaveRequests.find(r => r.id === dateObj.requestId);
-                    if (req && req.reason) {
-                        reasonText = req.reason;
-                    }
+        // 해당 주기에 사용된 연차 추출 (모든 날짜 평탄화 후 필터링)
+        let usedDates = [];
+        requests.forEach(req => {
+            (req.dates || []).forEach(dateStr => {
+                const d = dayjs(dateStr);
+                // 주기에 포함되는지 확인 (start >= && <= end)
+                if (d.isSameOrAfter(period.start, 'day') && d.isSameOrBefore(period.end, 'day')) {
+                    usedDates.push({
+                        date: dateStr,
+                        type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
+                        reason: req.reason || ''
+                    });
                 }
+            });
+        });
+
+        // 시간순 정렬
+        usedDates.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        // UI 생성
+        const section = document.createElement('div');
+        section.className = 'bg-white p-4 rounded shadow-sm border border-gray-200';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'flex justify-between items-center mb-3 mb-2 border-b pb-2';
+        headerDiv.innerHTML = `
+            <h3 class="font-bold text-gray-800">${period.label} <span class="text-xs text-gray-500 font-normal ml-2">(${period.start.format('YY.MM.DD')} ~ ${period.end.format('YY.MM.DD')})</span></h3>
+            <span class="text-sm font-semibold ${index === 0 ? 'text-blue-600' : 'text-gray-600'}">총 ${periodLimit}일 중 ${usedDates.length}일 사용</span>
+        `;
+        section.appendChild(headerDiv);
+
+        const gridDiv = document.createElement('div');
+        gridDiv.className = 'grid grid-cols-5 gap-2 sm:grid-cols-8 md:grid-cols-10';
+
+        // 해당 주기 발생 연차 한도만큼 박스 생성 (초과 사용했다면 그만큼 더 생성)
+        const totalBoxCount = Math.max(periodLimit, usedDates.length);
+
+        for (let i = 0; i < totalBoxCount; i++) {
+            const box = document.createElement('div');
+            box.className = 'flex flex-col items-center justify-center p-2 rounded border text-center h-16 relative group';
+
+            const usage = usedDates[i];
+
+            if (usage) {
+                // 사용한 연차
+                const d = dayjs(usage.date);
+                let bgColor = 'bg-blue-50 border-blue-200';
+                let textColor = 'text-blue-700';
+                let label = '';
+
+                if (usage.type === 'manual') {
+                    bgColor = 'bg-purple-50 border-purple-200';
+                    textColor = 'text-purple-700';
+                    label = '<span class="text-[8px] bg-purple-100 px-1 rounded absolute top-1 right-1">수동</span>';
+                }
+
+                if (i >= periodLimit) {
+                    // 한도를 초과한 당겨쓰기 박스
+                    bgColor = 'bg-red-50 border-red-200';
+                    textColor = 'text-red-700';
+                    label = '<span class="text-[8px] bg-red-100 px-1 rounded absolute top-1 right-1">초과</span>';
+                }
+
+                box.className += ` ${bgColor}`;
+                box.innerHTML = `
+                    ${label}
+                    <span class="text-xs font-bold ${textColor}">${d.format('MM.DD')}</span>
+                    ${usage.reason ? `<div class="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 z-10 w-32 p-1 text-[10px] bg-gray-800 text-white rounded shadow-lg whitespace-normal leading-tight">${usage.reason}</div>` : ''}
+                `;
+            } else {
+                // 미사용 연차 (숫자만 흐리게 표시)
+                box.className += ' bg-gray-50 border-gray-200 border-dashed';
+                box.innerHTML = `<span class="text-lg font-bold text-gray-300">${i + 1}</span>`;
             }
 
-            const tr = document.createElement('tr');
-            tr.className = 'border-b hover:bg-gray-50';
-            tr.innerHTML = `
-                <td class="p-3 text-center font-medium">${dateVal}</td>
-                <td class="p-3 text-center">
-                    <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${typeText}</span>
-                </td>
-                <td class="p-3 text-left text-gray-600 text-sm whitespace-pre-wrap">${reasonText}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-    }
+            gridDiv.appendChild(box);
+        }
 
-    // 모달 표시
+        section.appendChild(gridDiv);
+        container.appendChild(section);
+    });
+
     document.getElementById('leave-history-modal').classList.remove('hidden');
 };

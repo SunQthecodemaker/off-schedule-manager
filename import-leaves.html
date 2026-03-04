@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>과거 엑셀 연차 이력 일괄 등록기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex text-gray-800">
+
+    <div class="max-w-4xl mx-auto mt-10 p-6 bg-white rounded shadow-lg w-full">
+        <h1 class="text-3xl font-bold mb-4">엑셀 과거 연차 데이터 마이그레이션 모듈</h1>
+        <p class="text-sm text-gray-600 mb-6">
+            관리자(원장님) 전용 1회성 스크립트 도구입니다.<br>
+            엑셀에서 복사한 데이터를 입력하고 <b>[파싱 및 검증]</b>을 누른 뒤, 이상이 없으면 <b>[DB 일괄 전송]</b>을 눌러주세요.
+        </p>
+
+        <!-- Supabase 설정 로드용 컨테이너 -->
+        <script type="module">
+            import { db } from './state.js';
+            window.db = db;
+        </script>
+
+        <div class="mb-4">
+            <label class="block text-sm font-semibold mb-2">1. 엑셀 데이터 붙여넣기 (Tsv 형태)</label>
+            <p class="text-xs text-gray-500 mb-2">
+                규칙: 각 줄은 직원에 해당합니다. 이름과 파싱할 날짜 문자열 정보가 탭(Tab)으로 구분되어 들어와야 합니다.<br>
+                예: <br>
+                홍길동 25.01.01 01.15 02.20 반차<br>
+                아무개 05.11 06.30<br>
+                <span class="text-red-500">* 참고: 본 스크립트는 2025년도를 기준으로 작동하게 설계되었습니다.</span>
+            </p>
+            <textarea id="excelInput" class="w-full h-40 border rounded p-2 text-sm"
+                placeholder="여기에 엑셀 데이터를 붙여넣으세요..."></textarea>
+        </div>
+
+        <div class="flex gap-2 mb-6">
+            <button id="parseBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold">파싱 및
+                검증하기</button>
+            <button id="uploadBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold hidden">DB
+                일괄 전송 (등록)</button>
+        </div>
+
+        <div>
+            <h2 class="text-lg font-bold mb-2">파싱결과 미리보기</h2>
+            <div id="previewArea"
+                class="bg-gray-50 p-4 border rounded max-h-[400px] overflow-y-auto text-sm whitespace-pre-wrap">결과가 여기에
+                표시됩니다.</div>
+        </div>
+    </div>
+
+    <script>
+        let parsedPayloads = [];
+
+        document.getElementById('parseBtn').addEventListener('click', async () => {
+            const text = document.getElementById('excelInput').value.trim();
+            const preview = document.getElementById('previewArea');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            if (!text) {
+                alert('입력된 데이터가 없습니다.');
+                return;
+            }
+
+            if (!window.db) {
+                preview.innerHTML = '<span class="text-red-500">DB 연결 정보를 아직 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</span>';
+                return;
+            }
+
+            preview.innerHTML = 'DB에서 직원 목록을 조회하며 파싱 중입니다...';
+            uploadBtn.classList.add('hidden');
+            parsedPayloads = [];
+
+            try {
+                // DB에서 실제 직원 매피을 위해 직원 목록 전부 가져오기
+                const { data: dbEmployees, error: empError } = await window.db.from('employees').select('id, name');
+                if (empError) throw empError;
+
+                const lines = text.split('\n');
+                let logHtml = '';
+                let skipCount = 0;
+                let successCount = 0;
+                let totalDatesCount = 0;
+
+                for (let line of lines) {
+                    line = line.trim();
+                    if (!line) continue;
+
+                    // 탭 문자로 분리 (엑셀 셀 복사 기반)
+                    const cells = line.split('\t').map(c => c.trim()).filter(c => c);
+                    if (cells.length < 2) {
+                        logHtml += `<div class="text-gray-400">건너뜀 (파싱불가 형태): ${line}</div>`;
+                        skipCount++;
+                        continue;
+                    }
+
+                    // 첫 번째 열은 이름이라고 가정
+                    const empNameRaw = cells[0];
+                    const empName = empNameRaw.replace(/\s+/g, ''); // 띄어쓰기 제거
+
+                    const empInfo = dbEmployees.find(e => e.name === empName);
+                    if (!empInfo) {
+                        logHtml += `<div class="text-red-600">오류: DB에 '${empName}' 이름의 직원이 없습니다.</div>`;
+                        skipCount++;
+                        continue;
+                    }
+
+                    const empDates = [];
+                    // 두 번째 열부터 순회하며 날짜 추출
+                    for (let i = 1; i < cells.length; i++) {
+                        const cellVal = cells[i];
+
+                        // 셀 내부에 여러 날짜가 콤마나 띄어쓰기로 있을 수 있으므로 정규식으로 '월.일' '월/일' '월-일' 형태 추출
+                        // 예: 25.01.15 또는 1.15 등 단순 매칭 추출
+                        const dateMatches = cellVal.match(/\d{1,2}\s*[./-]\s*\d{1,2}/g);
+
+                        if (dateMatches) {
+                            for (let match of dateMatches) {
+                                // 클리닝 (25.12.31 형태로 년도가 앞에 있을 때를 위한 제거 처리)
+                                // 이 로직은 단순화를 위해 M.D 형태로 강제 매칭함
+                                let cleanMatch = match.replace(/\s+/g, '');
+
+                                // 기본은 25년 (과거 데이터)
+                                let year = '2025';
+                                let [month, day] = cleanMatch.split(/[./-]/);
+
+                                // 0으로 패딩
+                                month = month.padStart(2, '0');
+                                day = day.padStart(2, '0');
+
+                                const finalDateStr = `${year}-${month}-${day}`;
+                                if (dayjs(finalDateStr).isValid()) {
+                                    empDates.push({ date: finalDateStr, original: cellVal });
+                                }
+                            }
+                        }
+                    }
+
+                    if (empDates.length > 0) {
+                        successCount++;
+                        totalDatesCount += empDates.length;
+
+                        logHtml += `<div class="text-blue-800 font-bold mt-2">✔️ ${empName} (ID: ${empInfo.id}) - 총 ${empDates.length} 일 발견:</div>`;
+
+                        // DB Push용 Payload 생성 (한 사람당 1개 로우에 dates 배열 몰아넣기. 필요시 개별 처리도 가능하나 기존 모델에 따름)
+                        const payloadDates = empDates.map(d => d.date);
+                        const originalReasonStr = empDates.map(d => d.original).join(' | ');
+
+                        parsedPayloads.push({
+                            employee_id: empInfo.id,
+                            employee_name: empInfo.name,
+                            dates: payloadDates,
+                            status: 'approved',
+                            reason: `25년도 엑셀 이력 일괄 마이그레이션 (${originalReasonStr})`,
+                            created_at: new Date().toISOString()
+                        });
+
+                        let dateSpanHtml = empDates.map(d => `<span class="bg-blue-100 text-blue-800 px-1 rounded mx-1">${d.date}</span>`).join('');
+                        logHtml += `<div> ㄴ ${dateSpanHtml}</div>`;
+                    } else {
+                        logHtml += `<div class="text-orange-600">경고: '${empName}' 이름은 찾았으나 추출된 날짜가 없음 (원본: ${line})</div>`;
+                        skipCount++;
+                    }
+                }
+
+                preview.innerHTML = `<div class="p-2 bg-green-100 text-green-900 border border-green-300 rounded mb-4 font-bold">
+                파싱 완료! 대상 직원 ${successCount}명, 추출된 총 연차 수량 ${totalDatesCount}개 (건너뜀: ${skipCount}명)<br>
+                아래에 추출된 날짜를 확인하고 문제 없다면 [전송]을 눌러주세요. 중복 전송 방어는 없으니 한 번만 누르세요!
+            </div>` + logHtml;
+
+                if (successCount > 0) {
+                    uploadBtn.classList.remove('hidden');
+                }
+
+            } catch (err) {
+                console.error(err);
+                preview.innerHTML = `<div class="text-red-500 font-bold border border-red-500 p-2">오류 발생: ${err.message}</div>`;
+            }
+        });
+
+        document.getElementById('uploadBtn').addEventListener('click', async () => {
+            if (parsedPayloads.length === 0) return;
+            if (!confirm('정말 위의 데이터를 전부 DB로 꽂아 넣으시겠습니까?\n\n(이미 존재하는 기간의 데이터와 중복될 수 있습니다.)')) return;
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            uploadBtn.textContent = '전송 중...';
+            uploadBtn.disabled = true;
+
+            try {
+                // Bulk insert -> leave_requests TABLE
+                const { data, error } = await window.db.from('leave_requests').insert(parsedPayloads);
+                if (error) throw error;
+
+                alert('총 ' + parsedPayloads.length + '명의 데이터 묶음이 성공적으로 DB에 등록되었습니다!');
+                document.getElementById('previewArea').innerHTML = '<div class="text-2xl font-bold text-center p-10 text-green-600">전송 성공! 이제 창을 닫거나 메인 화면으로 돌아가세요.</div>';
+                uploadBtn.classList.add('hidden');
+            } catch (err) {
+                console.error('Insert error', err);
+                alert('DB 입력 중 오류 발생: ' + err.message);
+                uploadBtn.textContent = 'DB 일괄 전송 (등록)';
+                uploadBtn.disabled = false;
+            }
+        });
+
+    </script>
+
+</body>
+
+</html>

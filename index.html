@@ -285,19 +285,10 @@
                 <button id="close-history-modal-btn"
                     class="text-3xl hover:text-red-500 transition-colors">&times;</button>
             </div>
-            <div class="overflow-y-auto max-h-[60vh] border rounded">
-                <table class="w-full table-auto">
-                    <thead class="bg-gray-50 sticky top-0">
-                        <tr>
-                            <th class="p-3 text-center border-b font-semibold text-gray-600">사용 일자</th>
-                            <th class="p-3 text-center border-b font-semibold text-gray-600">등록/구분</th>
-                            <th class="p-3 text-left border-b font-semibold text-gray-600">사유 및 메모</th>
-                        </tr>
-                    </thead>
-                    <tbody id="leave-history-tbody">
-                        <!-- JS에서 렌더링 -->
-                    </tbody>
-                </table>
+            <div class="overflow-y-auto max-h-[60vh] border rounded p-4 bg-gray-50">
+                <div id="leave-history-box-container" class="space-y-6">
+                    <!-- JS에서 3단 박스 렌더링 -->
+                </div>
             </div>
             <div class="flex justify-end pt-4 mt-4 border-t">
                 <button type="button" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold"
@@ -317,19 +308,10 @@
                 <button id="close-emp-history-modal-btn" class="text-3xl hover:text-red-500 transition-colors"
                     onclick="document.getElementById('employee-leave-history-modal').classList.add('hidden')">&times;</button>
             </div>
-            <div class="overflow-y-auto max-h-[60vh] border rounded">
-                <table class="w-full table-auto">
-                    <thead class="bg-gray-50 sticky top-0">
-                        <tr>
-                            <th class="p-3 text-center border-b font-semibold text-gray-600">사용 일자</th>
-                            <th class="p-3 text-center border-b font-semibold text-gray-600">등록/구분</th>
-                            <th class="p-3 text-left border-b font-semibold text-gray-600">사유 및 메모</th>
-                        </tr>
-                    </thead>
-                    <tbody id="emp-leave-history-tbody">
-                        <!-- JS에서 렌더링 -->
-                    </tbody>
-                </table>
+            <div class="overflow-y-auto max-h-[60vh] border rounded p-4 bg-gray-50">
+                <div id="emp-leave-history-box-container" class="space-y-6">
+                    <!-- JS에서 3단 박스 렌더링 -->
+                </div>
             </div>
             <div class="flex justify-end pt-4 mt-4 border-t">
                 <button type="button" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold"
