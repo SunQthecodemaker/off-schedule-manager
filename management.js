@@ -1,6 +1,6 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails } from './leave-utils.js';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1306,8 +1306,7 @@ window.openSettlementModal = function (empId) {
         .filter(r => r.employee_id === emp.id && r.status === 'approved')
         .reduce((sum, r) => {
             const validDates = (r.dates || []).filter(dateStr => {
-                const d = dayjs(dateStr);
-                return d.isSameOrAfter(pStart) && d.isSameOrBefore(pEnd);
+                return isLeaveInPeriod(r, dateStr, pStart, pEnd);
             });
             return sum + validDates.length;
         }, 0);
@@ -1330,8 +1329,7 @@ window.openSettlementModal = function (empId) {
         .filter(r => r.employee_id === emp.id && r.status === 'approved')
         .reduce((sum, r) => {
             const validDates = (r.dates || []).filter(dateStr => {
-                const d = dayjs(dateStr);
-                return d.isSameOrAfter(prevPStart) && d.isSameOrBefore(prevPEnd);
+                return isLeaveInPeriod(r, dateStr, prevPStart, prevPEnd);
             });
             return sum + validDates.length;
         }, 0);
@@ -1602,8 +1600,7 @@ export function getLeaveStatusHTML() {
         let lastYearDates = [];
         lastYearRequests.forEach(req => {
             (req.dates || []).forEach(dateStr => {
-                const d = dayjs(dateStr);
-                if ((d.isSame(lastYearStart, 'day') || d.isAfter(lastYearStart, 'day')) && (d.isSame(lastYearEnd, 'day') || d.isBefore(lastYearEnd, 'day'))) {
+                if (isLeaveInPeriod(req, dateStr, lastYearStart, lastYearEnd)) {
                     lastYearDates.push({
                         date: dateStr,
                         type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
@@ -1631,10 +1628,7 @@ export function getLeaveStatusHTML() {
         let currentDates = usedRequests
             .flatMap(req => {
                 return (req.dates || [])
-                    .filter(dateStr => {
-                        const d = dayjs(dateStr);
-                        return (d.isSame(pStart, 'day') || d.isAfter(pStart, 'day')) && (d.isSame(pEnd, 'day') || d.isBefore(pEnd, 'day'));
-                    })
+                    .filter(dateStr => isLeaveInPeriod(req, dateStr, pStart, pEnd))
                     .map(date => ({
                         date: date,
                         type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
@@ -1901,7 +1895,7 @@ function getLeaveStatusRow(emp) {
     `;
 
     return `
-        <tr class="leave-status-row border-b hover:bg-gray-50 transition-colors" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}">
+        <tr class="leave-status-row border-b hover:bg-gray-50 transition-colors" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}" data-period-start="${emp.periodStart.format ? emp.periodStart.format('YYYY-MM-DD') : emp.periodStart}">
             <td class="p-2 text-center font-semibold">
                 ${emp.name}
             </td>
@@ -2160,7 +2154,7 @@ export async function cancelManualLeave(employeeId, date) {
     }
 }
 // ✨ 수동 연차 등록 로직 (우클릭 메뉴용)
-export async function registerManualLeave(employeeId, employeeName = null, defaultDate = null) {
+export async function registerManualLeave(employeeId, employeeName = null, defaultDate = null, targetPeriodStart = null) {
     if (!employeeId) {
         alert('직원 정보를 찾을 수 없습니다.');
         return;
@@ -2205,11 +2199,16 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
             }
 
             // 새 연차 요청 생성
+            let finalReason = '관리자 수동 등록';
+            if (targetPeriodStart) {
+                finalReason += ` [TARGET_PERIOD: ${targetPeriodStart}]`;
+            }
+
             const newRequest = {
                 employee_id: empIdInt,
                 employee_name: name,
                 dates: [dateStr],
-                reason: '관리자 수동 등록',
+                reason: finalReason,
                 status: 'approved',
                 final_manager_id: state.currentUser.id,
                 final_manager_status: 'approved',
@@ -2285,6 +2284,7 @@ async function handleLeaveBoxDblClick(e) {
 
     // dataset.employeeId 사용 (getLeaveStatusRow에서 추가한 속성)
     let employeeId = tr.dataset.employeeId;
+    let periodStart = tr.dataset.periodStart;
 
     // 만약 data-employee-id가 없다면 (기존 렌더링 된 요소일 경우) 이름으로 찾기 fallback
     if (!employeeId) {
@@ -2305,7 +2305,7 @@ async function handleLeaveBoxDblClick(e) {
     if (!employee) return;
 
     // Reused function call
-    await registerManualLeave(employee.id, employee.name);
+    await registerManualLeave(employee.id, employee.name, null, periodStart);
 }
 
 

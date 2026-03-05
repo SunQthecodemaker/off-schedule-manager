@@ -140,3 +140,31 @@ export function getLeaveDetails(employee, referenceDate = null) {
         periodEnd: periodEnd.format('YYYY-MM-DD')
     };
 }
+
+// =========================================================================================
+// 연차 소속 주기 판별 유틸리티 (수동 강제 배정 대응)
+// =========================================================================================
+export function isLeaveInPeriod(request, dateStr, periodStart, periodEnd) {
+    const pStartDayjs = dayjs(periodStart);
+    const pEndDayjs = dayjs(periodEnd);
+    const dateDayjs = dayjs(dateStr);
+
+    // 1. Reason 필드에서 강제 귀속 태그 확인
+    const reason = request.reason || '';
+    const match = reason.match(/\[TARGET_PERIOD:\s*([^\]]+)\]/);
+    if (match) {
+        // 태그에 명시된 기준일과 현재 보고 있는 기수(periodStart)가 일치하는지 확인
+        const targetStartStr = match[1].trim();
+        const targetStartDayjs = dayjs(targetStartStr);
+        if (targetStartDayjs.isSame(pStartDayjs, 'day')) {
+            return true;
+        } else {
+            // 다른 주기에 강제 배정된 연차라면, 현재 주기에는 속하지 않음
+            return false;
+        }
+    }
+
+    // 2. 태그가 없으면 원래 사용 날짜가 해당 주기에 포함되는지 확인
+    return (dateDayjs.isSame(pStartDayjs, 'day') || dateDayjs.isAfter(pStartDayjs, 'day')) &&
+        (dateDayjs.isSame(pEndDayjs, 'day') || dateDayjs.isBefore(pEndDayjs, 'day'));
+}

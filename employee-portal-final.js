@@ -1,6 +1,6 @@
 import { state, db } from './state.js';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails } from './leave-utils.js';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { renderScheduleManagement } from './schedule.js';
 import { getLeaveListHTML } from './management.js';
 
@@ -575,8 +575,7 @@ async function loadEmployeeData() {
         let lastYearDates = [];
         approved.forEach(req => {
             (req.dates || []).forEach(dateStr => {
-                const d = dayjs(dateStr);
-                if (d.isSameOrAfter(lastYearStart, 'day') && d.isSameOrBefore(lastYearEnd, 'day')) {
+                if (isLeaveInPeriod(req, dateStr, lastYearStart, lastYearEnd)) {
                     lastYearDates.push({
                         date: dateStr,
                         type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
@@ -597,10 +596,7 @@ async function loadEmployeeData() {
         // --- 금년 정상 사용분 추출 ---
         let currentDates = approved.flatMap(req => {
             return (req.dates || [])
-                .filter(dateStr => {
-                    const d = dayjs(dateStr);
-                    return d.isSameOrAfter(pStart, 'day') && d.isSameOrBefore(pEnd, 'day');
-                })
+                .filter(dateStr => isLeaveInPeriod(req, dateStr, pStart, pEnd))
                 .map(dateStr => ({
                     date: dateStr,
                     type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
