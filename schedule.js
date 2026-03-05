@@ -1056,6 +1056,20 @@ function getWorkingEmployeesOnDate(dateStr) {
     return workingEmps;
 }
 
+function getExcludedEmployeeIds() {
+    const excludedIds = new Set();
+    const savedLayout = state.schedule.teamLayout?.data?.[0];
+    if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
+        state.management.employees.forEach(emp => {
+            const isTemp = emp.is_temp || (emp.email && emp.email.startsWith('temp-'));
+            if (!isTemp && !savedLayout.members.includes(emp.id)) {
+                excludedIds.add(emp.id);
+            }
+        });
+    }
+    return excludedIds;
+}
+
 function getOffEmployeesOnDate(dateStr) {
     const offEmps = [];
 
@@ -1066,6 +1080,9 @@ function getOffEmployeesOnDate(dateStr) {
         // status 확인: 'approved' OR 'final_manager_status' === 'approved'
         // 수동 등록된 건도 'approved'로 간주
         if ((req.status === 'approved' || req.final_manager_status === 'approved') && req.dates?.includes(dateStr)) {
+            const excludedIds = getExcludedEmployeeIds();
+            if (excludedIds.has(req.employee_id)) return;
+
             const emp = state.management.employees.find(e => e.id === req.employee_id);
             if (emp) {
                 offEmps.push({ employee: emp, schedule: null, type: 'leave' });
@@ -1075,8 +1092,10 @@ function getOffEmployeesOnDate(dateStr) {
     });
 
     // ✅ 2. DB/State에 '휴무' 상태로 저장된 직원 (나머지 휴무자)
+    const excludedIds = getExcludedEmployeeIds();
     state.schedule.schedules.forEach(schedule => {
         if (schedule.date === dateStr && schedule.status === '휴무') {
+            if (excludedIds.has(schedule.employee_id)) return;
             const emp = state.management.employees.find(e => e.id === schedule.employee_id);
             if (emp) {
                 // 이미 연차로 등록된 직원은 중복 표시 방지
@@ -1249,8 +1268,12 @@ function renderCalendar() {
                     }
                 });
             }
+
+            const excludedIds = getExcludedEmployeeIds();
             state.schedule.schedules.forEach(schedule => {
                 if (schedule.date === dateStr && schedule.status === '근무' && schedule.grid_position != null) {
+                    if (excludedIds.has(schedule.employee_id)) return; // 🌟 제외 직원 필터링 작동
+
                     // ✅ 부서 필터가 있으면 필터링된 직원만 표시
                     if (state.schedule.activeDepartmentFilters.size > 0) {
                         if (!filteredEmployeeIds.has(schedule.employee_id) && schedule.employee_id > 0) {
