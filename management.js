@@ -1818,7 +1818,8 @@ function getLeaveStatusRow(emp) {
 
     // 그리드 총 칸 수 = Max(확정 연차, 실제 사용량)
     // 당겨쓰기를 표현하기 위해 사용량이 더 많으면 그만큼 더 그린다.
-    const totalBoxes = Math.max(finalLeaves, usedCnt);
+    // [당겨쓰기 UI 보완] 최소 1개의 빈 박스는 여유분으로 남겨둔다 (관리자 클릭 입력용).
+    const totalBoxes = Math.max(finalLeaves, usedCnt + 1);
 
     const isCurrentPeriod = emp.periodOffset === 0;
     const periodLabel = `${emp.periodStart.format('YY.MM.DD')} ~`;
@@ -1881,7 +1882,15 @@ function getLeaveStatusRow(emp) {
         }
         // 미사용 상태 (빈칸)
         else {
-            dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
+            if (boxType === 'borrowed') {
+                // 초과분 당겨쓰기 여유칸 (플러스 기호 또는 점선 스타일 적용)
+                boxClass += ' border-dashed border-2 cursor-pointer text-gray-400 font-bold';
+                boxClass = boxClass.replace('bg-fef2f2', 'bg-white').replace('border-fca5a5', 'border-gray-300').replace('text-ef4444', 'text-gray-400');
+                displayText = '+';
+                dataAttrs = `title="추가 연차(당겨쓰기) 등록"`;
+            } else {
+                dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
+            }
         }
 
         gridHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;

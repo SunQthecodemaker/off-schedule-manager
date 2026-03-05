@@ -1380,7 +1380,8 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
     const container = document.getElementById('employee-leave-grid-container');
     if (!container) return;
 
-    const totalBoxes = Math.max(finalLeaves, usedCnt);
+    // [당겨쓰기 UI 보완] 최소 1개의 빈 박스는 여유분으로 남겨둔다 (클릭용)
+    const totalBoxes = Math.max(finalLeaves, usedCnt + 1);
     const isCurrentPeriod = offset === 0;
     const periodLabel = `${periodStart.format('YY.MM.DD')} ~`;
     const labelColor = isCurrentPeriod ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-blue-100 text-blue-700 font-bold border-blue-200';
@@ -1450,7 +1451,15 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
                 dataAttrs = `title="${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal} ${usedDateObj.reason || ''}"`;
             }
         } else {
-            dataAttrs = `title="${boxType === 'carried' ? '이월 연차' : '금년 연차'} (미사용)"`;
+            if (boxType === 'borrowed') {
+                // 초과분 당겨쓰기 여유칸 (플러스 기호 또는 점선 스타일)
+                boxClass += ' border-dashed border-2 cursor-pointer text-gray-400 font-bold';
+                boxClass = boxClass.replace('bg-fef2f2', 'bg-white').replace('border-fca5a5', 'border-gray-300').replace('text-ef4444', 'text-gray-400');
+                displayText = '+';
+                dataAttrs = `title="추가 연차(당겨쓰기) 등록 가능"`;
+            } else {
+                dataAttrs = `title="${boxType === 'carried' ? '이월 연차' : '금년 연차'} (미사용)"`;
+            }
         }
 
         boxHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
