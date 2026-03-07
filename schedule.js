@@ -203,10 +203,21 @@ function updateViewModeButtons() {
 function handleViewModeChange(e) {
     const btn = e.target.closest('.schedule-view-btn');
     if (!btn) return;
-    const newMode = btn.dataset.mode;
+    const newMode = btn.dataset.mode; // 'all', 'working', 'off'
     if (state.schedule.viewMode !== newMode) {
         state.schedule.viewMode = newMode;
-        updateViewModeButtons();
+
+        // Update button active states
+        document.querySelectorAll('.schedule-view-btn').forEach(b => {
+            if (b.dataset.mode === newMode) {
+                b.classList.add('bg-white', 'text-blue-600', 'shadow-sm');
+                b.classList.remove('text-gray-500', 'hover:text-blue-600', 'hover:bg-white');
+            } else {
+                b.classList.remove('bg-white', 'text-blue-600', 'shadow-sm');
+                b.classList.add('text-gray-500', 'hover:text-blue-600', 'hover:bg-white');
+            }
+        });
+
         renderCalendar();
     }
 }
@@ -1252,7 +1263,7 @@ function renderCalendar() {
         else if (isSaturday) numberClass += ' text-blue-500';
 
         let eventsHTML = '';
-        if (state.schedule.viewMode === 'working') {
+        if (state.schedule.viewMode === 'working' || state.schedule.viewMode === 'all') {
             // ✅ 항상 28칸(4×7) 고정 렌더링
             const GRID_SIZE = 28;
             const gridSlots = new Array(GRID_SIZE).fill(null);
@@ -1270,8 +1281,29 @@ function renderCalendar() {
             }
 
             const excludedIds = getExcludedEmployeeIds();
+            const offDataMap = new Map(); // employeeId -> {type, schedule}
+
+            if (state.schedule.viewMode === 'all') {
+                const offData = getOffEmployeesOnDate(dateStr);
+                offData.forEach(item => {
+                    offDataMap.set(item.employee.id, item);
+                });
+            }
+
             state.schedule.schedules.forEach(schedule => {
-                if (schedule.date === dateStr && schedule.status === '근무' && schedule.grid_position != null) {
+                // 'all' 모드인 경우 '근무' 상태뿐만 아니라 '휴무' 상태도 그리드에 배치 (연차 포함)
+                // 만약 휴무자라면 offDataMap에 존재함
+                let isValidStatus = schedule.status === '근무';
+                let isOffOrLeave = false;
+
+                if (state.schedule.viewMode === 'all') {
+                    if (offDataMap.has(schedule.employee_id)) {
+                        isValidStatus = true;
+                        isOffOrLeave = true;
+                    }
+                }
+
+                if (schedule.date === dateStr && isValidStatus && schedule.grid_position != null) {
                     if (excludedIds.has(schedule.employee_id)) return; // 🌟 제외 직원 필터링 작동
 
                     // ✅ 부서 필터가 있으면 필터링된 직원만 표시
@@ -1317,13 +1349,28 @@ function renderCalendar() {
 
                     const deptColor = getDepartmentColor(emp.departments?.id);
                     const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
-                    return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="working">
+
+                    let cardTypeClass = 'event-working';
+                    let typeAttr = 'working';
+
+                    if (state.schedule.viewMode === 'all' && offDataMap.has(emp.id)) {
+                        const offItem = offDataMap.get(emp.id);
+                        if (offItem.type === 'leave') {
+                            cardTypeClass = 'event-leave';
+                            typeAttr = 'leave';
+                        } else {
+                            cardTypeClass = 'event-off';
+                            typeAttr = '휴무';
+                        }
+                    }
+
+                    return `<div class="event-card ${cardTypeClass} ${isSelected}" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="${typeAttr}">
                         <span class="event-dot" style="background-color: ${deptColor};"></span>
                         <span class="event-name">${emp.name}</span>
                     </div>`;
                 }
             }).join('');
-        } else {
+        } else if (state.schedule.viewMode === 'off') {
             const offData = getOffEmployeesOnDate(dateStr);
             eventsHTML = offData.map(item => {
                 const scheduleId = item.schedule?.id || '';
@@ -1615,6 +1662,20 @@ function handleEventCardDblClick(e, card) {
     const emp = state.management.employees.find(e => e.id === empId);
     const isTemp = emp && emp.is_temp;
 
+    // ✨ 연차 대상자인지 확인
+    const dateStr = card.closest('.calendar-day')?.dataset.date;
+    const isLeave = state.management.leaveRequests.some(req =>
+        (req.status === 'approved' || req.final_manager_status === 'approved') &&
+        req.dates?.includes(dateStr) &&
+        req.employee_id === empId
+    );
+
+    if (isLeave) {
+        if (!confirm('승인된 연차(특별휴가) 대상자입니다. 이 스케줄을 삭제하거나 근무 상태로 변경하시겠습니까? (연차 기록 자체는 휴가 관리 탭에서 변경해야 합니다)')) {
+            return;
+        }
+    }
+
     if (schedule) {
         pushUndoState('Toggle Status'); // 상태 변경 전 Undo 저장
 
@@ -1625,13 +1686,31 @@ function handleEventCardDblClick(e, card) {
             console.log('Removed temp staff schedule:', schedule);
         } else {
             // 기존 정규 직원 스케줄: 상태 전환 (근무 <-> 휴무)
-            // 현재 무조건 '근무'인 카드만 보여지므로, 더블클릭하면 '휴무'로 변경되어 사라짐
             schedule.status = schedule.status === '근무' ? '휴무' : '근무';
             unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
             console.log('Updated schedule:', schedule);
         }
 
         // 선택 상태 해제 및 리렌더링
+        clearSelection();
+        renderCalendar();
+        updateSaveButtonState();
+    } else {
+        // 기존 스케줄 객체가 없는 경우 (예: 연차 대상자인데 DB에 명시적 스케줄 기록이 없을 때)
+        // 근무 상태로 신규 생성
+        pushUndoState('Add Schedule');
+        const tempId = `temp-${Date.now()}-${empId}`;
+        const newSchedule = {
+            id: tempId,
+            date: dateStr,
+            employee_id: empId,
+            status: '근무',
+            sort_order: 99,
+            grid_position: 99
+        };
+        state.schedule.schedules.push(newSchedule);
+        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+
         clearSelection();
         renderCalendar();
         updateSaveButtonState();
@@ -2227,78 +2306,172 @@ function handleDateHeaderDblClick(e) {
 
 // ✨ Context Menu Handler
 function handleContextMenu(e) {
-    const contextMenu = document.getElementById('custom-context-menu-v2');
+    const contextMenu = document.getElementById('employee-context-menu');
     if (!contextMenu) return;
 
-    // .event-card 체크 (달력 내)
+    // 빈 슬롯(.event-slot) 클릭 시에만 직원 배치 메뉴 표시
+    const emptySlot = e.target.closest('.event-slot.empty-slot');
+
+    // 원래의 휴무/연차 컨텍스트 메뉴 로직 (유지 필요)
     const card = e.target.closest('.event-card');
-    if (!card) {
-        // 카드가 아니면 메뉴 닫기
+
+    // 둘 다 아니면 무시
+    if (!emptySlot && !card) {
         contextMenu.classList.add('hidden');
+        document.getElementById('custom-context-menu-v2')?.classList.add('hidden');
         return;
     }
 
     e.preventDefault(); // 기본 브라우저 메뉴 차단
 
-    const employeeId = card.dataset.employeeId;
-    const dayEl = card.closest('.calendar-day');
-    const date = dayEl ? dayEl.dataset.date : null;
-    const cardType = card.dataset.type; // 'working', 'leave', 'humu', etc.
-
-    if (!employeeId || !date) return;
-
-    // 메뉴 데이터 설정
-    contextMenu.dataset.employeeId = employeeId;
-    contextMenu.dataset.date = date;
-
-    // ✨ 상황에 따라 메뉴 토글
-    const registerBtn = document.getElementById('ctx-register-leave-v2');
-    const cancelBtn = document.getElementById('ctx-cancel-leave-v2');
-
-    console.log('🖱️ Context Menu Triggered. Type:', cardType, 'ID:', employeeId);
-
-    // ✨ DEBUG: Alert to confirm code update and show data
-    // ✨ DEBUG: Alert removed
-    // alert(`DEBUG: Card Type=${cardType}, Classes=${card.className}`);
-
-    if (registerBtn && cancelBtn) {
-        // Class-based fallback logic
-        const isLeave = card.classList.contains('event-leave') || cardType === 'leave';
-        const isOff = card.classList.contains('event-off') || cardType === '휴무';
-        const isWorking = card.classList.contains('event-working') || cardType === 'working';
-
-        if (isLeave || isOff) {
-            // 휴무/연차자 -> 연차 취소(삭제) 가능
-            registerBtn.style.display = 'none';
-            cancelBtn.style.display = 'block';
-
-            // Clean styling
-            cancelBtn.textContent = "🗑️ 연차 취소하기";
-            contextMenu.style.border = ""; // Reset border
-            cancelBtn.style.backgroundColor = ""; // Reset background
-
-            registerBtn.classList.add('hidden');
-            cancelBtn.classList.remove('hidden');
-        } else {
-            // 근무자 or 기타 -> 연차 등록 가능
-            registerBtn.style.display = 'block';
-            cancelBtn.style.display = 'none';
-
-            registerBtn.classList.remove('hidden');
-            cancelBtn.classList.add('hidden');
-        }
-    } else {
-        console.error('❌ Context menu buttons not found in DOM');
-    }
-
-    // 메뉴 위치 설정 (마우스 커서 기준)
+    // 마우스 위치
     const x = e.clientX;
     const y = e.clientY;
 
-    // 화면 밖으로 나가지 않도록 간단한 보정 (필요시 추가)
-    contextMenu.style.left = `${x}px`;
-    contextMenu.style.top = `${y}px`;
-    contextMenu.classList.remove('hidden');
+    if (emptySlot) {
+        // [직원 배치] 서브메뉴 표시 로직
+        const dayEl = emptySlot.closest('.calendar-day');
+        const date = dayEl ? dayEl.dataset.date : null;
+        const position = emptySlot.dataset.position;
+
+        if (!date || position === undefined) return;
+
+        // 기존 V2 메뉴 숨기기
+        document.getElementById('custom-context-menu-v2')?.classList.add('hidden');
+
+        // 서브메뉴(부서) 동적 생성
+        const deptSubmenu = document.getElementById('dept-submenu');
+        deptSubmenu.innerHTML = '';
+
+        // 제외 직원 필터 가져오기 및 날짜 기준 스케줄 있는 사람 필터링용 데이터
+        const excludedIds = getExcludedEmployeeIds();
+        const existingEmployeeIds = new Set(
+            state.schedule.schedules
+                .filter(s => s.date === date && s.status === '근무') // 휴무자는 제외
+                .map(s => s.employee_id)
+        );
+
+        // 부서 목록 가져오기 (정렬)
+        const departments = [...state.management.departments].sort((a, b) => a.id - b.id);
+
+        departments.forEach(dept => {
+            // 해당 부서의 직원 목록 (제외직원/이미배치된 직원 제외)
+            const deptEmployees = state.management.employees.filter(emp =>
+                emp.department_id === dept.id &&
+                !excludedIds.has(emp.id) &&
+                !emp.resignation_date
+            );
+
+            if (deptEmployees.length === 0) return; // 표시할 직원이 없으면 부서 스킵
+
+            const deptItem = document.createElement('div');
+            deptItem.className = 'menu-item has-submenu2';
+            deptItem.innerHTML = `${dept.name} <span class="arrow">▶</span>`;
+
+            const empSubmenu = document.createElement('div');
+            empSubmenu.className = 'submenu2';
+
+            deptEmployees.sort((a, b) => a.name.localeCompare(b.name)).forEach(emp => {
+                const isSelected = existingEmployeeIds.has(emp.id);
+                const empItem = document.createElement('div');
+                empItem.className = 'menu-item' + (isSelected ? ' disabled' : '');
+                empItem.textContent = emp.name;
+
+                if (!isSelected) {
+                    empItem.addEventListener('click', () => {
+                        handleEmployeeAssignment(emp.id, date, parseInt(position, 10));
+                        contextMenu.classList.add('hidden');
+                    });
+                }
+
+                empSubmenu.appendChild(empItem);
+            });
+
+            deptItem.appendChild(empSubmenu);
+            deptSubmenu.appendChild(deptItem);
+        });
+
+        if (deptSubmenu.children.length === 0) {
+            deptSubmenu.innerHTML = '<div class="menu-item disabled">배치할 직원이 없습니다</div>';
+        }
+
+        contextMenu.style.left = `${x}px`;
+        contextMenu.style.top = `${y}px`;
+        contextMenu.classList.remove('hidden');
+
+    } else if (card) {
+        // 기존 V2 컨텍스트 메뉴 (연차 취소/등록) 로직
+        const contextMenuV2 = document.getElementById('custom-context-menu-v2');
+        if (!contextMenuV2) return;
+
+        contextMenu.classList.add('hidden'); // 새 메뉴 숨기기
+
+        const employeeId = card.dataset.employeeId;
+        const dayEl = card.closest('.calendar-day');
+        const date = dayEl ? dayEl.dataset.date : null;
+        const cardType = card.dataset.type; // 'working', 'leave', 'humu', etc.
+
+        if (!employeeId || !date) return;
+
+        // 메뉴 데이터 설정
+        contextMenuV2.dataset.employeeId = employeeId;
+        contextMenuV2.dataset.date = date;
+
+        const registerBtn = document.getElementById('ctx-register-leave-v2');
+        const cancelBtn = document.getElementById('ctx-cancel-leave-v2');
+
+        if (registerBtn && cancelBtn) {
+            const isLeave = card.classList.contains('event-leave') || cardType === 'leave';
+            const isOff = card.classList.contains('event-off') || cardType === '휴무';
+
+            if (isLeave || isOff) {
+                // 휴무/연차자 -> 연차 취소(삭제) 가능
+                registerBtn.style.display = 'none';
+                cancelBtn.style.display = 'block';
+                cancelBtn.textContent = "🗑️ 연차 취소하기";
+                contextMenuV2.style.border = "";
+                cancelBtn.style.backgroundColor = "";
+
+                registerBtn.classList.add('hidden');
+                cancelBtn.classList.remove('hidden');
+            } else {
+                // 근무자 or 기타 -> 연차 등록 가능
+                registerBtn.style.display = 'block';
+                cancelBtn.style.display = 'none';
+
+                registerBtn.classList.remove('hidden');
+                cancelBtn.classList.add('hidden');
+            }
+        }
+
+        contextMenuV2.style.left = `${x}px`;
+        contextMenuV2.style.top = `${y}px`;
+        contextMenuV2.classList.remove('hidden');
+    }
+}
+
+// ✨ 빈 슬롯 우클릭을 통한 직원 할당 로직
+function handleEmployeeAssignment(employeeId, dateStr, position) {
+    if (!employeeId || !dateStr || position === undefined) return;
+
+    // 신규 생성
+    pushUndoState('Add Schedule via Context Menu');
+    const tempId = `temp-${Date.now()}-${employeeId}`;
+    const newSchedule = {
+        id: tempId,
+        date: dateStr,
+        employee_id: employeeId,
+        status: '근무',
+        sort_order: position,
+        grid_position: position
+    };
+
+    state.schedule.schedules.push(newSchedule);
+    unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+
+    clearSelection();
+    renderCalendar();
+    updateSaveButtonState();
 }
 
 // ✨ Global Click Handler for Context Menu (Outside Click)
@@ -2726,16 +2899,18 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     // Conditional top control buttons HTML
     const topControlsHtml = isReadOnly ? `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
-            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
-                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
-                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
+                <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">통합 보기</button>
+                <button type="button" data-mode="working" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">휴무자 보기</button>
             </div>
         </div>
     ` : `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
-            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm" role="group">
-                <button type="button" data-mode="working" class="schedule-view-btn active rounded-l-lg">근무자 보기</button>
-                <button type="button" data-mode="off" class="schedule-view-btn rounded-r-md">휴무자 보기</button>
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
+                <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">통합 보기</button>
+                <button type="button" data-mode="working" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
                 <span class="text-gray-300">|</span>

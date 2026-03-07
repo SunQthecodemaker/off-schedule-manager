@@ -321,9 +321,18 @@
                 document.getElementById('issue-modal').classList.add('hidden');
             });
 
-            document.getElementById('issue-form')?.addEventListener('submit', window.handleIssueSubmit);
         });
     </script>
+
+    <!-- 우클릭 컨텍스트 메뉴 -->
+    <div id="employee-context-menu" class="context-menu hidden">
+        <div class="menu-item has-submenu">
+            직원 배치 <span class="arrow">▶</span>
+            <div id="dept-submenu" class="submenu hidden">
+                <!-- Javascript will populate departments here -->
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

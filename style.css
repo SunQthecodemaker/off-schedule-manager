@@ -190,17 +190,38 @@
 
 .event-working {
     background-color: white;
+    opacity: 1;
 }
 
 .event-off {
-    background-color: white;
-    border-style: dashed;
+    background-color: transparent;
+    border: 1px dotted #cbd5e1 !important;
+    /* light gray dotted border */
+    opacity: 0.5;
+    /* visually faded */
+}
+
+.event-off .event-name {
+    color: #64748b;
+    /* muted text color */
+}
+
+.event-off .event-dot {
+    opacity: 0.5;
 }
 
 .event-leave {
-    background-color: #f0fdf4;
-    border-color: #16a34a;
+    background-color: #fefce8;
+    /* very light yellow */
+    border: 1px dashed #f59e0b !important;
+    /* amber dashed border */
+    opacity: 0.8;
     cursor: default !important;
+}
+
+.event-leave .event-name {
+    color: #b45309;
+    /* amber text color */
 }
 
 .event-dot {
@@ -1306,4 +1327,88 @@
 
 #custom-context-menu button:active {
     background-color: #e5e7eb;
+}
+
+/* ========================================
+   우클릭 컨텍스트 메뉴 스타일 (Context Menu)
+   ======================================== */
+.context-menu {
+    position: absolute;
+    background-color: white;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-radius: 0.375rem;
+    padding: 0.25rem 0;
+    min-width: 150px;
+    z-index: 10000;
+    font-size: 0.875rem;
+}
+
+.context-menu .menu-item {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    color: #374151;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+}
+
+.context-menu .menu-item:hover {
+    background-color: #f3f4f6;
+    color: #111827;
+}
+
+.context-menu .menu-item .arrow {
+    font-size: 0.6rem;
+    color: #9ca3af;
+}
+
+/* 1 depth Submenu (부서) */
+.context-menu .submenu {
+    position: absolute;
+    top: -0.25rem;
+    left: 100%;
+    /* 우측으로 팝업 */
+    background-color: white;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border-radius: 0.375rem;
+    padding: 0.25rem 0;
+    min-width: 150px;
+    display: none;
+}
+
+/* 2 depth Submenu (직원) */
+.context-menu .submenu .submenu2 {
+    position: absolute;
+    top: -0.25rem;
+    left: 100%;
+    background-color: white;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border-radius: 0.375rem;
+    padding: 0.25rem 0;
+    min-width: 150px;
+    display: none;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+/* 하위 메뉴 노출 제어 */
+.context-menu .menu-item.has-submenu:hover>.submenu {
+    display: block;
+}
+
+.context-menu .menu-item.has-submenu2:hover>.submenu2 {
+    display: block;
+}
+
+.context-menu .menu-item.disabled {
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.context-menu .menu-item.disabled:hover {
+    background-color: transparent;
 }
