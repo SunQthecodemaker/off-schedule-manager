@@ -1151,6 +1151,24 @@
     }
 }
 
+/* =========================================================================================
+   휴무/연차 뚜렷한 포커스 모드 (휴무자 뷰 전용)
+   ========================================================================================= */
+.event-off-focus {
+    background-color: #f3f4f6 !important;
+    border: 1px solid #d1d5db !important;
+    opacity: 1 !important;
+    border-radius: 4px;
+}
+
+.event-leave-focus {
+    background-color: #fef08a !important;
+    /* light yellow */
+    border: 1px solid #f59e0b !important;
+    opacity: 1 !important;
+    border-radius: 4px;
+}
+
 /* 매니저 전용 탭 PC 전용 안내 */
 @media (max-width: 1024px) {
 

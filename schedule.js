@@ -207,6 +207,8 @@ function handleViewModeChange(e) {
     if (state.schedule.viewMode !== newMode) {
         state.schedule.viewMode = newMode;
 
+        clearSelection(); // ✨ 뷰 모드 변경 시 선택 초기화
+
         // Update button active states
         document.querySelectorAll('.schedule-view-btn').forEach(b => {
             if (b.dataset.mode === newMode) {
@@ -1319,6 +1321,26 @@ function renderCalendar() {
                 }
             });
 
+            // ✨ 'all' 뷰에서 schedules 배열에 잡히지 않은(스케줄 데이터가 없는) 연차자/휴무자 강제 배치
+            if (state.schedule.viewMode === 'all') {
+                offDataMap.forEach((offItem, empId) => {
+                    const alreadyInGrid = gridSlots.some(s => s && String(s.employee_id) === String(empId));
+                    if (!alreadyInGrid) {
+                        // 빈 슬롯 찾기
+                        const emptyIndex = gridSlots.findIndex(s => !s);
+                        if (emptyIndex !== -1) {
+                            gridSlots[emptyIndex] = {
+                                id: offItem.schedule?.id || `dummy-${empId}-${dateStr}`,
+                                employee_id: empId,
+                                date: dateStr,
+                                status: offItem.type === 'leave' ? 'leave' : '휴무',
+                                grid_position: emptyIndex
+                            };
+                        }
+                    }
+                });
+            }
+
             // 각 슬롯을 HTML로 변환
             eventsHTML = gridSlots.map((schedule, position) => {
                 if (!schedule) {
@@ -1376,7 +1398,8 @@ function renderCalendar() {
                 const scheduleId = item.schedule?.id || '';
                 const type = item.type;
                 const deptColor = getDepartmentColor(item.employee.departments?.id);
-                const eventClass = type === 'leave' ? 'event-leave' : 'event-off';
+                // ✨ 휴무자 보기에서는 흐리지 않게 뚜렷한 클래스 적용
+                const eventClass = type === 'leave' ? 'event-leave-focus' : 'event-off-focus';
                 // ✨ 삭제 버튼 제거
                 return `<div class="event-card ${eventClass}" data-employee-id="${item.employee.id}" data-schedule-id="${scheduleId}" data-type="${type}">
                     <span class="event-dot" style="background-color: ${deptColor};"></span>
