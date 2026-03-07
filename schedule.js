@@ -2304,6 +2304,35 @@ function handleDateHeaderDblClick(e) {
     }
 }
 
+// ✨ 컨텍스트 서브메뉴 위치 계산 및 표시 유틸리티
+function setupSubmenuPositioning(menuItem, submenu) {
+    menuItem.addEventListener('mouseenter', () => {
+        const itemRect = menuItem.getBoundingClientRect();
+
+        // 기본적으로 우측에 배치
+        let left = itemRect.right;
+        let top = itemRect.top;
+
+        // 화면 오른쪽을 벗어나는지 확인
+        if (left + 150 > window.innerWidth) { // 150은 submenu의 min-width 추정치
+            left = itemRect.left - 150; // 왼쪽으로 펼치기
+        }
+
+        // 화면 아래쪽을 벗어나는지 확인
+        if (top + 250 > window.innerHeight) { // 250은 max-height 추정치
+            top = window.innerHeight - 260; // 위로 올리기
+        }
+
+        submenu.style.left = `${left}px`;
+        submenu.style.top = `${top}px`;
+        submenu.style.display = 'block';
+    });
+
+    menuItem.addEventListener('mouseleave', () => {
+        submenu.style.display = 'none';
+    });
+}
+
 // ✨ Context Menu Handler
 function handleContextMenu(e) {
     const contextMenu = document.getElementById('employee-context-menu');
@@ -2389,15 +2418,31 @@ function handleContextMenu(e) {
 
             deptItem.appendChild(empSubmenu);
             deptSubmenu.appendChild(deptItem);
+
+            // 부서명(deptItem)에 마우스를 올릴 때 직원 목록(empSubmenu) 위치 계산
+            setupSubmenuPositioning(deptItem, empSubmenu);
         });
 
         if (deptSubmenu.children.length === 0) {
             deptSubmenu.innerHTML = '<div class="menu-item disabled">배치할 직원이 없습니다</div>';
         }
 
-        contextMenu.style.left = `${x}px`;
-        contextMenu.style.top = `${y}px`;
-        contextMenu.classList.remove('hidden');
+        // 메인 컨텍스트 메뉴 자체도 화면 범위를 벗어나지 않도록 보정
+        let adjustedX = x;
+        let adjustedY = y;
+
+        if (x + 150 > window.innerWidth) adjustedX = window.innerWidth - 160;
+        if (y + 150 > window.innerHeight) adjustedY = window.innerHeight - 160;
+
+        // 직원 배치 메뉴 자체의 서브메뉴(deptSubmenu) 위치 계산 연결
+        const assignMenuItem = employeeContextMenu.querySelector('.menu-item.has-submenu');
+        if (assignMenuItem) {
+            setupSubmenuPositioning(assignMenuItem, deptSubmenu);
+        }
+
+        employeeContextMenu.style.left = `${adjustedX}px`;
+        employeeContextMenu.style.top = `${adjustedY}px`;
+        employeeContextMenu.classList.remove('hidden');
 
     } else if (card) {
         // 기존 V2 컨텍스트 메뉴 (연차 취소/등록) 로직
@@ -2476,10 +2521,181 @@ function handleEmployeeAssignment(employeeId, dateStr, position) {
 
 // ✨ Global Click Handler for Context Menu (Outside Click)
 function handleGlobalClickForMenu(e) {
-    const contextMenu = document.getElementById('custom-context-menu-v2');
-    if (contextMenu && !contextMenu.contains(e.target)) {
-        contextMenu.classList.add('hidden');
+    const contextMenuV2 = document.getElementById('custom-context-menu-v2');
+    const employeeContextMenu = document.getElementById('employee-context-menu');
+    const dateContextMenu = document.getElementById('date-context-menu');
+
+    if (contextMenuV2 && !contextMenuV2.contains(e.target)) {
+        contextMenuV2.classList.add('hidden');
     }
+    if (employeeContextMenu && !employeeContextMenu.contains(e.target)) {
+        employeeContextMenu.classList.add('hidden');
+    }
+    if (dateContextMenu && !dateContextMenu.contains(e.target)) {
+        dateContextMenu.classList.add('hidden');
+    }
+}
+
+// ✨ 날짜 메뉴: 휴일 지정/해제
+function handleMenuToggleHoliday() {
+    const dateContextMenu = document.getElementById('date-context-menu');
+    const dateStr = dateContextMenu.dataset.date;
+    if (!dateStr) return;
+
+    dateContextMenu.classList.add('hidden');
+
+    // 날짜 헤더 더블클릭 로직을 활용하기 위해 가상 이벤트 생성 (코드 중복 방지)
+    const dayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
+    if (dayEl) {
+        handleDateHeaderDblClick({ target: dayEl });
+    }
+}
+
+// ✨ 날짜 메뉴: 복사
+function handleMenuCopyDate() {
+    const dateContextMenu = document.getElementById('date-context-menu');
+    const dateStr = dateContextMenu.dataset.date;
+    if (!dateStr) return;
+
+    scheduleClipboard = [];
+    const schedulesOnDate = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
+
+    if (schedulesOnDate.length === 0) {
+        alert('해당 날짜에 복사할 근무자가 없습니다.');
+        dateContextMenu.classList.add('hidden');
+        return;
+    }
+
+    schedulesOnDate.forEach(s => {
+        scheduleClipboard.push({
+            employee_id: s.employee_id,
+            status: s.status,
+            grid_position: s.grid_position // 원본 위치 기억
+        });
+    });
+
+    console.log(`Copied ${scheduleClipboard.length} schedules from ${dateStr} to clipboard:`, scheduleClipboard);
+    dateContextMenu.classList.add('hidden');
+
+    // 시각적 피드백
+    const targetDayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
+    if (targetDayEl) {
+        const originalBg = targetDayEl.style.backgroundColor;
+        targetDayEl.style.backgroundColor = 'rgba(16, 185, 129, 0.2)'; // 초록색 틴트
+        setTimeout(() => { targetDayEl.style.backgroundColor = originalBg; }, 300);
+    }
+}
+
+// ✨ 날짜 메뉴: 붙여넣기
+function handleMenuPasteDate() {
+    const dateContextMenu = document.getElementById('date-context-menu');
+    const dateStr = dateContextMenu.dataset.date;
+    if (!dateStr || !scheduleClipboard || scheduleClipboard.length === 0) {
+        dateContextMenu.classList.add('hidden');
+        return;
+    }
+
+    pushUndoState('Paste Schedules via Date Context Menu');
+    let pastedCount = 0;
+
+    // 붙여넣을 날짜의 기존 '근무' 중인 포지션 확인
+    const occupiedPositions = new Set(
+        state.schedule.schedules
+            .filter(s => s.date === dateStr && s.status === '근무' && s.grid_position !== null)
+            .map(s => s.grid_position)
+    );
+
+    scheduleClipboard.forEach(item => {
+        let target = state.schedule.schedules.find(s => s.date === dateStr && String(s.employee_id) === String(item.employee_id));
+        let posToAssign = null;
+
+        // 원래 포지션에 들어갈 수 있으면 거기로, 아니면 빈 곳 찾기
+        if (item.grid_position !== null && item.grid_position !== undefined && !occupiedPositions.has(item.grid_position)) {
+            // 원본 위치가 비어있으면 거기로
+            // 단, 자기자신인 경우(이미 그 위치에 휴무로 있는 경우) 원래 자리 허용
+            const conflict = state.schedule.schedules.find(s =>
+                s.date === dateStr && s.status === '근무' && s.grid_position === item.grid_position && s.id !== (target ? target.id : null)
+            );
+
+            if (!conflict) {
+                posToAssign = item.grid_position;
+            }
+        }
+
+        if (posToAssign === null) {
+            // 빈 자리 찾기
+            for (let i = 0; i < 24; i++) {
+                if (!occupiedPositions.has(i)) {
+                    posToAssign = i;
+                    break;
+                }
+            }
+        }
+
+        if (posToAssign !== null) {
+            if (target) {
+                // 기존 데이터 수정
+                target.status = '근무';
+                target.grid_position = posToAssign;
+                target.sort_order = posToAssign;
+                unsavedChanges.set(target.id, { type: 'update', data: target });
+            } else {
+                // 신규 데이터 생성
+                const newSchedule = {
+                    id: `paste-ctx-${Date.now()}-${item.employee_id}-${Math.random()}`,
+                    date: dateStr,
+                    employee_id: item.employee_id,
+                    status: '근무',
+                    grid_position: posToAssign,
+                    sort_order: posToAssign,
+                    created_at: new Date().toISOString()
+                };
+                state.schedule.schedules.push(newSchedule);
+                unsavedChanges.set(newSchedule.id, { type: 'create', data: newSchedule });
+            }
+            occupiedPositions.add(posToAssign);
+            pastedCount++;
+        }
+    });
+
+    if (pastedCount > 0) {
+        renderCalendar();
+        updateSaveButtonState();
+
+        const targetDayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
+        if (targetDayEl) {
+            const originalBg = targetDayEl.style.backgroundColor;
+            targetDayEl.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
+            setTimeout(() => { targetDayEl.style.backgroundColor = originalBg; }, 300);
+        }
+    }
+    dateContextMenu.classList.add('hidden');
+}
+
+// ✨ 날짜 메뉴: 전체 선택
+function handleMenuSelectAllDate() {
+    const dateContextMenu = document.getElementById('date-context-menu');
+    const dateStr = dateContextMenu.dataset.date;
+    if (!dateStr) return;
+
+    const cardsOnDate = document.querySelectorAll(`.calendar-day[data-date="${dateStr}"] .event-card`);
+    const isAllSelected = Array.from(cardsOnDate).every(c => c.classList.contains('selected'));
+
+    // 토글: 다 선택되었으면 해제, 아니면 전체 선택
+    cardsOnDate.forEach(card => {
+        const scheduleId = card.dataset.scheduleId;
+        if (scheduleId) {
+            if (isAllSelected) {
+                state.schedule.selectedSchedules.delete(scheduleId);
+                card.classList.remove('selected');
+            } else {
+                state.schedule.selectedSchedules.add(scheduleId);
+                card.classList.add('selected');
+            }
+        }
+    });
+
+    dateContextMenu.classList.add('hidden');
 }
 
 // ✨ Register Menu Item Click Handler
@@ -2551,18 +2767,29 @@ function initializeCalendarEvents() {
     const registerBtn = document.getElementById('ctx-register-leave-v2');
     const cancelBtn = document.getElementById('ctx-cancel-leave-v2'); // New
     const closeBtn = document.getElementById('ctx-close-menu');
-    const contextMenu = document.getElementById('custom-context-menu-v2');
+    const contextMenuV2 = document.getElementById('custom-context-menu-v2');
 
+    // Binding existing v2 menu
     if (registerBtn) {
-        // remove existing listener to avoid duplicates if possible, or just overwrite onclick
         registerBtn.onclick = handleMenuRegisterClick;
     }
     if (cancelBtn) {
-        cancelBtn.onclick = handleMenuCancelClick; // New binding
+        cancelBtn.onclick = handleMenuCancelClick;
     }
-    if (closeBtn && contextMenu) {
-        closeBtn.onclick = () => contextMenu.classList.add('hidden');
+    if (closeBtn && contextMenuV2) {
+        closeBtn.onclick = () => contextMenuV2.classList.add('hidden');
     }
+
+    // Binding new date menu
+    const toggleHolidayBtn = document.getElementById('ctx-toggle-holiday');
+    const copyDateBtn = document.getElementById('ctx-copy-date');
+    const pasteDateBtn = document.getElementById('ctx-paste-date');
+    const selectAllDateBtn = document.getElementById('ctx-select-all-date');
+
+    if (toggleHolidayBtn) toggleHolidayBtn.onclick = handleMenuToggleHoliday;
+    if (copyDateBtn) copyDateBtn.onclick = handleMenuCopyDate;
+    if (pasteDateBtn) pasteDateBtn.onclick = handleMenuPasteDate;
+    if (selectAllDateBtn) selectAllDateBtn.onclick = handleMenuSelectAllDate;
 
     // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
     document.removeEventListener('keydown', handleGlobalKeydown);
