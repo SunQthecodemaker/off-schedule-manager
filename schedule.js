@@ -2335,29 +2335,63 @@ function setupSubmenuPositioning(menuItem, submenu) {
 
 // ✨ Context Menu Handler
 function handleContextMenu(e) {
-    const contextMenu = document.getElementById('employee-context-menu');
-    if (!contextMenu) return;
+    const employeeContextMenu = document.getElementById('employee-context-menu');
+    const dateContextMenu = document.getElementById('date-context-menu');
+    if (!employeeContextMenu || !dateContextMenu) return;
 
     // 빈 슬롯(.event-slot) 클릭 시에만 직원 배치 메뉴 표시
     const emptySlot = e.target.closest('.event-slot.empty-slot');
 
-    // 원래의 휴무/연차 컨텍스트 메뉴 로직 (유지 필요)
+    // 원래의 휴무/연차 컨텍스트 메뉴 로직
     const card = e.target.closest('.event-card');
 
-    // 둘 다 아니면 무시
-    if (!emptySlot && !card) {
-        contextMenu.classList.add('hidden');
+    // 헤더(날짜 숫자 부분) 클릭 여부 파악
+    const dateHeader = e.target.closest('.day-header') || e.target.classList.contains('day-number');
+
+    // 모두 다 아니면 달력 바탕 부분(day 클래스)
+    const dayEmptySpace = e.target.classList.contains('calendar-day') || e.target.classList.contains('day-events');
+
+    if (!emptySlot && !card && !dateHeader && !dayEmptySpace) {
+        employeeContextMenu.classList.add('hidden');
         document.getElementById('custom-context-menu-v2')?.classList.add('hidden');
+        dateContextMenu.classList.add('hidden');
         return;
     }
 
     e.preventDefault(); // 기본 브라우저 메뉴 차단
 
+    // 메뉴 모두 숨기기 초기화
+    employeeContextMenu.classList.add('hidden');
+    document.getElementById('custom-context-menu-v2')?.classList.add('hidden');
+    dateContextMenu.classList.add('hidden');
+
     // 마우스 위치
     const x = e.clientX;
     const y = e.clientY;
 
-    if (emptySlot) {
+    if (dateHeader || dayEmptySpace) {
+        // [날짜 우클릭] 휴일, 복제 메뉴 표시 로직
+        const dayEl = e.target.closest('.calendar-day');
+        const date = dayEl ? dayEl.dataset.date : null;
+        if (!date) return;
+
+        dateContextMenu.dataset.date = date;
+
+        // Disable paste if clipboard is empty
+        const pasteBtn = document.getElementById('ctx-paste-date');
+        if (pasteBtn) {
+            if (scheduleClipboard && scheduleClipboard.length > 0) {
+                pasteBtn.classList.remove('disabled');
+            } else {
+                pasteBtn.classList.add('disabled');
+            }
+        }
+
+        dateContextMenu.style.left = `${x}px`;
+        dateContextMenu.style.top = `${y}px`;
+        dateContextMenu.classList.remove('hidden');
+
+    } else if (emptySlot) {
         // [직원 배치] 서브메뉴 표시 로직
         const dayEl = emptySlot.closest('.calendar-day');
         const date = dayEl ? dayEl.dataset.date : null;
@@ -2409,7 +2443,7 @@ function handleContextMenu(e) {
                 if (!isSelected) {
                     empItem.addEventListener('click', () => {
                         handleEmployeeAssignment(emp.id, date, parseInt(position, 10));
-                        contextMenu.classList.add('hidden');
+                        employeeContextMenu.classList.add('hidden');
                     });
                 }
 
@@ -2449,7 +2483,7 @@ function handleContextMenu(e) {
         const contextMenuV2 = document.getElementById('custom-context-menu-v2');
         if (!contextMenuV2) return;
 
-        contextMenu.classList.add('hidden'); // 새 메뉴 숨기기
+        employeeContextMenu.classList.add('hidden'); // 새 메뉴 숨기기
 
         const employeeId = card.dataset.employeeId;
         const dayEl = card.closest('.calendar-day');
