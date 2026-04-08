@@ -1289,7 +1289,7 @@ function renderLeaveMgmtRow(emp) {
     const remaining = finalLeaves - used;
     const entryDateValue = (emp.entryDate || emp.entry_date) ? dayjs(emp.entryDate || emp.entry_date).format('YY.MM.DD') : '';
     const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : '';
-    const workDaysValue = emp.work_days_per_week || 5;
+    const workDaysValue = emp.weekly_work_days || 5;
 
     return `<tr class="border-t" id="leave-mgmt-row-${emp.id}" data-period-start="${periodStartStr}">
         <td class="p-2 text-sm font-semibold">${emp.name}</td>
@@ -1580,11 +1580,11 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
         if (leave_renewal_date && /^\d{2}-\d{2}$/.test(leave_renewal_date)) {
             leave_renewal_date = `2000-${leave_renewal_date}`;
         }
-        const work_days_per_week = parseInt(_(`#leave-workdays-${id}`)?.value) || 5;
+        const weekly_work_days = parseInt(_(`#leave-workdays-${id}`)?.value) || 5;
         updateData.leave_renewal_date = leave_renewal_date;
         updateData.leave_adjustment = leave_adjustment;
         updateData.carried_over_leave = carried_over_leave;
-        updateData.work_days_per_week = work_days_per_week;
+        updateData.weekly_work_days = weekly_work_days;
     }
 
     console.log('💾 연차 업데이트:', { id, periodStartStr, updateData });

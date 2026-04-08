@@ -3,8 +3,8 @@ export function getLeaveDetails(employee, referenceDate = null) {
     if (!employee || !entryDateVal) return { legal: 0, adjustment: 0, final: 0, carriedOver: 0, note: '' };
 
     const entryDate = entryDateVal;
-    const { leave_renewal_date, leave_adjustment, work_days_per_week } = employee;
-    const workDays = work_days_per_week || 5; // 기본값 5일
+    const { leave_renewal_date, leave_adjustment, weekly_work_days } = employee;
+    const workDays = weekly_work_days || 5; // 기본값 5일
     const today = referenceDate ? dayjs(referenceDate) : dayjs();
     const entryDay = dayjs(entryDate);
     const firstAnniversary = entryDay.add(1, 'year');
