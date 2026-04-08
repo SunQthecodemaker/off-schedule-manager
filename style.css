@@ -4,46 +4,49 @@
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700&display=swap');
 
 :root {
-    /* Primary */
-    --color-primary: #2563eb;
-    --color-primary-dark: #1d4ed8;
-    --color-primary-light: #dbeafe;
-    --color-primary-hover: #1e40af;
+    /* Primary - Gold & Black */
+    --color-primary: #b8860b;
+    --color-primary-dark: #996f0a;
+    --color-primary-light: #f5edd4;
+    --color-primary-hover: #a07608;
+    --color-gold: #c9a96e;
+    --color-gold-dark: #b8860b;
+    --color-black: #1a1a1a;
 
-    /* Background */
-    --color-bg: #f8fafc;
-    --color-bg-card: #ffffff;
-    --color-bg-muted: #f1f5f9;
+    /* Background - Beige */
+    --color-bg: #f5f0e8;
+    --color-bg-card: #fefcf8;
+    --color-bg-muted: #ede8df;
 
     /* Text */
-    --color-text-heading: #0f172a;
-    --color-text-body: #334155;
-    --color-text-muted: #64748b;
-    --color-text-placeholder: #94a3b8;
+    --color-text-heading: #1a1a1a;
+    --color-text-body: #3d3529;
+    --color-text-muted: #7a7062;
+    --color-text-placeholder: #a89e90;
 
     /* Accent - Status */
-    --color-success: #16a34a;
-    --color-success-light: #dcfce7;
-    --color-warning: #d97706;
-    --color-warning-light: #fef3c7;
-    --color-danger: #dc2626;
-    --color-danger-light: #fee2e2;
+    --color-success: #5a8a4a;
+    --color-success-light: #e8f0e4;
+    --color-warning: #b8860b;
+    --color-warning-light: #f5edd4;
+    --color-danger: #a04040;
+    --color-danger-light: #f5e0e0;
 
     /* Border */
-    --color-border: #e2e8f0;
-    --color-border-strong: #cbd5e1;
+    --color-border: #e0d8cc;
+    --color-border-strong: #c8bfb0;
 
     /* Radius */
-    --radius-card: 12px;
-    --radius-btn: 8px;
-    --radius-modal: 16px;
+    --radius-card: 10px;
+    --radius-btn: 6px;
+    --radius-modal: 14px;
     --radius-pill: 9999px;
 
-    /* Shadow */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    /* Shadow - warmer tones */
+    --shadow-sm: 0 1px 2px rgba(60, 40, 10, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(60, 40, 10, 0.08), 0 2px 4px -2px rgba(60, 40, 10, 0.04);
+    --shadow-lg: 0 10px 15px -3px rgba(60, 40, 10, 0.1), 0 4px 6px -4px rgba(60, 40, 10, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(60, 40, 10, 0.12), 0 8px 10px -6px rgba(60, 40, 10, 0.06);
 
     /* Transition */
     --transition-fast: 0.15s ease;
@@ -69,6 +72,20 @@ body {
     display: none !important;
 }
 
+/* Tailwind 블루 계열 → 골드/블랙 오버라이드 */
+.bg-blue-600 { background-color: var(--color-black) !important; }
+.bg-blue-600:hover, .hover\:bg-blue-700:hover { background-color: #2d2d2d !important; }
+.bg-blue-500 { background-color: var(--color-gold-dark) !important; }
+.bg-indigo-600 { background-color: var(--color-black) !important; }
+.bg-indigo-600:hover, .hover\:bg-indigo-700:hover { background-color: #2d2d2d !important; }
+.bg-green-600 { background-color: var(--color-gold-dark) !important; }
+.bg-green-600:hover, .hover\:bg-green-700:hover { background-color: #a07608 !important; }
+.text-blue-600 { color: var(--color-gold-dark) !important; }
+.text-blue-500 { color: var(--color-gold-dark) !important; }
+.border-blue-500 { border-color: var(--color-gold-dark) !important; }
+.bg-gray-300 { background-color: var(--color-bg-muted) !important; }
+.bg-gray-500 { background-color: #5a5247 !important; }
+
 /* FullCalendar 툴바 버튼 간격 조정 */
 .fc-toolbar-chunk {
     display: flex;
@@ -93,8 +110,8 @@ body {
 }
 
 .main-tab-btn.active {
-    background-color: var(--color-primary);
-    color: #ffffff;
+    background-color: var(--color-black);
+    color: var(--color-gold);
     font-weight: 600;
     box-shadow: var(--shadow-sm);
 }
@@ -347,8 +364,8 @@ body {
 /* ✨ SortableJS 드래그 상태 */
 .sortable-ghost {
     opacity: 0.4 !important;
-    background: #dbeafe !important;
-    border: 2px dashed #3b82f6 !important;
+    background: var(--color-primary-light) !important;
+    border: 2px dashed var(--color-gold-dark) !important;
 }
 
 .sortable-drag {
@@ -360,7 +377,7 @@ body {
 }
 
 .sortable-chosen {
-    border-color: #2563eb !important;
+    border-color: var(--color-gold-dark) !important;
     box-shadow: 0 3px 8px rgba(37, 99, 235, 0.4) !important;
     background-color: #eff6ff !important;
 }
@@ -496,10 +513,10 @@ body {
 }
 
 .schedule-view-btn.active {
-    background-color: var(--color-primary);
-    color: white;
+    background-color: var(--color-black);
+    color: var(--color-gold);
     z-index: 10;
-    border-color: var(--color-primary);
+    border-color: var(--color-black);
     box-shadow: var(--shadow-sm);
 }
 
@@ -739,12 +756,12 @@ body {
 }
 
 .sortable-chosen {
-    border-color: #3b82f6;
+    border-color: var(--color-gold-dark);
 }
 
 /* ✨ Sortable Swap Target */
 .sortable-swap-highlight {
-    background-color: #dbeafe !important;
+    background-color: var(--color-primary-light) !important;
     border: 2px dashed #f59e0b !important;
     transform: scale(1.02);
     transition: all 0.2s;
@@ -812,7 +829,7 @@ body {
 }
 
 .template-variable {
-    background-color: #dbeafe;
+    background-color: var(--color-primary-light);
     color: #1e40af;
     padding: 2px 6px;
     border-radius: 4px;
@@ -857,9 +874,9 @@ body {
 /* ✅ 이벤트 카드 선택 스타일 */
 /* ✅ 이벤트 카드 선택 스타일 */
 .event-card.selected {
-    border-color: #2563eb !important;
+    border-color: var(--color-gold-dark) !important;
     background-color: #eff6ff !important;
-    box-shadow: 0 0 0 2px #3b82f6 !important;
+    box-shadow: 0 0 0 2px var(--color-gold-dark) !important;
     transform: translateY(-2px);
     z-index: 50 !important;
 }
@@ -988,7 +1005,7 @@ body {
 
 .event-slot.empty-slot:hover {
     background-color: #f3f4f6;
-    border-color: #3b82f6;
+    border-color: var(--color-gold-dark);
     border-style: solid;
 }
 
@@ -999,9 +1016,9 @@ body {
 
 /* ✅ 빈 슬롯 선택 스타일 */
 .event-slot.selected {
-    border-color: #2563eb !important;
-    background-color: #dbeafe !important;
-    box-shadow: 0 0 0 2px #3b82f6 !important;
+    border-color: var(--color-gold-dark) !important;
+    background-color: var(--color-primary-light) !important;
+    box-shadow: 0 0 0 2px var(--color-gold-dark) !important;
     border-style: solid !important;
     z-index: 50 !important;
 }
@@ -1342,12 +1359,10 @@ body {
    직원 포털 연차 통계 카드 (Glass Effect)
    ======================================== */
 #employee-portal .bg-blue-100 {
-    background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%) !important;
-    border: 1px solid rgba(59, 130, 246, 0.15);
+    background: linear-gradient(135deg, #f5edd4 0%, #faf7f0 100%) !important;
+    border: 1px solid rgba(184, 134, 11, 0.15);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-sm);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     transition: all var(--transition-smooth);
 }
 
@@ -1357,12 +1372,10 @@ body {
 }
 
 #employee-portal .bg-green-100 {
-    background: linear-gradient(135deg, #dcfce7 0%, #f0fdf4 100%) !important;
-    border: 1px solid rgba(22, 163, 74, 0.15);
+    background: linear-gradient(135deg, #e8e4d8 0%, #f2efe6 100%) !important;
+    border: 1px solid rgba(120, 100, 60, 0.12);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-sm);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     transition: all var(--transition-smooth);
 }
 
@@ -1372,12 +1385,10 @@ body {
 }
 
 #employee-portal .bg-yellow-100 {
-    background: linear-gradient(135deg, #fef3c7 0%, #fefce8 100%) !important;
-    border: 1px solid rgba(217, 119, 6, 0.15);
+    background: linear-gradient(135deg, #faf3e0 0%, #fdf8ee 100%) !important;
+    border: 1px solid rgba(184, 134, 11, 0.12);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-sm);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     transition: all var(--transition-smooth);
 }
 
