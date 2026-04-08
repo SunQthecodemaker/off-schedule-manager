@@ -1948,32 +1948,38 @@ async function handleLeaveBoxClick(e) {
     if (!box.classList.contains('used')) return;
 
     const requestId = box.dataset.requestId;
-    const type = box.dataset.type;
-
     if (!requestId) return;
 
-    if (type === 'manual') {
-        const request = state.management.leaveRequests.find(r => r.id == requestId);
-        if (request) {
-            const confirmMsg = `[관리자 수동 등록 건]\n\n` +
-                `등록일: ${dayjs(request.created_at).format('YYYY-MM-DD')} \n` +
-                `대상일: ${request.dates.join(', ')} \n` +
-                `사유: ${request.reason} \n\n` +
-                `이 연차 내역을 삭제하시겠습니까 ? `;
+    const request = state.management.leaveRequests.find(r => r.id == requestId);
+    if (!request) return;
 
-            if (confirm(confirmMsg)) {
-                try {
-                    const { error } = await db.from('leave_requests').delete().eq('id', requestId);
-                    if (error) throw error;
-                    alert('삭제되었습니다.');
-                    await window.loadAndRenderManagement();
-                } catch (err) {
-                    console.error(err);
-                    alert('삭제 중 오류가 발생했습니다: ' + err.message);
-                }
+    const dateStr = request.dates?.join(', ') || '';
+    const employee = state.management.employees.find(e => e.id === request.employee_id);
+    const empName = employee?.name || request.employee_name || '';
+
+    // 선택지: 1=신청서보기, 2=삭제, 취소
+    const action = prompt(
+        `[${empName}] ${dateStr}\n` +
+        `사유: ${request.reason || '-'}\n\n` +
+        `작업을 선택하세요:\n` +
+        `1 = 신청서 보기\n` +
+        `2 = 이 연차 삭제\n\n` +
+        `번호를 입력하세요:`
+    );
+
+    if (action === '2') {
+        if (confirm(`정말 삭제하시겠습니까?\n\n${empName} - ${dateStr}`)) {
+            try {
+                const { error } = await db.from('leave_requests').delete().eq('id', requestId);
+                if (error) throw error;
+                alert('삭제되었습니다.');
+                await window.loadAndRenderManagement();
+            } catch (err) {
+                console.error(err);
+                alert('삭제 중 오류가 발생했습니다: ' + err.message);
             }
         }
-    } else {
+    } else if (action === '1') {
         window.viewLeaveApplication(requestId);
     }
 }
