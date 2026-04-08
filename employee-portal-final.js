@@ -1008,21 +1008,23 @@ function openLeaveFormModal(dates) {
 
     _('#form-selected-dates').innerHTML = dates.sort().map(d => {
         const lt = state.employee.leaveTypes[d] || 'full';
-        const label = lt === 'full' ? '기본' : lt === 'am_half' ? '오전' : '오후';
-        return `<div class="inline-flex items-center bg-blue-100 text-blue-800 rounded mr-2 mb-2 overflow-hidden">
-            <span class="px-2 py-1">${d}</span>
-            <select data-date="${d}" class="leave-type-select bg-transparent border-l border-blue-200 text-xs py-1 pl-1 pr-4 cursor-pointer focus:outline-none" style="appearance:auto; -webkit-appearance:menulist; min-width:55px;">
-                <option value="full" ${lt==='full'?'selected':''}>기본</option>
+        const halfLabel = lt === 'am_half' ? ' 오전' : lt === 'pm_half' ? ' 오후' : '';
+        const bgClass = lt === 'full' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800';
+        return `<div class="inline-flex items-center ${bgClass} rounded mr-2 mb-2">
+            <span class="px-2 py-1">${d}${halfLabel}</span>
+            <select data-date="${d}" class="leave-type-select bg-transparent text-xs py-1 cursor-pointer focus:outline-none" style="width:16px; opacity:0.4; padding:0;">
+                <option value="full" ${lt==='full'?'selected':''}></option>
                 <option value="am_half" ${lt==='am_half'?'selected':''}>오전</option>
                 <option value="pm_half" ${lt==='pm_half'?'selected':''}>오후</option>
             </select>
         </div>`;
     }).join('');
 
-    // 드롭다운 변경 시 leaveType 업데이트
+    // 드롭다운 변경 시 leaveType 업데이트 + 리렌더
     _('#form-selected-dates').querySelectorAll('.leave-type-select').forEach(sel => {
         sel.addEventListener('change', () => {
             state.employee.leaveTypes[sel.dataset.date] = sel.value;
+            openLeaveFormModal([...state.employee.selectedDates]);
         });
     });
     _('#form-reason').value = '';
