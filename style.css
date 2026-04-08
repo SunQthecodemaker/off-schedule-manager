@@ -86,6 +86,99 @@ body {
 .bg-gray-300 { background-color: var(--color-bg-muted) !important; }
 .bg-gray-500 { background-color: #5a5247 !important; }
 
+/* ========================================
+   대시보드 통계 카드 (골드/블랙 테마)
+   ======================================== */
+.dash-card {
+    background: linear-gradient(135deg, #faf7f0 0%, #f5edd4 100%);
+    border: 1px solid rgba(184, 134, 11, 0.12);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+    padding: 1rem;
+    transition: all var(--transition-smooth);
+}
+.dash-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+.dash-card p:first-child {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+.dash-card p:last-child {
+    color: var(--color-text-heading);
+    font-weight: 700;
+}
+.dash-card-accent {
+    background: linear-gradient(135deg, #f5edd4 0%, #efe3c0 100%);
+    border-color: rgba(184, 134, 11, 0.2);
+}
+.dash-card-accent p:last-child {
+    color: var(--color-gold-dark);
+}
+.dash-card-warn {
+    background: linear-gradient(135deg, #fdf5e6 0%, #f9e8c8 100%);
+    border-color: rgba(184, 134, 11, 0.18);
+}
+.dash-card-warn p:last-child {
+    color: #a07608;
+}
+.dash-card-dark {
+    background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%);
+    border-color: rgba(201, 169, 110, 0.3);
+}
+.dash-card-dark p:first-child {
+    color: rgba(255, 255, 255, 0.6);
+}
+.dash-card-dark p:last-child {
+    color: var(--color-gold);
+}
+
+/* ========================================
+   스케줄 관리 버튼 (통일된 스타일)
+   ======================================== */
+.sch-btn {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.45rem 0.9rem;
+    border-radius: var(--radius-btn);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all var(--transition-smooth);
+    white-space: nowrap;
+}
+.sch-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.sch-btn-primary {
+    background-color: var(--color-black);
+    color: var(--color-gold);
+    border-color: var(--color-black);
+}
+.sch-btn-primary:hover:not(:disabled) {
+    background-color: #2d2d2d;
+    box-shadow: 0 2px 8px rgba(26, 26, 26, 0.25);
+}
+.sch-btn-secondary {
+    background-color: var(--color-gold-dark);
+    color: #fff;
+    border-color: var(--color-gold-dark);
+}
+.sch-btn-secondary:hover:not(:disabled) {
+    background-color: #a07608;
+    box-shadow: 0 2px 8px rgba(184, 134, 11, 0.3);
+}
+.sch-btn-ghost {
+    background-color: var(--color-bg-muted);
+    color: var(--color-text-body);
+    border-color: var(--color-border);
+}
+.sch-btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-border);
+}
+
 /* FullCalendar 툴바 버튼 간격 조정 */
 .fc-toolbar-chunk {
     display: flex;
@@ -531,74 +624,7 @@ body {
     margin-left: -1px;
 }
 
-#revert-schedule-btn,
-#save-schedule-btn,
-#print-schedule-btn,
-#reset-schedule-btn {
-    font-size: 0.875rem;
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius-pill);
-    font-weight: 600;
-    border: none;
-    transition: all var(--transition-base);
-    letter-spacing: 0.01em;
-}
-
-#revert-schedule-btn {
-    background-color: var(--color-bg-muted);
-    color: var(--color-text-body);
-    border: 1px solid var(--color-border);
-}
-
-#revert-schedule-btn:hover {
-    background-color: var(--color-border);
-    box-shadow: var(--shadow-sm);
-}
-
-#revert-schedule-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    box-shadow: none;
-}
-
-#reset-schedule-btn {
-    background-color: var(--color-success);
-    color: white;
-}
-
-#reset-schedule-btn:hover {
-    background-color: #15803d;
-    box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
-}
-
-#save-schedule-btn {
-    color: white;
-}
-
-#save-schedule-btn:not(:disabled) {
-    background-color: var(--color-primary);
-}
-
-#save-schedule-btn:not(:disabled):hover {
-    background-color: var(--color-primary-dark);
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-}
-
-#save-schedule-btn:disabled {
-    background-color: #94a3b8;
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-#print-schedule-btn {
-    background-color: var(--color-success);
-    color: white;
-}
-
-#print-schedule-btn:hover {
-    background-color: #15803d;
-    box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
-}
+/* 스케줄 버튼 스타일은 .sch-btn 클래스로 통합됨 */
 
 .handle {
     margin-right: 0.5rem;

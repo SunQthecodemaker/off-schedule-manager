@@ -129,11 +129,11 @@ function renderAdminSummary() {
         else if (req.status === 'pending') pending++;
     });
     _('#admin-summary').innerHTML = `
-        <div class="bg-blue-100 p-4 rounded"><p>전체 확정 연차</p><p class="text-xl font-bold">${total}일</p></div>
-        <div class="bg-green-100 p-4 rounded"><p>전체 사용 연차</p><p class="text-xl font-bold">${used}일</p></div>
-        <div class="bg-red-100 p-4 rounded"><p>전체 잔여 연차</p><p class="text-xl font-bold">${total - used}일</p></div>
-        <div class="bg-yellow-100 p-4 rounded"><p>승인 대기</p><p class="text-xl font-bold">${pending}건</p></div>
-        <div class="bg-indigo-100 p-4 rounded"><p>이 직원 수</p><p class="text-xl font-bold">${employees.length}명</p></div>
+        <div class="dash-card"><p>전체 확정 연차</p><p class="text-xl font-bold">${total}일</p></div>
+        <div class="dash-card"><p>전체 사용 연차</p><p class="text-xl font-bold">${used}일</p></div>
+        <div class="dash-card dash-card-accent"><p>전체 잔여 연차</p><p class="text-xl font-bold">${total - used}일</p></div>
+        <div class="dash-card dash-card-warn"><p>승인 대기</p><p class="text-xl font-bold">${pending}건</p></div>
+        <div class="dash-card dash-card-dark"><p>이 직원 수</p><p class="text-xl font-bold">${employees.length}명</p></div>
     `;
 }
 

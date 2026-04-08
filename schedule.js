@@ -3192,17 +3192,17 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     ` : `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
             <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
-                <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">통합 보기</button>
-                <button type="button" data-mode="working" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">근무자 보기</button>
-                <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">휴무자 보기</button>
+                <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md">통합 보기</button>
+                <button type="button" data-mode="working" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
-                <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
-                <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
-                <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
-                <button id="print-schedule-btn">🖨️ 인쇄하기</button>
-                <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
-                <button id="save-schedule-btn" disabled>💾 스케줄 저장</button>
+                <button id="confirm-schedule-btn" class="sch-btn sch-btn-primary">스케줄 확정</button>
+                <button id="import-last-month-btn" class="sch-btn sch-btn-secondary">지난달 불러오기</button>
+                <button id="reset-schedule-btn" class="sch-btn sch-btn-secondary">스케줄 리셋</button>
+                <button id="print-schedule-btn" class="sch-btn sch-btn-secondary">인쇄하기</button>
+                <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>되돌리기</button>
+                <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
             </div>
         </div>
     `;
