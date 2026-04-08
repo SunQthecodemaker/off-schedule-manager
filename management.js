@@ -1173,38 +1173,63 @@ export async function handleBulkRegister() {
     }
 }
 // =========================================================================================
-// 연차 관리 HTML (새로운 탭) — 주기별 네비게이션 지원
+// 연차 관리 HTML (새로운 탭) — 직원별 주기 네비게이션
 // =========================================================================================
 
-// 연차관리 탭의 주기 오프셋 (0=현재, -1=이전, -2=2기전...)
-let leaveMgmtPeriodOffset = 0;
+// 직원별 주기 오프셋 관리 {empId: offset}
+const leaveMgmtOffsets = {};
 
-window.changeLeaveMgmtPeriod = function(delta) {
-    leaveMgmtPeriodOffset += delta;
-    const container = document.getElementById('leave-mgmt-content');
-    if (container) {
-        container.innerHTML = getLeaveManagementInner();
+window.changeLeaveMgmtEmpPeriod = function(empId, delta) {
+    leaveMgmtOffsets[empId] = (leaveMgmtOffsets[empId] || 0) + delta;
+    const rowEl = document.getElementById(`leave-mgmt-row-${empId}`);
+    if (rowEl) {
+        const emp = state.management.employees.find(e => e.id === empId);
+        if (emp) rowEl.outerHTML = renderLeaveMgmtRow(emp);
     }
 };
 
-// 주기별 조정값 읽기 (adjustments JSONB에서)
-function getPeriodAdjustment(emp, periodStartStr) {
+// 주기별 조정값 읽기
+function getPeriodAdjustment(emp, periodStartStr, offset) {
     const adjs = emp.adjustments || {};
     const entry = adjs[periodStartStr];
     return {
-        adjustment: entry?.adjustment ?? (leaveMgmtPeriodOffset === 0 ? (emp.leave_adjustment || 0) : 0),
-        carried: entry?.carried ?? (leaveMgmtPeriodOffset === 0 ? (emp.carried_over_leave || 0) : 0)
+        adjustment: entry?.adjustment ?? (offset === 0 ? (emp.leave_adjustment || 0) : 0),
+        carried: entry?.carried ?? (offset === 0 ? (emp.carried_over_leave || 0) : 0)
     };
 }
 
 export function getLeaveManagementHTML() {
+    const { employees } = state.management;
+    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+
+    const headers = [
+        { name: '이름', width: '7%' },
+        { name: '입사일', width: '7%' },
+        { name: '근무', width: '5%' },
+        { name: '기준일', width: '6%' },
+        { name: '주기', width: '14%' },
+        { name: '법정', width: '4%' },
+        { name: '이월', width: '6%' },
+        { name: '조정', width: '6%' },
+        { name: '확정', width: '4%' },
+        { name: '사용', width: '4%' },
+        { name: '잔여', width: '4%' },
+        { name: '', width: '8%' }
+    ];
+    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width:${h.width};">${h.name}</th>`).join('');
+
+    const rows = validEmployees.map(emp => renderLeaveMgmtRow(emp)).join('');
+
     return `
         <div class="mb-3">
             <h2 class="text-lg font-semibold">연차 관리</h2>
-            <p class="text-sm text-gray-600 mt-1">직원별 연차 기준일과 조정값을 주기별로 관리합니다. ◀▶ 화살표로 주기를 전환하세요.</p>
+            <p class="text-sm text-gray-600 mt-1">직원별 ◀▶ 화살표로 주기를 전환하여 조정값을 입력하세요.</p>
         </div>
-        <div id="leave-mgmt-content">
-            ${getLeaveManagementInner()}
+        <div class="overflow-x-auto">
+            <table class="fixed-table whitespace-nowrap text-sm mb-6">
+                <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
         </div>
 
         <!-- 연차 정산 모달 -->
@@ -1220,121 +1245,81 @@ export function getLeaveManagementHTML() {
     `;
 }
 
-function getLeaveManagementInner() {
-    const { employees, leaveRequests } = state.management;
+function renderLeaveMgmtRow(emp) {
+    const { leaveRequests } = state.management;
+    const offset = leaveMgmtOffsets[emp.id] || 0;
+    const isCurrentPeriod = offset === 0;
 
-    const headers = [
-        { name: '이름', width: '8%' },
-        { name: '입사일', width: '8%' },
-        { name: '근무일수', width: '7%' },
-        { name: '연차 기준일', width: '9%' },
-        { name: '법정', width: '5%' },
-        { name: '전년 이월', width: '7%' },
-        { name: '조정', width: '7%' },
-        { name: '확정', width: '5%' },
-        { name: '사용', width: '5%' },
-        { name: '잔여', width: '5%' },
-        { name: '관리', width: '10%' }
-    ];
+    // 주기 계산
+    const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate || emp.entry_date);
+    const today = dayjs();
+    let renewalThisYear = dayjs(`${today.year()}-${baseDate.format('MM-DD')}`);
+    let pStart, pEnd;
+    if (!today.isBefore(renewalThisYear)) {
+        pStart = renewalThisYear;
+        pEnd = renewalThisYear.add(1, 'year').subtract(1, 'day');
+    } else {
+        pStart = renewalThisYear.subtract(1, 'year');
+        pEnd = renewalThisYear.subtract(1, 'day');
+    }
+    pStart = pStart.add(offset, 'year');
+    pEnd = pEnd.add(offset, 'year');
 
-    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width: ${h.width};">${h.name}</th>`).join('');
+    const periodStartStr = pStart.format('YYYY-MM-DD');
+    const periodLabel = `${pStart.format('YY.MM.DD')} ~`;
 
-    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+    // 법정 연차
+    const leaveData = getLeaveDetails(emp, pStart.add(1, 'day').toDate());
 
-    const isCurrentPeriod = leaveMgmtPeriodOffset === 0;
+    // 주기별 조정값
+    const periodAdj = getPeriodAdjustment(emp, periodStartStr, offset);
+    const finalLeaves = leaveData.legal + periodAdj.adjustment + periodAdj.carried;
 
-    const rows = validEmployees.map(emp => {
-        // 주기 오프셋 적용한 기준일 계산
-        const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate || emp.entry_date);
-        const today = dayjs();
-        let renewalThisYear = dayjs(`${today.year()}-${baseDate.format('MM-DD')}`);
-        let pStart, pEnd;
-        if (!today.isBefore(renewalThisYear)) {
-            pStart = renewalThisYear;
-            pEnd = renewalThisYear.add(1, 'year').subtract(1, 'day');
-        } else {
-            pStart = renewalThisYear.subtract(1, 'year');
-            pEnd = renewalThisYear.subtract(1, 'day');
-        }
-        // 오프셋 적용
-        pStart = pStart.add(leaveMgmtPeriodOffset, 'year');
-        pEnd = pEnd.add(leaveMgmtPeriodOffset, 'year');
+    // 사용량
+    const used = leaveRequests
+        .filter(r => r.employee_id === emp.id && r.status === 'approved')
+        .reduce((sum, r) => {
+            const validDates = (r.dates || []).filter(dateStr => {
+                const d = dayjs(dateStr);
+                return (d.isSame(pStart, 'day') || d.isAfter(pStart, 'day')) && (d.isSame(pEnd, 'day') || d.isBefore(pEnd, 'day'));
+            });
+            return sum + validDates.length;
+        }, 0);
 
-        const periodStartStr = pStart.format('YYYY-MM-DD');
+    const remaining = finalLeaves - used;
+    const entryDateValue = (emp.entryDate || emp.entry_date) ? dayjs(emp.entryDate || emp.entry_date).format('YY.MM.DD') : '';
+    const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : '';
+    const workDaysValue = emp.work_days_per_week || 5;
 
-        // 해당 주기의 법정 연차 계산 (주기 시작일 기준)
-        const leaveData = getLeaveDetails(emp, pStart.format('YYYY-MM-DD'));
-
-        // 주기별 조정값 읽기
-        const periodAdj = getPeriodAdjustment(emp, periodStartStr);
-        const finalLeaves = leaveData.legal + periodAdj.adjustment + periodAdj.carried;
-
-        // 해당 주기의 사용량
-        const used = leaveRequests
-            .filter(r => r.employee_id === emp.id && r.status === 'approved')
-            .reduce((sum, r) => {
-                const validDates = (r.dates || []).filter(dateStr => {
-                    const d = dayjs(dateStr);
-                    return (d.isSame(pStart, 'day') || d.isAfter(pStart, 'day')) && (d.isSame(pEnd, 'day') || d.isBefore(pEnd, 'day'));
-                });
-                return sum + validDates.length;
-            }, 0);
-
-        const remaining = finalLeaves - used;
-        const entryDateValue = (emp.entryDate || emp.entry_date) ? dayjs(emp.entryDate || emp.entry_date).format('YYYY-MM-DD') : '';
-        const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : '';
-        const workDaysValue = emp.work_days_per_week || 5;
-
-        return `<tr class="border-t" data-period-start="${periodStartStr}">
-            <td class="p-2 text-sm font-semibold">${emp.name}</td>
-            <td class="p-2 text-sm">${entryDateValue}</td>
-            <td class="p-2">
-                ${isCurrentPeriod ? `<select id="leave-workdays-${emp.id}" class="table-input text-center text-xs w-16">
-                    ${[1,2,3,4,5,6,7].map(n => `<option value="${n}" ${workDaysValue===n?'selected':''}>\u{C8FC}${n}\u{C77C}</option>`).join('')}
-                </select>` : `<span class="text-xs text-gray-500">\u{C8FC}${workDaysValue}\u{C77C}</span>`}
-            </td>
-            <td class="p-2">
-                ${isCurrentPeriod ? `<input type="text" id="leave-renewal-${emp.id}" value="${renewalDateValue}" placeholder="MM-DD" maxlength="5" class="table-input text-center text-xs w-16">` : `<span class="text-xs">${renewalDateValue || '-'}</span>`}
-            </td>
-            <td class="p-2 text-sm text-center">${leaveData.legal}</td>
-            <td class="p-2"><input type="number" id="leave-carried-${emp.id}" value="${periodAdj.carried}" step="0.5" class="table-input text-center text-xs w-16"></td>
-            <td class="p-2"><input type="number" id="leave-adj-${emp.id}" value="${periodAdj.adjustment}" step="0.5" class="table-input text-center text-xs w-16"></td>
-            <td class="p-2 text-sm text-center font-bold">${finalLeaves}</td>
-            <td class="p-2 text-sm text-center">${used}</td>
-            <td class="p-2 text-sm text-center font-bold ${remaining < 0 ? 'text-red-600' : ''}">${remaining}</td>
-            <td class="p-2 text-center">
-                <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateLeave(${emp.id}, '${periodStartStr}')">저장</button>
-                ${isCurrentPeriod ? `<button class="text-xs bg-purple-500 text-white px-2 py-1 rounded ml-1" onclick="window.openSettlementModal(${emp.id})">정산</button>` : ''}
-            </td>
-        </tr>`;
-    }).join('');
-
-    const periodLabel = validEmployees.length > 0 ? (() => {
-        const emp = validEmployees[0];
-        const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate || emp.entry_date);
-        const today = dayjs();
-        let renewalThisYear = dayjs(`${today.year()}-${baseDate.format('MM-DD')}`);
-        let pStart = !today.isBefore(renewalThisYear) ? renewalThisYear : renewalThisYear.subtract(1, 'year');
-        pStart = pStart.add(leaveMgmtPeriodOffset, 'year');
-        return pStart.format('YYYY');
-    })() : dayjs().year();
-
-    const periodText = isCurrentPeriod ? `${periodLabel}년 (현재 주기)` : `${periodLabel}년 주기 (${leaveMgmtPeriodOffset > 0 ? '+' : ''}${leaveMgmtPeriodOffset})`;
-
-    return `
-        <div class="flex items-center gap-3 mb-4">
-            <button onclick="window.changeLeaveMgmtPeriod(-1)" class="px-3 py-1 rounded border hover:bg-gray-100">◀ 이전</button>
-            <span class="text-sm font-semibold ${isCurrentPeriod ? 'text-blue-600' : 'text-gray-600'}">${periodText}</span>
-            <button onclick="window.changeLeaveMgmtPeriod(1)" class="px-3 py-1 rounded border hover:bg-gray-100">다음 ▶</button>
-            ${!isCurrentPeriod ? `<button onclick="leaveMgmtPeriodOffset=0;window.changeLeaveMgmtPeriod(0);" class="text-xs px-2 py-1 rounded bg-gray-200">현재 주기로</button>` : ''}
-        </div>
-        <div class="overflow-x-auto">
-            <table class="fixed-table whitespace-nowrap text-sm mb-6">
-                <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-    `;
+    return `<tr class="border-t" id="leave-mgmt-row-${emp.id}" data-period-start="${periodStartStr}">
+        <td class="p-2 text-sm font-semibold">${emp.name}</td>
+        <td class="p-2 text-xs">${entryDateValue}</td>
+        <td class="p-2">
+            ${isCurrentPeriod ? `<select id="leave-workdays-${emp.id}" class="table-input text-center text-xs w-14">
+                ${[1,2,3,4,5,6,7].map(n => `<option value="${n}" ${workDaysValue===n?'selected':''}>주${n}일</option>`).join('')}
+            </select>` : `<span class="text-xs text-gray-500">주${workDaysValue}일</span>`}
+        </td>
+        <td class="p-2">
+            ${isCurrentPeriod ? `<input type="text" id="leave-renewal-${emp.id}" value="${renewalDateValue}" placeholder="MM-DD" maxlength="5" class="table-input text-center text-xs w-14">` : `<span class="text-xs">${renewalDateValue || '-'}</span>`}
+        </td>
+        <td class="p-2">
+            <div class="flex items-center gap-1">
+                <button onclick="window.changeLeaveMgmtEmpPeriod(${emp.id},-1)" class="text-gray-400 hover:text-gray-700 text-xs">◀</button>
+                <span class="text-[10px] px-1 py-0.5 border rounded ${isCurrentPeriod ? 'bg-gray-100 text-gray-600' : 'bg-blue-50 text-blue-700 font-bold'}">${periodLabel}</span>
+                <button onclick="window.changeLeaveMgmtEmpPeriod(${emp.id},1)" class="text-gray-400 hover:text-gray-700 text-xs">▶</button>
+            </div>
+        </td>
+        <td class="p-2 text-sm text-center">${leaveData.legal}</td>
+        <td class="p-2"><input type="number" id="leave-carried-${emp.id}" value="${periodAdj.carried}" step="0.5" class="table-input text-center text-xs w-14"></td>
+        <td class="p-2"><input type="number" id="leave-adj-${emp.id}" value="${periodAdj.adjustment}" step="0.5" class="table-input text-center text-xs w-14"></td>
+        <td class="p-2 text-sm text-center font-bold">${finalLeaves}</td>
+        <td class="p-2 text-sm text-center">${used}</td>
+        <td class="p-2 text-sm text-center font-bold ${remaining < 0 ? 'text-red-600' : ''}">${remaining}</td>
+        <td class="p-2 text-center">
+            <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded" onclick="handleUpdateLeave(${emp.id},'${periodStartStr}')">저장</button>
+            ${isCurrentPeriod ? `<button class="text-xs bg-purple-500 text-white px-2 py-1 rounded ml-1" onclick="window.openSettlementModal(${emp.id})">정산</button>` : ''}
+        </td>
+    </tr>`;
 
     return `
         <div class="mb-3" >
@@ -1589,7 +1574,8 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
     let updateData = { adjustments };
 
     // 현재 주기면 기존 필드도 함께 업데이트
-    if (leaveMgmtPeriodOffset === 0) {
+    const empOffset = leaveMgmtOffsets[id] || 0;
+    if (empOffset === 0) {
         let leave_renewal_date = _(`#leave-renewal-${id}`)?.value || null;
         if (leave_renewal_date && /^\d{2}-\d{2}$/.test(leave_renewal_date)) {
             leave_renewal_date = `2000-${leave_renewal_date}`;
@@ -1610,13 +1596,18 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
     if (error) {
         alert('연차 정보 업데이트 실패: ' + error.message);
     } else {
-        if (!error && data) { // Check if we already alerted in fallback
-            // logic already handled check above slightly redundantly but safe
-            if (updateData.carried_over_leave !== undefined) {
-                alert('연차 정보가 성공적으로 저장되었습니다.');
+        if (!error && data && data[0]) {
+            // state 업데이트 (adjustments 반영)
+            const empIdx = state.management.employees.findIndex(e => e.id === id);
+            if (empIdx >= 0) {
+                state.management.employees[empIdx] = { ...state.management.employees[empIdx], ...data[0], entryDate: data[0].entryDate || data[0].entry_date };
             }
+            alert('저장되었습니다.');
+            // 해당 행만 새로고침
+            const rowEl = document.getElementById(`leave-mgmt-row-${id}`);
+            const emp = state.management.employees.find(e => e.id === id);
+            if (rowEl && emp) rowEl.outerHTML = renderLeaveMgmtRow(emp);
         }
-        await window.loadAndRenderManagement();
     }
 };
 // =========================================================================================
