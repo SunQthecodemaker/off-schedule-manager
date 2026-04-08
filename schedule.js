@@ -3197,14 +3197,8 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
-                <span class="text-gray-300">|</span>
-                <button id="sync-appsheet-btn" class="bg-gray-500 text-white hover:bg-gray-600 px-2 py-1 text-sm rounded" title="직원/연차 정보 전송">📤 동기화</button>
-                <button id="import-appsheet-btn" class="bg-gray-500 text-white hover:bg-gray-600 px-2 py-1 text-sm rounded" title="스케줄 가져오기">📥 가져오기</button>
-                <button id="appsheet-settings-btn" class="text-gray-400 hover:text-gray-600" title="AppSheet 연동 설정">⚙️</button>
-                <span class="text-gray-300">|</span>
                 <button id="confirm-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">스케줄 확정</button>
                 <button id="import-last-month-btn" class="bg-blue-600 text-white hover:bg-blue-700">📅 지난달 불러오기</button>
-                <button id="auto-schedule-btn" class="bg-indigo-600 text-white hover:bg-indigo-700">🤖 자동 배정</button>
                 <button id="reset-schedule-btn" class="bg-green-600 text-white hover:bg-green-700">🔄 스케줄 리셋</button>
                 <button id="print-schedule-btn">🖨️ 인쇄하기</button>
                 <button id="revert-schedule-btn" disabled>🔄 되돌리기</button>
