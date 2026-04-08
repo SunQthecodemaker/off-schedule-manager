@@ -1008,19 +1008,21 @@ function openLeaveFormModal(dates) {
 
     _('#form-selected-dates').innerHTML = dates.sort().map(d => {
         const lt = state.employee.leaveTypes[d] || 'full';
-        const label = lt === 'full' ? d : lt === 'am_half' ? `${d} 오전반차` : `${d} 오후반차`;
-        const bgClass = lt === 'full' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800';
-        return `<span class="inline-block ${bgClass} px-2 py-1 rounded mr-2 mb-2 cursor-pointer select-none" data-date="${d}" title="더블클릭: 반차 전환">${label}</span>`;
+        const label = lt === 'full' ? '기본' : lt === 'am_half' ? '오전' : '오후';
+        return `<div class="inline-flex items-center bg-blue-100 text-blue-800 rounded mr-2 mb-2 overflow-hidden">
+            <span class="px-2 py-1">${d}</span>
+            <select data-date="${d}" class="leave-type-select bg-transparent border-l border-blue-200 text-xs py-1 pl-1 pr-4 cursor-pointer focus:outline-none" style="appearance:auto; -webkit-appearance:menulist; min-width:55px;">
+                <option value="full" ${lt==='full'?'selected':''}>기본</option>
+                <option value="am_half" ${lt==='am_half'?'selected':''}>오전</option>
+                <option value="pm_half" ${lt==='pm_half'?'selected':''}>오후</option>
+            </select>
+        </div>`;
     }).join('');
 
-    // 날짜 더블클릭 → full → am_half → pm_half → full 순환
-    _('#form-selected-dates').querySelectorAll('span[data-date]').forEach(el => {
-        el.addEventListener('dblclick', () => {
-            const d = el.dataset.date;
-            const cur = state.employee.leaveTypes[d] || 'full';
-            const next = cur === 'full' ? 'am_half' : cur === 'am_half' ? 'pm_half' : 'full';
-            state.employee.leaveTypes[d] = next;
-            openLeaveFormModal([...state.employee.selectedDates]); // 리렌더
+    // 드롭다운 변경 시 leaveType 업데이트
+    _('#form-selected-dates').querySelectorAll('.leave-type-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+            state.employee.leaveTypes[sel.dataset.date] = sel.value;
         });
     });
     _('#form-reason').value = '';
