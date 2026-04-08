@@ -1002,9 +1002,27 @@ function initializeEmployeeCalendar(approvedRequests) {
 
 function openLeaveFormModal(dates) {
     _('#form-applicant-name').textContent = state.currentUser.name;
-    _('#form-selected-dates').innerHTML = dates.sort().map(d =>
-        `<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded mr-2 mb-2">${d}</span>`
-    ).join('');
+    // 날짜별 leave_type 관리 (기본 full)
+    if (!state.employee.leaveTypes) state.employee.leaveTypes = {};
+    dates.forEach(d => { if (!state.employee.leaveTypes[d]) state.employee.leaveTypes[d] = 'full'; });
+
+    _('#form-selected-dates').innerHTML = dates.sort().map(d => {
+        const lt = state.employee.leaveTypes[d] || 'full';
+        const label = lt === 'full' ? d : lt === 'am_half' ? `${d} 오전반차` : `${d} 오후반차`;
+        const bgClass = lt === 'full' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800';
+        return `<span class="inline-block ${bgClass} px-2 py-1 rounded mr-2 mb-2 cursor-pointer select-none" data-date="${d}" title="더블클릭: 반차 전환">${label}</span>`;
+    }).join('');
+
+    // 날짜 더블클릭 → full → am_half → pm_half → full 순환
+    _('#form-selected-dates').querySelectorAll('span[data-date]').forEach(el => {
+        el.addEventListener('dblclick', () => {
+            const d = el.dataset.date;
+            const cur = state.employee.leaveTypes[d] || 'full';
+            const next = cur === 'full' ? 'am_half' : cur === 'am_half' ? 'pm_half' : 'full';
+            state.employee.leaveTypes[d] = next;
+            openLeaveFormModal([...state.employee.selectedDates]); // 리렌더
+        });
+    });
     _('#form-reason').value = '';
 
     _('#form-reason').value = '';
@@ -1104,17 +1122,41 @@ export async function handleSubmitLeaveRequest() {
     }
 
     try {
-        const { error } = await db.from('leave_requests').insert({
-            employee_id: state.currentUser.id,
-            employee_name: state.currentUser.name,
-            dates: dates,
-            reason: reason || null,
-            signature: signatureData,
-            status: 'pending',
-            created_at: new Date().toISOString()
-        });
+        // 반차와 연차를 분리하여 INSERT
+        const leaveTypes = state.employee.leaveTypes || {};
+        const fullDates = dates.filter(d => (leaveTypes[d] || 'full') === 'full');
+        const halfDates = dates.filter(d => leaveTypes[d] === 'am_half' || leaveTypes[d] === 'pm_half');
 
+        const inserts = [];
+        if (fullDates.length > 0) {
+            inserts.push({
+                employee_id: state.currentUser.id,
+                employee_name: state.currentUser.name,
+                dates: fullDates,
+                reason: reason || null,
+                signature: signatureData,
+                status: 'pending',
+                leave_type: 'full',
+                created_at: new Date().toISOString()
+            });
+        }
+        // 반차는 개별 INSERT (각각 다른 leave_type)
+        for (const d of halfDates) {
+            inserts.push({
+                employee_id: state.currentUser.id,
+                employee_name: state.currentUser.name,
+                dates: [d],
+                reason: reason || null,
+                signature: signatureData,
+                status: 'pending',
+                leave_type: leaveTypes[d],
+                created_at: new Date().toISOString()
+            });
+        }
+
+        const { error } = await db.from('leave_requests').insert(inserts);
         if (error) throw error;
+        state.employee.leaveTypes = {}; // 초기화
 
         alert('연차 신청이 완료되었습니다.');
         closeLeaveFormModal();

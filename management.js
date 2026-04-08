@@ -1712,14 +1712,16 @@ export function getLeaveStatusHTML() {
                     .map(date => ({
                         date: date,
                         type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
-                        requestId: req.id
+                        requestId: req.id,
+                        leaveType: req.leave_type || 'full'
                     }));
             })
             .sort((a, b) => new Date(a.date) - new Date(b.date));
 
         // 올해 사용한 날짜 배열의 맨 앞에, 작년 당겨쓰기 날짜들을 그대로 삽입
         let usedDates = [...borrowedPastDates, ...currentDates];
-        const usedDays = usedDates.length;
+        // 반차는 0.5일로 계산
+        const usedDays = usedDates.reduce((sum, d) => sum + (d.leaveType === 'am_half' || d.leaveType === 'pm_half' ? 0.5 : 1), 0);
 
         // 수동 이월값(마이너스)이 있다면 무시하고 최소 0으로 방어 (자동 추출하므로 충돌 방지)
         let actualCarriedOverCnt = leaveDetails.carriedOverCnt;
@@ -1834,7 +1836,18 @@ export function getLeaveStatusHTML() {
                 top: 2px; right: 2px;
                 width: 4px; height: 4px;
                 border-radius: 50%;
-                background-color: #eab308; /* yellow-500 */
+                background-color: #eab308;
+            }
+            .leave-box.half-day {
+                font-size: 7px !important;
+                background: repeating-linear-gradient(
+                    45deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(184, 134, 11, 0.08) 2px,
+                    rgba(184, 134, 11, 0.08) 4px
+                ) !important;
+                border-style: dashed !important;
             }
         </style>
     <div class="leave-status-container">
@@ -1948,16 +1961,25 @@ function getLeaveStatusRow(emp) {
                 const dateVal = usedDateObj.date || usedDateObj;
                 const type = usedDateObj.type || 'formal';
                 const requestId = usedDateObj.requestId || '';
+                const leaveType = usedDateObj.leaveType || 'full';
 
                 displayText = dayjs(dateVal).format('M.D');
 
-                // 작년 당겨쓰기 분이 첫 칸에 배치되더라도, 스타일링이나 로직상 금년 사용과 완벽히 동일하게 취급됨
+                // 반차 표시
+                if (leaveType === 'am_half') {
+                    displayText += '오전';
+                    boxClass += ' half-day';
+                } else if (leaveType === 'pm_half') {
+                    displayText += '오후';
+                    boxClass += ' half-day';
+                }
 
                 if (type === 'manual') {
                     boxClass += ' manual-entry';
                 }
 
-                dataAttrs = `data-request-id="${requestId}" data-type="${type}" title="${boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용'}: ${dateVal}"`;
+                const typeTitle = leaveType === 'am_half' ? '오전반차' : leaveType === 'pm_half' ? '오후반차' : (boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용');
+                dataAttrs = `data-request-id="${requestId}" data-type="${type}" title="${typeTitle}: ${dateVal}"`;
             }
         }
         // 미사용 상태 (빈칸)
@@ -2274,7 +2296,14 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
         return;
     }
 
-    if (confirm(`${name}님의 ${inputDate} 연차를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
+    // 반차 옵션 (숨김 - 번호 입력으로)
+    const typeInput = prompt(`${name}님의 ${inputDate} 연차 유형:\n1 = 연차 (1일) [기본]\n2 = 오전반차 (0.5일)\n3 = 오후반차 (0.5일)\n\n번호 입력 (엔터=연차):`, '1');
+    if (typeInput === null) return;
+    const leaveTypeMap = { '1': 'full', '2': 'am_half', '3': 'pm_half' };
+    const leaveType = leaveTypeMap[typeInput?.trim()] || 'full';
+    const typeLabel = leaveType === 'full' ? '연차' : leaveType === 'am_half' ? '오전반차' : '오후반차';
+
+    if (confirm(`${name}님의 ${inputDate} ${typeLabel}를 '관리자 수동 등록'으로 처리하시겠습니까?`)) {
         try {
             // 1. Leave Request 생성
             // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
@@ -2305,6 +2334,7 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
                 dates: [dateStr],
                 reason: finalReason,
                 status: 'approved',
+                leave_type: leaveType,
                 final_manager_id: state.currentUser.id,
                 final_manager_status: 'approved',
                 created_at: new Date().toISOString()
