@@ -52,9 +52,9 @@ export async function renderEmployeePortal() {
             : renewalThisYear;
         renewalDateText = nextRenewal.format('YYYY-MM-DD');
         renewalDateShort = nextRenewal.format('YY-MM-DD');
-    } else if (user.entryDate) {
+    } else if (user.entryDate || user.entry_date) {
         const today = dayjs();
-        const entryAnniversaryThisYear = dayjs(user.entryDate).year(today.year());
+        const entryAnniversaryThisYear = dayjs(user.entryDate || user.entry_date).year(today.year());
         const nextAnniversary = today.isAfter(entryAnniversaryThisYear)
             ? entryAnniversaryThisYear.add(1, 'year')
             : entryAnniversaryThisYear;
