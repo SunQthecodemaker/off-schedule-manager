@@ -39,7 +39,7 @@ async function loadManagementData() {
         if (departmentsRes.error) throw departmentsRes.error;
 
         state.management.leaveRequests = requestsRes.data || [];
-        state.management.employees = employeesRes.data || [];
+        state.management.employees = (employeesRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
         state.management.templates = templatesRes.data || [];
         state.management.submittedDocs = docsRes.data || [];
         state.management.issues = issuesRes.data || [];
@@ -240,6 +240,7 @@ async function checkAuth() {
         }
 
         if (employee) {
+            employee.entryDate = employee.entryDate || employee.entry_date;
             state.currentUser = employee;
             state.currentUser.auth_uuid = session.user.id;
             state.userRole = 'admin';
@@ -279,6 +280,7 @@ async function handleEmployeeLogin(e) {
             return;
         }
 
+        employee.entryDate = employee.entryDate || employee.entry_date;
         state.currentUser = employee;
         state.userRole = 'employee';
         render();
