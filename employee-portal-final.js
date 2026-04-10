@@ -657,8 +657,9 @@ async function loadEmployeeData() {
         // 인라인 연차 박스 컨테이너 렌더링
         renderEmployeeLeaveGrid(newFinalLeaves, actualCarriedOverCnt, usedDays, state.currentUser.usedDates, offset, pStart, pEnd);
 
+        const pending = requests.filter(r => r.status === 'pending');
         renderMyLeaveRequests(requests);
-        initializeEmployeeCalendar(approved);
+        initializeEmployeeCalendar(approved, pending);
         renderDocumentRequests();
         renderSubmittedDocuments();
         updateDocumentBadge();
@@ -906,7 +907,7 @@ function renderMyLeaveRequests(requests) {
 let selectedDatesForLeave = [];
 let employeeCalendarInstance = null;
 
-function initializeEmployeeCalendar(approvedRequests) {
+function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
     const container = _('#employee-calendar-container');
 
     if (!container) return;
@@ -921,6 +922,7 @@ function initializeEmployeeCalendar(approvedRequests) {
     }
 
     const approvedDates = approvedRequests.flatMap(r => r.dates || []);
+    const pendingDates = pendingRequests.flatMap(r => r.dates || []);
     selectedDatesForLeave.length = 0;
 
     container.innerHTML = '';
@@ -968,6 +970,14 @@ function initializeEmployeeCalendar(approvedRequests) {
                     textColor: '#ffffff',
                     classNames: ['approved-leave']
                 })),
+                ...pendingDates.map(date => ({
+                    title: '승인 대기중',
+                    start: date,
+                    allDay: true,
+                    color: '#f59e0b',
+                    textColor: '#ffffff',
+                    classNames: ['pending-leave']
+                })),
                 ...selectedDatesForLeave.map(date => ({
                     title: '선택됨',
                     start: date,
@@ -984,6 +994,10 @@ function initializeEmployeeCalendar(approvedRequests) {
 
             if (approvedDates.includes(dateStr)) {
                 alert('이미 승인된 연차가 있는 날짜입니다.');
+                return;
+            }
+            if (pendingDates.includes(dateStr)) {
+                alert('이미 승인 대기중인 연차가 있는 날짜입니다.');
                 return;
             }
 

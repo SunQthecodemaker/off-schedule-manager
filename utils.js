@@ -5,9 +5,9 @@ export const hide = (selector) => _(selector)?.classList.add('hidden');
 
 export function resizeGivenCanvas(canvas, pad) {
     if (!canvas || !canvas.parentElement.offsetParent) return;
-    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-    canvas.width = canvas.offsetWidth * ratio;
-    canvas.height = canvas.offsetHeight * ratio;
-    canvas.getContext("2d").scale(ratio, ratio);
+    // CSS 크기와 canvas 내부 해상도를 일치시켜 마우스 오차 제거
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
     if (pad) pad.clear();
 }
