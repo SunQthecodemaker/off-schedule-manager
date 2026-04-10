@@ -1029,8 +1029,6 @@ function openLeaveFormModal(dates) {
     });
     _('#form-reason').value = '';
 
-    _('#form-reason').value = '';
-
     const canvas = _('#signature-canvas');
     if (canvas) {
         resizeGivenCanvas(canvas, window.signaturePad);

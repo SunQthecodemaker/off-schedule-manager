@@ -1825,7 +1825,7 @@ async function loadAndRenderScheduleData(date) {
         await renderScheduleSidebar();
 
         // 관리자 모드일 경우 확정 상태 체크
-        if (state.currentUser?.isManager) {
+        if (state.currentUser?.isManager || state.currentUser?.role === 'admin') {
             await checkScheduleConfirmationStatus();
         }
 

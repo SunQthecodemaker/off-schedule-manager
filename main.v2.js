@@ -241,11 +241,25 @@ async function checkAuth() {
 
         if (employee) {
             employee.entryDate = employee.entryDate || employee.entry_date;
+            // role 필드와 isManager 동기화
+            if (employee.role === 'manager' || employee.isManager) {
+                employee.isManager = true;
+            }
             state.currentUser = employee;
             state.currentUser.auth_uuid = session.user.id;
-            state.userRole = 'admin';
-            state.management.activeTab = 'leaveList';
-            assignManagementEventHandlers();
+
+            // role에 따라 포털 분기
+            if (employee.role === 'admin') {
+                state.userRole = 'admin';
+                state.management.activeTab = 'leaveList';
+                assignManagementEventHandlers();
+            } else if (employee.role === 'manager' || employee.isManager) {
+                // 매니저는 직원 포털 + 매니저 탭
+                state.userRole = 'employee';
+            } else {
+                // 일반 직원은 Supabase Auth 로그인 허용하지만 직원 포털
+                state.userRole = 'employee';
+            }
         } else {
             console.warn('인증된 사용자의 이메일이 직원 목록에 없습니다.');
             await handleLogout();
@@ -281,6 +295,10 @@ async function handleEmployeeLogin(e) {
         }
 
         employee.entryDate = employee.entryDate || employee.entry_date;
+        // role 필드와 isManager 동기화
+        if (employee.role === 'manager' || employee.isManager) {
+            employee.isManager = true;
+        }
         state.currentUser = employee;
         state.userRole = 'employee';
         render();
