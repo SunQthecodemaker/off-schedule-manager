@@ -1001,6 +1001,17 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                 return;
             }
 
+            // 과거 날짜 선택 시: 관리자가 승인한 서류가 있어야 신청 가능
+            const today = dayjs().format('YYYY-MM-DD');
+            if (dateStr < today) {
+                const completedDocs = (state.employee.documentRequests || [])
+                    .filter(req => req.status === 'completed' || req.status === 'approved');
+                if (completedDocs.length === 0) {
+                    alert('⚠️ 과거 날짜에 대한 연차 신청은\n관리자의 서류 제출 요청 → 서류 제출 완료 후 가능합니다.\n\n관리자에게 서류 제출 요청(경위서 등)을 요청해주세요.');
+                    return;
+                }
+            }
+
             const index = selectedDatesForLeave.indexOf(dateStr);
             if (index > -1) {
                 selectedDatesForLeave.splice(index, 1);
@@ -1073,15 +1084,6 @@ function openLeaveFormModal(dates) {
     });
     _('#form-reason').value = '';
 
-    const canvas = _('#signature-canvas');
-    if (canvas) {
-        resizeGivenCanvas(canvas, window.signaturePad);
-        if (!window.signaturePad) {
-            window.signaturePad = new SignaturePad(canvas);
-        }
-        window.signaturePad.clear();
-    }
-
     // 당겨쓰기 계산 로직
     const requestDays = dates.length;
     // 현재 잔여 연차 계산 (UI에서 가져오거나 다시 계산)
@@ -1121,6 +1123,24 @@ function openLeaveFormModal(dates) {
 
     state.employee.selectedDates = dates;
     show('#leave-form-modal');
+
+    // 모달이 보인 후 canvas 초기화 (크기 정확히 잡기 위해 requestAnimationFrame 사용)
+    requestAnimationFrame(() => {
+        const canvas = _('#signature-canvas');
+        if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            if (!window.signaturePad) {
+                window.signaturePad = new SignaturePad(canvas, {
+                    penColor: '#000000',
+                    backgroundColor: 'rgba(255, 255, 255, 0)'
+                });
+            } else {
+                window.signaturePad.clear();
+            }
+        }
+    });
 }
 
 window.openLeaveFormModal = openLeaveFormModal;
@@ -1145,6 +1165,7 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
+    // 미제출 서류 체크
     const { data: pendingRequests, error: checkError } = await db.from('document_requests')
         .select('*')
         .eq('employee_id', state.currentUser.id)
@@ -1153,6 +1174,21 @@ export async function handleSubmitLeaveRequest() {
     if (pendingRequests && pendingRequests.length > 0) {
         alert('⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.');
         return;
+    }
+
+    // 과거 날짜 포함 시 승인된 서류 필요
+    const today = dayjs().format('YYYY-MM-DD');
+    const hasPastDates = dates.some(d => d < today);
+    if (hasPastDates) {
+        const { data: completedDocs } = await db.from('document_requests')
+            .select('*')
+            .eq('employee_id', state.currentUser.id)
+            .in('status', ['completed', 'approved']);
+
+        if (!completedDocs || completedDocs.length === 0) {
+            alert('⚠️ 과거 날짜에 대한 연차 신청은\n관리자의 서류 승인이 필요합니다.\n\n관리자에게 서류 제출 요청을 받은 후 진행해주세요.');
+            return;
+        }
     }
 
     // 당겨쓰기 동의 체크 확인
