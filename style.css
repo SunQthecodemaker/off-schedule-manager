@@ -294,6 +294,10 @@ body {
     overflow: hidden;
 }
 
+.calendar-grid-readonly {
+    grid-template-columns: 0.2fr repeat(6, 1fr) !important;
+}
+
 .calendar-header {
     background-color: var(--color-bg-muted);
     padding: 0.75rem;

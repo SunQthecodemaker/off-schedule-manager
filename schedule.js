@@ -1232,7 +1232,8 @@ function renderCalendar() {
     const startDate = firstDay.startOf('week');
     const endDate = lastDay.endOf('week');
 
-    let calendarHTML = '<div class="calendar-grid">';
+    const gridClass = state.schedule.isReadOnly ? 'calendar-grid calendar-grid-readonly' : 'calendar-grid';
+    let calendarHTML = `<div class="${gridClass}">`;
 
     const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
     weekDays.forEach((day, idx) => {
@@ -1241,8 +1242,10 @@ function renderCalendar() {
         else if (idx === 6) colorClass = 'text-blue-500';
         calendarHTML += `<div class="calendar-header ${colorClass}">${day}</div>`;
     });
-    // ✅ 8번째 열: 검수 헤더
-    calendarHTML += `<div class="calendar-header weekly-audit-cell" style="background:#f0f9ff; color:#1e40af; font-size:12px;">검수</div>`;
+    // ✅ 8번째 열: 검수 헤더 (관리자만)
+    if (!state.schedule.isReadOnly) {
+        calendarHTML += `<div class="calendar-header weekly-audit-cell" style="background:#f0f9ff; color:#1e40af; font-size:12px;">검수</div>`;
+    }
 
     let currentLoop = startDate.clone();
     while (currentLoop.valueOf() <= endDate.valueOf()) {
@@ -1419,8 +1422,8 @@ function renderCalendar() {
 
         currentLoop = currentLoop.add(1, 'day');
 
-        // ✅ 토요일(주의 마지막 날) 뒤에 해당 주의 검수 셀 삽입
-        if (isSaturday) {
+        // ✅ 토요일(주의 마지막 날) 뒤에 해당 주의 검수 셀 삽입 (관리자만)
+        if (isSaturday && !state.schedule.isReadOnly) {
             const weekStartDate = currentLoop.subtract(1, 'day').startOf('week'); // 일요일
             const weekEndDate = weekStartDate.endOf('week'); // 토요일
             calendarHTML += getWeeklyAuditCellHTML(weekStartDate, weekEndDate, month);
