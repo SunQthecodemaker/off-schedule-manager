@@ -1030,21 +1030,6 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                 return;
             }
 
-            // 과거 날짜 선택 시: 승인된 서류가 있어야 신청 가능
-            const today = dayjs().format('YYYY-MM-DD');
-            if (dateStr < today) {
-                // 서류 제출 완료 & 승인된 건이 있는지 확인
-                const approvedDocs = (state.employee.submittedDocuments || [])
-                    .filter(doc => doc.status === 'approved' || doc.status === 'completed');
-                if (approvedDocs.length === 0) {
-                    const goToDocs = confirm('⚠️ 과거 날짜 연차 신청은 서류 제출이 필요합니다.\n\n사유서, 진료확인서 등을 "서류 제출" 탭에서 먼저 제출하고\n관리자 승인을 받은 후 연차 신청이 가능합니다.\n\n서류 제출 탭으로 이동하시겠습니까?');
-                    if (goToDocs) {
-                        switchEmployeeTab('docs');
-                    }
-                    return;
-                }
-            }
-
             const index = selectedDatesForLeave.indexOf(dateStr);
             if (index > -1) {
                 selectedDatesForLeave.splice(index, 1);
@@ -1209,20 +1194,10 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
-    // 과거 날짜 포함 시 승인된 서류 필요
+    // 과거 날짜 포함 여부 체크 (신청 후 서류 요청 자동 생성용)
     const today = dayjs().format('YYYY-MM-DD');
-    const hasPastDates = dates.some(d => d < today);
-    if (hasPastDates) {
-        const { data: approvedDocs } = await db.from('submitted_documents')
-            .select('*')
-            .eq('employee_id', state.currentUser.id)
-            .in('status', ['approved', 'completed']);
-
-        if (!approvedDocs || approvedDocs.length === 0) {
-            alert('⚠️ 과거 날짜에 대한 연차 신청은\n서류(사유서, 진료확인서 등) 제출 및 관리자 승인이 필요합니다.\n\n"서류 제출" 탭에서 서류를 먼저 제출해주세요.');
-            return;
-        }
-    }
+    const pastDates = dates.filter(d => d < today);
+    const hasPastDates = pastDates.length > 0;
 
     // 당겨쓰기 동의 체크 확인
     const borrowingSection = _('#borrowing-agreement-section');
@@ -1273,7 +1248,23 @@ export async function handleSubmitLeaveRequest() {
         if (error) throw error;
         state.employee.leaveTypes = {}; // 초기화
 
-        alert('연차 신청이 완료되었습니다.');
+        // 과거 날짜가 포함되어 있으면 서류 제출 요청 자동 생성
+        if (hasPastDates) {
+            const pastDateStr = pastDates.join(', ');
+            await db.from('document_requests').insert({
+                employee_id: state.currentUser.id,
+                document_name: state.currentUser.name,
+                type: '사유서',
+                message: `${pastDateStr} 결근에 대한 사유서 제출 요청 (과거 날짜 연차 신청)`,
+                note: `${pastDateStr} 결근 사유서`,
+                status: 'pending',
+                created_at: new Date().toISOString()
+            });
+            alert('연차 신청이 완료되었습니다.\n\n⚠️ 과거 날짜(' + pastDateStr + ')가 포함되어 있어\n사유서 제출이 필요합니다.\n\n"서류 제출" 탭에서 사유서를 작성해주세요.\n서류 미제출 시 추가 연차 신청이 제한됩니다.');
+        } else {
+            alert('연차 신청이 완료되었습니다.');
+        }
+
         closeLeaveFormModal();
         renderEmployeePortal();
         selectedDatesForLeave.length = 0;
