@@ -250,7 +250,7 @@ async function renderEmployeeScheduleView() {
     if (isPC) {
         // PC: 관리자 달력 그리드 (읽기전용)
         // state.management가 없으면 최소 데이터 로드
-        if (!state.management || !state.management.departments) {
+        if (!state.management?.departments?.length || !state.management?.employees?.length) {
             state.management = state.management || {};
             const [deptRes, empRes] = await Promise.all([
                 db.from('departments').select('*').order('id'),
