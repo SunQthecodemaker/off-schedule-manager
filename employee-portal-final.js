@@ -139,7 +139,7 @@ export async function renderEmployeePortal() {
             </div>
 
             <!-- 근무 스케줄 탭 (신규) -->
-            <div id="employee-work-schedule-tab" class="tab-content hidden h-[840px] bg-white shadow rounded p-4">
+            <div id="employee-work-schedule-tab" class="tab-content hidden bg-white shadow rounded p-4">
                 <!-- 모바일 친화적 주간 스케줄 -->
             </div>
 
@@ -234,7 +234,37 @@ function switchEmployeeTab(tab) {
     } else if (tab === 'schedule') {
         renderManagerScheduleTab();
     } else if (tab === 'workSchedule') {
-        renderEmployeeMobileScheduleList();
+        renderEmployeeScheduleView();
+    }
+}
+
+// =========================================================================================
+// PC/모바일 분기 스케줄 뷰
+// =========================================================================================
+async function renderEmployeeScheduleView() {
+    const container = _('#employee-work-schedule-tab');
+    if (!container) return;
+
+    const isPC = window.innerWidth >= 768;
+
+    if (isPC) {
+        // PC: 관리자 달력 그리드 (읽기전용)
+        // state.management가 없으면 최소 데이터 로드
+        if (!state.management || !state.management.departments) {
+            state.management = state.management || {};
+            const [deptRes, empRes] = await Promise.all([
+                db.from('departments').select('*').order('id'),
+                db.from('employees').select('*, departments(*)').order('id')
+            ]);
+            state.management.departments = deptRes.data || [];
+            state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
+        }
+        container.style.height = 'auto';
+        await renderScheduleManagement(container, true);
+    } else {
+        // 모바일: 기존 주간 리스트 뷰
+        container.style.height = '840px';
+        await renderEmployeeMobileScheduleList();
     }
 }
 
