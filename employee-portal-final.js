@@ -250,15 +250,15 @@ async function renderEmployeeScheduleView() {
     if (isPC) {
         // PC: 관리자 달력 그리드 (읽기전용)
         // state.management가 없으면 최소 데이터 로드
-        if (!state.management?.departments?.length || !state.management?.employees?.length) {
-            state.management = state.management || {};
-            const [deptRes, empRes] = await Promise.all([
-                db.from('departments').select('*').order('id'),
-                db.from('employees').select('*, departments(*)').order('id')
-            ]);
-            state.management.departments = deptRes.data || [];
-            state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
-        }
+        // 항상 최소 데이터 로드 (직원 포털에서는 management 데이터가 미로드 상태)
+        if (!state.management) state.management = {};
+        const [deptRes, empRes] = await Promise.all([
+            db.from('departments').select('*').order('id'),
+            db.from('employees').select('*, departments(*)').order('id')
+        ]);
+        state.management.departments = deptRes.data || [];
+        state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
+        console.log('📋 직원 스케줄 뷰: departments', state.management.departments.length, 'employees', state.management.employees.length);
         container.style.height = 'auto';
         await renderScheduleManagement(container, true);
     } else {
