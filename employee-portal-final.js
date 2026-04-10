@@ -541,7 +541,7 @@ async function loadEmployeeData() {
 
         const [requestsRes, docRequestsRes, submittedDocsRes] = await Promise.all([
             db.from('leave_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
-            db.from('document_requests').select('*').eq('employeeId', userId).order('created_at', { ascending: false }),
+            db.from('document_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
             db.from('submitted_documents').select('*').eq('employee_id', userId).order('created_at', { ascending: false })
         ]);
 
@@ -1103,7 +1103,7 @@ export async function handleSubmitLeaveRequest() {
 
     const { data: pendingRequests, error: checkError } = await db.from('document_requests')
         .select('*')
-        .eq('employeeId', state.currentUser.id)
+        .eq('employee_id', state.currentUser.id)
         .eq('status', 'pending');
 
     if (pendingRequests && pendingRequests.length > 0) {

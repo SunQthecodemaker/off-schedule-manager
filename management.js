@@ -302,10 +302,11 @@ window.handleIssueSubmit = async function (e) {
         }
 
         const { error } = await db.from('document_requests').insert({
-            employeeId: employeeId,
-            employeeName: employee ? employee.name : '알 수 없음',
+            employee_id: employeeId,
+            document_name: employee ? employee.name : '알 수 없음',
             type: docType,
             message: details,
+            note: details,
             status: 'pending',
             created_at: new Date().toISOString()
         });
