@@ -94,6 +94,15 @@ export async function renderEmployeePortal() {
                 </div>
             </div>
 
+            <!-- 서류 제출 요청 알림 배너 -->
+            <div id="doc-alert-banner" class="hidden mb-4 bg-red-50 border border-red-300 rounded-lg p-4 flex items-center gap-3 cursor-pointer" onclick="document.getElementById('tab-docs-btn').click()">
+                <span class="text-2xl">📋</span>
+                <div>
+                    <p class="font-bold text-red-700">미제출 서류가 있습니다</p>
+                    <p id="doc-alert-detail" class="text-sm text-red-600">서류를 제출하지 않으면 연차 신청이 제한됩니다. 클릭하여 확인하세요.</p>
+                </div>
+            </div>
+
             <!-- 직원 본인 인라인 연차 박스 그리드 -->
             <div id="employee-leave-grid-container" class="mb-6 bg-white shadow rounded p-4 overflow-x-auto">
                 <div class="text-center text-gray-500 text-sm">연차 정보를 불러오는 중입니다...</div>
@@ -167,6 +176,14 @@ export async function renderEmployeePortal() {
     }
 
     await loadEmployeeData();
+
+    // 로그인 시 미제출 서류 팝업 알림
+    const pendingDocs = (state.employee.documentRequests || []).filter(req => req.status === 'pending');
+    if (pendingDocs.length > 0) {
+        setTimeout(() => {
+            alert(`📋 미제출 서류가 ${pendingDocs.length}건 있습니다.\n\n서류를 제출하지 않으면 연차 신청이 제한됩니다.\n"서류 제출" 탭에서 확인해주세요.`);
+        }, 500);
+    }
 }
 
 async function handleChangePassword() {
@@ -687,6 +704,18 @@ function updateDocumentBadge() {
             tabBadge.classList.add('hidden');
         }
     }
+
+    // 대시보드 알림 배너
+    const banner = _('#doc-alert-banner');
+    const detail = _('#doc-alert-detail');
+    if (banner) {
+        if (pendingCount > 0) {
+            banner.classList.remove('hidden');
+            if (detail) detail.textContent = `미제출 서류 ${pendingCount}건 — 서류를 제출하지 않으면 연차 신청이 제한됩니다. 클릭하여 확인하세요.`;
+        } else {
+            banner.classList.add('hidden');
+        }
+    }
 }
 
 function renderDocumentRequests() {
@@ -1001,13 +1030,17 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                 return;
             }
 
-            // 과거 날짜 선택 시: 관리자가 승인한 서류가 있어야 신청 가능
+            // 과거 날짜 선택 시: 승인된 서류가 있어야 신청 가능
             const today = dayjs().format('YYYY-MM-DD');
             if (dateStr < today) {
-                const completedDocs = (state.employee.documentRequests || [])
-                    .filter(req => req.status === 'completed' || req.status === 'approved');
-                if (completedDocs.length === 0) {
-                    alert('⚠️ 과거 날짜에 대한 연차 신청은\n관리자의 서류 제출 요청 → 서류 제출 완료 후 가능합니다.\n\n관리자에게 서류 제출 요청(경위서 등)을 요청해주세요.');
+                // 서류 제출 완료 & 승인된 건이 있는지 확인
+                const approvedDocs = (state.employee.submittedDocuments || [])
+                    .filter(doc => doc.status === 'approved' || doc.status === 'completed');
+                if (approvedDocs.length === 0) {
+                    const goToDocs = confirm('⚠️ 과거 날짜 연차 신청은 서류 제출이 필요합니다.\n\n사유서, 진료확인서 등을 "서류 제출" 탭에서 먼저 제출하고\n관리자 승인을 받은 후 연차 신청이 가능합니다.\n\n서류 제출 탭으로 이동하시겠습니까?');
+                    if (goToDocs) {
+                        switchEmployeeTab('docs');
+                    }
                     return;
                 }
             }
@@ -1180,13 +1213,13 @@ export async function handleSubmitLeaveRequest() {
     const today = dayjs().format('YYYY-MM-DD');
     const hasPastDates = dates.some(d => d < today);
     if (hasPastDates) {
-        const { data: completedDocs } = await db.from('document_requests')
+        const { data: approvedDocs } = await db.from('submitted_documents')
             .select('*')
             .eq('employee_id', state.currentUser.id)
-            .in('status', ['completed', 'approved']);
+            .in('status', ['approved', 'completed']);
 
-        if (!completedDocs || completedDocs.length === 0) {
-            alert('⚠️ 과거 날짜에 대한 연차 신청은\n관리자의 서류 승인이 필요합니다.\n\n관리자에게 서류 제출 요청을 받은 후 진행해주세요.');
+        if (!approvedDocs || approvedDocs.length === 0) {
+            alert('⚠️ 과거 날짜에 대한 연차 신청은\n서류(사유서, 진료확인서 등) 제출 및 관리자 승인이 필요합니다.\n\n"서류 제출" 탭에서 서류를 먼저 제출해주세요.');
             return;
         }
     }

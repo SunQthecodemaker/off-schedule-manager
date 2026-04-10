@@ -2384,7 +2384,23 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
                 }
             }
 
-            alert('수동 등록이 완료되었습니다.');
+            // 과거 날짜인 경우 자동으로 서류 제출 요청 생성
+            const today = dayjs().format('YYYY-MM-DD');
+            if (inputDate < today) {
+                const { error: docError } = await db.from('document_requests').insert({
+                    employee_id: empIdInt,
+                    document_name: name,
+                    type: '사유서',
+                    message: `${inputDate} 결근에 대한 사유서 제출 요청 (관리자 수동 등록)`,
+                    note: `${inputDate} 결근에 대한 사유서 제출 요청`,
+                    status: 'pending',
+                    created_at: new Date().toISOString()
+                });
+                if (docError) console.error('서류 요청 생성 실패:', docError);
+                else console.log(`📋 ${name}님에게 사유서 제출 요청 자동 생성`);
+            }
+
+            alert('수동 등록이 완료되었습니다.' + (inputDate < today ? '\n\n⚠️ 과거 날짜이므로 해당 직원에게 사유서 제출 요청이 자동 생성되었습니다.' : ''));
 
             // 데이터 갱신
             await window.loadAndRenderManagement();
