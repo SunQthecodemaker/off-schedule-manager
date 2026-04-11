@@ -4,6 +4,10 @@
    ======================================== */
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700&display=swap');
 
+/* 직원 관리 테이블 date input 달력 아이콘 숨김 */
+.emp-date-input::-webkit-calendar-picker-indicator { display: none; }
+.emp-date-input { -webkit-appearance: none; }
+
 :root {
     /* Primary - Gold & Black */
     --color-primary: #b8860b;

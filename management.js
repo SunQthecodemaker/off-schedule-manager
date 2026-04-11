@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-1" style="width:3%"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-1 text-left" style="width:8%">이름</th>
-        <th class="p-1 text-left" style="width:8%">부서</th>
-        <th class="p-1 text-left" style="width:11%">입사일</th>
-        <th class="p-1 text-left" style="width:18%">이메일</th>
-        <th class="p-1 text-center" style="width:5%">매니저</th>
-        <th class="p-1 text-center" style="width:22%">근무 규칙</th>
-        <th class="p-1 text-center" style="width:25%">관리</th>
+        <th class="p-1" style="width:24px"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-1 text-left" style="width:64px">이름</th>
+        <th class="p-1 text-left" style="width:72px">부서</th>
+        <th class="p-1 text-left" style="width:84px">입사일</th>
+        <th class="p-1 text-left">이메일</th>
+        <th class="p-1 text-center" style="width:40px">매니저</th>
+        <th class="p-1 text-center" style="width:160px">근무 규칙</th>
+        <th class="p-1 text-center" style="width:150px">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -493,7 +493,7 @@ export function getManagementHTML() {
                         ${deptOptions}
                     </select>
                 </td>
-                <td class="p-1"><input type="date" id="entry-${emp.id}" class="table-input" value="${emp.entryDate}" style="width:100%;padding:1px;font-size:11px;"></td>
+                <td class="p-1"><input type="date" id="entry-${emp.id}" class="table-input emp-date-input" value="${emp.entryDate}" style="width:100%;padding:1px;font-size:11px;"></td>
                 <td class="p-1" style="overflow:hidden;text-overflow:ellipsis;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}" style="width:100%;padding:2px 4px;font-size:11px;"></td>
                 <td class="p-1 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
                 <td class="p-1 text-center">
