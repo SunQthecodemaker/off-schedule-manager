@@ -3510,17 +3510,17 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         return { emp, workCount, expected, diff, hasLeave, canSubstitute, bgColor, diffColor };
     }).filter(row => row.workCount > 0 || row.diff !== 0);
 
-    // HTML: 직원 목록
+    // HTML: 직원 목록 (2열 배치)
     const listHtml = rows.map(row => {
         const diffText = row.diff === 0 ? '' : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
         const subBadge = (row.diff < 0 && row.canSubstitute && !row.hasLeave)
             ? '<span style="font-size:7px; color:#059669; font-weight:600;" title="고정휴무일 출근으로 대체 가능">대체</span>'
             : '';
-        return `<div style="display:flex; align-items:center; gap:2px; padding:1px 2px; background:${row.bgColor}; border-radius:2px;">
-            <span style="font-size:9px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
-            <span style="font-size:9px; font-weight:700; min-width:24px; text-align:right;">${row.workCount}/${row.expected}</span>
-            ${diffText ? `<span style="font-size:8px; font-weight:600; color:${row.diffColor}; min-width:14px; text-align:right;">${diffText}</span>` : ''}
+        return `<div style="display:flex; align-items:center; gap:1px; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
+            <span style="font-size:8px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
+            <span style="font-size:8px; font-weight:700; white-space:nowrap;">${row.workCount}/${row.expected}</span>
+            ${diffText ? `<span style="font-size:7px; font-weight:600; color:${row.diffColor};">${diffText}</span>` : ''}
             ${subBadge}
         </div>`;
     }).join('');
@@ -3529,11 +3529,13 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const crossBadge = isCrossMonth ? '<span style="font-size:7px; color:#6366f1; margin-left:2px;">+익월</span>' : '';
     const errorBadge = errorCount > 0 ? `<span style="background:#fee2e2; font-size:7px; padding:0 2px; border-radius:3px; color:#dc2626;">${errorCount}명확인</span>` : '';
 
-    return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:3px; overflow-y:auto; font-size:9px;">
-        <div style="display:flex; align-items:center; gap:2px; margin-bottom:2px; padding-bottom:2px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap;">
-            <span style="font-size:8px; color:#6b7280;">영업${businessDayCount}일</span>${crossBadge}${errorBadge}
+    return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px; overflow-y:auto; font-size:8px;">
+        <div style="display:flex; align-items:center; gap:2px; margin-bottom:1px; padding-bottom:1px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap;">
+            <span style="font-size:7px; color:#6b7280;">영업${businessDayCount}일</span>${crossBadge}${errorBadge}
         </div>
-        ${listHtml}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1px;">
+            ${listHtml}
+        </div>
     </div>`;
 }
 
