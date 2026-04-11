@@ -377,16 +377,49 @@ window.handleRetireEmployee = async function (id) {
 window.handleResetPassword = async function (id) {
     const emp = state.management.employees.find(e => e.id === id);
     const empName = emp?.name || '';
-    const defaultPassword = '1234';
+    const empEmail = emp?.email || '';
+    const hasEmail = empEmail && !empEmail.startsWith('temp-');
 
-    if (!confirm(`${empName}님의 비밀번호를 "${defaultPassword}"로 초기화하시겠습니까?\n\n직원에게 초기화 사실을 알려주시고,\n로그인 후 비밀번호를 변경하도록 안내해주세요.`)) return;
+    // 임시 비밀번호 생성 (6자리 영숫자)
+    const generateTempPassword = () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+        let result = '';
+        for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+        return result;
+    };
 
-    const { error } = await db.from('employees').update({ password: defaultPassword }).eq('id', id);
+    if (hasEmail) {
+        // 이메일이 있는 경우: 임시 비밀번호 생성 + 이메일 발송
+        const tempPassword = generateTempPassword();
 
-    if (error) {
-        alert('비밀번호 초기화 실패: ' + error.message);
+        if (!confirm(`${empName}님의 비밀번호를 임시 비밀번호로 초기화하고\n이메일(${empEmail})로 발송하시겠습니까?`)) return;
+
+        const { error } = await db.from('employees').update({ password: tempPassword }).eq('id', id);
+        if (error) {
+            alert('비밀번호 초기화 실패: ' + error.message);
+            return;
+        }
+
+        // 이메일 발송 (mailto 링크)
+        const subject = encodeURIComponent('[프라임에스] 비밀번호 초기화 안내');
+        const body = encodeURIComponent(
+            `${empName}님 안녕하세요.\n\n비밀번호가 초기화되었습니다.\n\n임시 비밀번호: ${tempPassword}\n\n로그인 후 반드시 비밀번호를 변경해주세요.\n\n프라임에스 관리자`
+        );
+        window.open(`mailto:${empEmail}?subject=${subject}&body=${body}`, '_blank');
+
+        alert(`${empName}님의 비밀번호가 초기화되었습니다.\n\n임시 비밀번호: ${tempPassword}\n이메일 발송 창이 열립니다.\n\n발송이 안 될 경우 위 비밀번호를 직접 전달해주세요.`);
     } else {
-        alert(`${empName}님의 비밀번호가 "${defaultPassword}"로 초기화되었습니다.\n\n직원에게 로그인 후 비밀번호 변경을 안내해주세요.`);
+        // 이메일 없는 경우: 기본값 1234
+        const defaultPassword = '1234';
+
+        if (!confirm(`${empName}님은 이메일이 등록되어 있지 않아\n비밀번호를 "${defaultPassword}"로 초기화합니다.\n\n⚠️ 보안을 위해 직원에게 이메일 등록을 권장해주세요.\n\n진행하시겠습니까?`)) return;
+
+        const { error } = await db.from('employees').update({ password: defaultPassword }).eq('id', id);
+        if (error) {
+            alert('비밀번호 초기화 실패: ' + error.message);
+        } else {
+            alert(`${empName}님의 비밀번호가 "${defaultPassword}"로 초기화되었습니다.\n\n직원에게 직접 알려주시고, 로그인 후 변경하도록 안내해주세요.`);
+        }
     }
 };
 

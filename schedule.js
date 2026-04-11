@@ -3444,8 +3444,18 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     }
 
     const holidays = state.schedule.companyHolidays || new Set();
-    const businessDays = allDates.filter(dateStr => !holidays.has(dateStr));
-    const businessDayCount = businessDays.length;
+
+    // 월~금 영업일 (공휴일 제외)
+    const weekdayBusinessDays = allDates.filter(dateStr => {
+        const dow = dayjs(dateStr).day();
+        return dow >= 1 && dow <= 5 && !holidays.has(dateStr); // 월~금만
+    });
+    // 토요일 영업일
+    const saturdayBusinessDays = allDates.filter(dateStr => {
+        return dayjs(dateStr).day() === 6 && !holidays.has(dateStr);
+    });
+    // 전체 영업일 (월~토, 공휴일 제외)
+    const businessDays = [...weekdayBusinessDays, ...saturdayBusinessDays];
     const isCrossMonth = allDates.length !== thisMonthDates.length;
 
     // 활성 직원 필터링 (부서 필터 무시, 전체 활성 직원)
@@ -3464,7 +3474,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const rows = targetEmployees.map(emp => {
         let workCount = 0;
         const offDays = [];
-        const empExpected = emp.weekly_work_days || 5;
+        const empWorkDays = emp.weekly_work_days || 5;
 
         businessDays.forEach(dateStr => {
             const dayOfWeek = dayjs(dateStr).day();
@@ -3478,8 +3488,15 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // 기준 근무일: 영업일이 기대치보다 적으면 영업일 기준
-        const expected = Math.min(empExpected, businessDayCount);
+        // 기준 근무일 계산:
+        // 주5일 이하 → 월~금 영업일만 기준 (토요일은 쉬는 날)
+        // 주6일 → 월~토 전체 영업일 기준
+        let expected;
+        if (empWorkDays <= 5) {
+            expected = Math.min(empWorkDays, weekdayBusinessDays.length);
+        } else {
+            expected = Math.min(empWorkDays, businessDays.length);
+        }
         const diff = workCount - expected;
 
         let bgColor = 'transparent';
@@ -3507,7 +3524,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
     return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:3px; overflow-y:auto; font-size:9px;">
         <div style="display:flex; align-items:center; gap:2px; margin-bottom:2px; padding-bottom:2px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap;">
-            <span style="font-size:8px; color:#6b7280;">${businessDayCount}영업일</span>${crossBadge}${warnBadge}
+            <span style="font-size:8px; color:#6b7280;">평${weekdayBusinessDays.length}+토${saturdayBusinessDays.length}</span>${crossBadge}${warnBadge}
         </div>
         ${listHtml}
     </div>`;
