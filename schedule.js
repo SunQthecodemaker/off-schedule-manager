@@ -2134,6 +2134,11 @@ async function renderScheduleSidebar() {
     const allEmployees = state.management.employees || [];
     const tempEmployees = allEmployees.filter(e => isTemp(e));
 
+    // 부서 ID → 이름 매핑 (순서 배치에서도 사용하므로 먼저 생성)
+    const departments = state.management?.departments || [];
+    const deptNameMap = {};
+    departments.forEach(d => { deptNameMap[d.id] = d.name; });
+
     // ✅ 저장된 순서가 있으면 그 순서대로 정렬 (정규 직원만)
     let orderedEmployees = [];
     let excludedEmployees = [];
@@ -2155,10 +2160,26 @@ async function renderScheduleSidebar() {
             }
         });
 
-        // ✅ 저장된 순서에 없는 직원들은 제외 목록으로 (정규 직원 중)
+        // ✅ 저장된 순서에 없는 신규 직원은 해당 부서 위치에 자동 배치
         regularEmployees.forEach(emp => {
             if (!savedLayout.members.includes(emp.id)) {
-                excludedEmployees.push(emp);
+                // 해당 부서의 마지막 직원 뒤에 삽입
+                const deptName = deptNameMap[emp.department_id] || '기타';
+                let insertIdx = -1;
+                // orderedEmployees에서 같은 부서의 마지막 위치 찾기
+                for (let i = orderedEmployees.length - 1; i >= 0; i--) {
+                    const item = orderedEmployees[i];
+                    if (!item.isSpacer && deptNameMap[item.department_id] === deptName) {
+                        insertIdx = i + 1;
+                        break;
+                    }
+                }
+                if (insertIdx >= 0) {
+                    orderedEmployees.splice(insertIdx, 0, emp);
+                } else {
+                    // 같은 부서 직원이 없으면 맨 뒤에 추가
+                    orderedEmployees.push(emp);
+                }
             }
         });
     } else {
@@ -2173,11 +2194,6 @@ async function renderScheduleSidebar() {
 
     // WHY: 부서별 그룹핑 (원장→진료실→경영지원실→기공실→기타 순)
     const deptOrder = ['원장', '진료실', '경영지원실', '기공실'];
-    const departments = state.management?.departments || [];
-
-    // 부서 ID → 이름 매핑
-    const deptNameMap = {};
-    departments.forEach(d => { deptNameMap[d.id] = d.name; });
 
     // 직원을 부서별로 분류
     const deptGroups = {};
