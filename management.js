@@ -2635,14 +2635,14 @@ function openRegularHolidayModal(employeeId, employeeName) {
     const employee = state.management.employees.find(e => e.id === employeeId);
     if (!employee) return;
 
-    const rules = employee.regular_holiday_rules || []; // [0, 1, ...] (0=Sun)
-    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    const rules = employee.regular_holiday_rules || [];
+    const days = [null, '월', '화', '수', '목', '금', '토']; // 일요일(0) 제외
 
-    // 기존 모달 제거
     const existing = document.getElementById('regular-holiday-modal');
     if (existing) existing.remove();
 
     const checkBoxesHtml = days.map((day, index) => {
+        if (!day) return ''; // 일요일 건너뜀
         const isChecked = rules.includes(index) ? 'checked' : '';
         return `
             <label class="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
