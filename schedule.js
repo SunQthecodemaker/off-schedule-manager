@@ -3512,16 +3512,12 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
     // HTML: 직원 목록 (2열 배치)
     const listHtml = rows.map(row => {
-        const diffText = row.diff === 0 ? '' : `${row.diff}`;
+        const diffText = row.diff > 0 ? `+${row.diff}` : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
-        const subBadge = (row.diff < 0 && row.canSubstitute && !row.hasLeave)
-            ? '<span style="font-size:7px; color:#059669; font-weight:600;" title="고정휴무일 출근으로 대체 가능">대체</span>'
-            : '';
         return `<div style="display:flex; align-items:center; gap:2px; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
             <span style="font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
             <span style="font-size:8px; font-weight:700; white-space:nowrap;">${row.workCount}/${row.expected}</span>
-            <span style="font-size:8px; font-weight:700; color:${row.diffColor}; min-width:14px; text-align:right;">${diffText || ''}</span>
-            ${subBadge}
+            <span style="font-size:8px; font-weight:700; color:${row.diffColor}; width:14px; text-align:right;">${diffText}</span>
         </div>`;
     }).join('');
 
