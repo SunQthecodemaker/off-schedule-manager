@@ -2,7 +2,7 @@ import { state, db } from './state.js';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260411a';
-import { getLeaveListHTML } from './management.js';
+import { getLeaveListHTML, getLeaveStatusHTML } from './management.js';
 
 // =========================================================================================
 // 직원 포털 렌더링
@@ -120,6 +120,7 @@ export async function renderEmployeePortal() {
                 </button>
                 ${user.isManager ? `
                     <button id="tab-leave-list-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">연차 신청 목록 (매니저)</button>
+                    <button id="tab-leave-status-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">연차 현황</button>
                     <button id="tab-schedule-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">스케줄 관리 (매니저)</button>
                 ` : ''}
             </div>
@@ -154,6 +155,7 @@ export async function renderEmployeePortal() {
 
             ${user.isManager ? `
                 <div id="employee-leave-list-tab" class="tab-content hidden"></div>
+                <div id="employee-leave-status-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>
                 <div id="employee-schedule-tab" class="tab-content hidden"></div>
             ` : ''}
         </div>
@@ -172,6 +174,7 @@ export async function renderEmployeePortal() {
 
     if (user.isManager) {
         _('#tab-leave-list-btn')?.addEventListener('click', () => switchEmployeeTab('leaveList'));
+        _('#tab-leave-status-btn')?.addEventListener('click', () => switchEmployeeTab('leaveStatus'));
         _('#tab-schedule-btn')?.addEventListener('click', () => switchEmployeeTab('schedule'));
     }
 
@@ -223,6 +226,7 @@ function switchEmployeeTab(tab) {
         'docs': { btn: '#tab-docs-btn', content: '#employee-docs-tab' },
         'workSchedule': { btn: '#tab-work-schedule-btn', content: '#employee-work-schedule-tab' },
         'leaveList': { btn: '#tab-leave-list-btn', content: '#employee-leave-list-tab' },
+        'leaveStatus': { btn: '#tab-leave-status-btn', content: '#employee-leave-status-tab' },
         'schedule': { btn: '#tab-schedule-btn', content: '#employee-schedule-tab' }
     };
 
@@ -248,6 +252,8 @@ function switchEmployeeTab(tab) {
 
     if (tab === 'leaveList') {
         renderManagerLeaveList();
+    } else if (tab === 'leaveStatus') {
+        renderManagerLeaveStatus();
     } else if (tab === 'schedule') {
         renderManagerScheduleTab();
     } else if (tab === 'workSchedule') {
@@ -1287,6 +1293,12 @@ export async function handleSubmitLeaveRequest() {
         console.error('연차 신청 오류:', error);
         alert('연차 신청 중 오류가 발생했습니다: ' + error.message);
     }
+}
+
+function renderManagerLeaveStatus() {
+    const container = _('#employee-leave-status-tab');
+    if (!container) return;
+    container.innerHTML = getLeaveStatusHTML();
 }
 
 async function renderManagerLeaveList() {
