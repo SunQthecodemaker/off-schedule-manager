@@ -264,24 +264,30 @@ async function renderEmployeeScheduleView() {
 
     const isPC = window.innerWidth >= 1024;
 
+    console.log('📋 renderEmployeeScheduleView: innerWidth =', window.innerWidth, 'isPC =', isPC);
+
     if (isPC) {
-        // PC: 관리자 달력 그리드 (읽기전용)
-        // state.management가 없으면 최소 데이터 로드
-        // 항상 최소 데이터 로드 (직원 포털에서는 management 데이터가 미로드 상태)
-        if (!state.management) state.management = {};
-        const [deptRes, empRes, leaveRes] = await Promise.all([
-            db.from('departments').select('*').order('id'),
-            db.from('employees').select('*, departments(*)').order('id'),
-            db.from('leave_requests').select('*').in('status', ['approved'])
-        ]);
-        state.management.departments = deptRes.data || [];
-        state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
-        state.management.leaveRequests = leaveRes.data || [];
-        console.log('📋 직원 스케줄 뷰: departments', state.management.departments.length, 'employees', state.management.employees.length, 'leaveRequests', state.management.leaveRequests.length);
-        container.style.height = 'auto';
-        await renderScheduleManagement(container, true);
+        try {
+            // PC: 관리자 달력 그리드 (읽기전용)
+            if (!state.management) state.management = {};
+            const [deptRes, empRes, leaveRes] = await Promise.all([
+                db.from('departments').select('*').order('id'),
+                db.from('employees').select('*, departments(*)').order('id'),
+                db.from('leave_requests').select('*').in('status', ['approved'])
+            ]);
+            state.management.departments = deptRes.data || [];
+            state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
+            state.management.leaveRequests = leaveRes.data || [];
+            console.log('📋 직원 스케줄 뷰: departments', state.management.departments.length, 'employees', state.management.employees.length, 'leaveRequests', state.management.leaveRequests.length);
+            container.style.height = 'auto';
+            await renderScheduleManagement(container, true);
+        } catch (err) {
+            console.error('❌ PC 달력 렌더링 실패, 주간뷰로 대체:', err);
+            container.style.height = '840px';
+            await renderEmployeeMobileScheduleList();
+        }
     } else {
-        // 모바일: 기존 주간 리스트 뷰
+        // 모바일/태블릿: 주간 리스트 뷰
         container.style.height = '840px';
         await renderEmployeeMobileScheduleList();
     }
