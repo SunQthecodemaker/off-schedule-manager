@@ -281,7 +281,20 @@ async function handleSaveSchedules() {
                 // manager_id 제거 (테이블에 없음)
             }));
 
-        console.log('📊 수집된 스케줄 (State):', schedulesToSave.length, '건');
+        // ✅ 2-1. grid_position 중복 제거 (같은 날짜+위치에 2명 → 나중 것 유지)
+        const positionMap = new Map();
+        const deduped = [];
+        for (const s of schedulesToSave) {
+            const key = `${s.date}_${s.grid_position}`;
+            if (positionMap.has(key)) {
+                console.warn(`⚠️ 중복 위치 제거: ${key}`, positionMap.get(key).employee_id, '→', s.employee_id);
+            }
+            positionMap.set(key, s);
+        }
+        deduped.push(...positionMap.values());
+
+        console.log('📊 수집된 스케줄 (State):', schedulesToSave.length, '건 → 중복 제거 후:', deduped.length, '건');
+        const schedulesToInsert = deduped;
 
         // ✅ 3. 해당 월의 기존 스케줄 완전 삭제
         console.log('🗑️ 기존 스케줄 삭제 중...');
@@ -293,10 +306,10 @@ async function handleSaveSchedules() {
         if (deleteError) throw deleteError;
 
         // ✅ 4. 데이터 일괄 삽입
-        if (schedulesToSave.length > 0) {
+        if (schedulesToInsert.length > 0) {
             const BATCH_SIZE = 50;
-            for (let i = 0; i < schedulesToSave.length; i += BATCH_SIZE) {
-                const batch = schedulesToSave.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < schedulesToInsert.length; i += BATCH_SIZE) {
+                const batch = schedulesToInsert.slice(i, i + BATCH_SIZE);
                 const { error: insertError } = await db.from('schedules').insert(batch);
                 if (insertError) throw insertError;
             }

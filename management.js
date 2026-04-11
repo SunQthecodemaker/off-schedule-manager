@@ -1087,6 +1087,11 @@ window.handleFinalApproval = async function (requestId, status) {
 
         if (error) throw error;
 
+        // 승인 시 schedules 테이블 동기화
+        if (status === 'approved') {
+            await syncLeaveToSchedules(requestId);
+        }
+
         alert(status === 'approved' ? '최종 승인이 완료되었습니다.' : '반려되었습니다.');
         await window.loadAndRenderManagement();
 
@@ -1096,6 +1101,37 @@ window.handleFinalApproval = async function (requestId, status) {
     }
 };
 
+// 연차 승인 → schedules 테이블 동기화
+// 승인된 연차 날짜의 스케줄을 '근무' → '휴무'로 변경하거나 삭제
+async function syncLeaveToSchedules(requestId) {
+    try {
+        const { data: req } = await db.from('leave_requests')
+            .select('employee_id, dates')
+            .eq('id', requestId)
+            .single();
+
+        if (!req || !req.dates || req.dates.length === 0) return;
+
+        for (const date of req.dates) {
+            // 해당 날짜에 근무 스케줄이 있으면 '휴무'로 변경
+            const { data: existing } = await db.from('schedules')
+                .select('id')
+                .eq('employee_id', req.employee_id)
+                .eq('date', date);
+
+            if (existing && existing.length > 0) {
+                await db.from('schedules')
+                    .update({ status: '휴무' })
+                    .eq('employee_id', req.employee_id)
+                    .eq('date', date);
+            }
+        }
+        console.log(`✅ 연차 승인 → schedules 동기화 완료 (request ${requestId})`);
+    } catch (e) {
+        console.warn('schedules 동기화 실패 (비치명적):', e);
+    }
+}
+
 // 기존 함수 (하위 호환성)
 window.handleLeaveApproval = async function (requestId, status) {
     try {
@@ -1104,6 +1140,11 @@ window.handleLeaveApproval = async function (requestId, status) {
             .eq('id', requestId);
 
         if (error) throw error;
+
+        // 승인 시 schedules 테이블 동기화
+        if (status === 'approved') {
+            await syncLeaveToSchedules(requestId);
+        }
 
         alert(status === 'approved' ? '승인되었습니다.' : '반려되었습니다.');
         await window.loadAndRenderManagement();
