@@ -3450,10 +3450,6 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const businessDayCount = businessDays.length;
     const isCrossMonth = allDates.length !== thisMonthDates.length;
 
-    // 이번 주 공휴일 목록 (요일 번호)
-    const holidayDaysOfWeek = allDates
-        .filter(dateStr => holidays.has(dateStr))
-        .map(dateStr => dayjs(dateStr).day());
 
     // 승인된 연차 데이터
     const leaveRequests = state.management?.leaveRequests || [];
@@ -3500,17 +3496,8 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             );
         }
 
-        // 대체근무 가능 여부:
-        // 공휴일이 있고, 고정 휴무일과 다른 날에 공휴일이 있으면
-        // → 고정 휴무일에 출근 + 공휴일에 쉬는 대체근무 가능
-        let canSubstitute = false;
-        if (fixedOffDays.length > 0 && holidayDaysOfWeek.length > 0) {
-            // 공휴일 중 고정 휴무일이 아닌 날이 있으면 대체 가능
-            const hasNonFixedHoliday = holidayDaysOfWeek.some(dow => !fixedOffDays.includes(dow));
-            // 고정 휴무일 중 공휴일이 아닌 날이 있으면 (대체할 대상이 있음)
-            const hasWorkableFixedOff = fixedOffDays.some(dow => !holidayDaysOfWeek.includes(dow));
-            canSubstitute = hasNonFixedHoliday && hasWorkableFixedOff;
-        }
+        // 대체근무 가능 여부: 직원 속성 (고정 휴무일을 바꿀 수 있는 사람인지)
+        const canSubstitute = emp.can_substitute !== false && fixedOffDays.length > 0;
 
         // 색상: -N+연차=파란, -N+연차없음=빨간, 0=없음
         let bgColor = 'transparent';

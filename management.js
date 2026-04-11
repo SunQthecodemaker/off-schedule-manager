@@ -2669,12 +2669,20 @@ function openRegularHolidayModal(employeeId, employeeName) {
                     </select>
                 </div>
 
-                <div class="mb-6">
+                <div class="mb-4">
                     <label class="block text-sm font-semibold text-gray-700 mb-1">고정 휴무 요일</label>
                     <p class="text-xs text-gray-400 mb-2">매주 고정으로 쉬는 요일이 있으면 선택 (없으면 선택 안 함)</p>
                     <div class="grid grid-cols-3 gap-2 border p-4 rounded bg-white">
                         ${checkBoxesHtml}
                     </div>
+                </div>
+
+                <div class="mb-6">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="modal-can-substitute" class="w-4 h-4 text-blue-600 rounded" ${employee.can_substitute !== false ? 'checked' : ''}>
+                        <span class="text-sm font-semibold text-gray-700">대체근무 가능</span>
+                    </label>
+                    <p class="text-xs text-gray-400 mt-1 ml-6">고정 휴무일을 바꿔서 다른 날 근무할 수 있는지</p>
                 </div>
 
                 <div class="flex justify-end gap-2">
@@ -2707,14 +2715,13 @@ window.handleSaveRegularHoliday = async function (employeeId) {
     const selectedDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
     const workDaysInput = document.getElementById('modal-work-days');
     const weeklyWorkDays = workDaysInput ? parseInt(workDaysInput.value) : 5;
+    const canSubstitute = document.getElementById('modal-can-substitute')?.checked ?? true;
 
     selectedDays.sort((a, b) => a - b);
 
-    console.log(`💾 근무 규칙 저장: Emp ${employeeId}, 주${weeklyWorkDays}일, 고정휴무: ${selectedDays}`);
-
     try {
         const { error } = await db.from('employees')
-            .update({ regular_holiday_rules: selectedDays, weekly_work_days: weeklyWorkDays })
+            .update({ regular_holiday_rules: selectedDays, weekly_work_days: weeklyWorkDays, can_substitute: canSubstitute })
             .eq('id', employeeId);
 
         if (error) {
