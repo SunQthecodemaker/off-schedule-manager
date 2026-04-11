@@ -3514,7 +3514,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const listHtml = rows.map(row => {
         const diffText = row.diff > 0 ? `+${row.diff}` : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
-        return `<div style="display:flex; align-items:center; gap:2px; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
+        return `<div style="display:flex; align-items:center; justify-content:space-between; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
             <span style="font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
             <span style="font-size:8px; font-weight:700; white-space:nowrap;">${row.workCount}/${row.expected}</span>
             <span style="font-size:8px; font-weight:700; color:${row.diffColor}; width:14px; text-align:right;">${diffText}</span>
