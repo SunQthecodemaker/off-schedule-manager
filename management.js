@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-1" style="width:2%"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-1 text-left" style="width:7%">이름</th>
-        <th class="p-1 text-left" style="width:7%">부서</th>
-        <th class="p-1 text-left" style="width:9%">입사일</th>
-        <th class="p-1 text-left" style="width:20%">이메일</th>
-        <th class="p-1 text-center" style="width:4%">매니저</th>
-        <th class="p-1 text-center" style="width:18%">근무 규칙</th>
-        <th class="p-1 text-center" style="width:13%">관리</th>
+        <th class="p-2" style="width:2%"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-2 text-left" style="width:7%">이름</th>
+        <th class="p-2 text-left" style="width:7%">부서</th>
+        <th class="p-2 text-left" style="width:9%">입사일</th>
+        <th class="p-2 text-left" style="width:17%">이메일</th>
+        <th class="p-2 text-center" style="width:4%">매니저</th>
+        <th class="p-2 text-center" style="width:18%">근무 규칙</th>
+        <th class="p-2 text-center" style="width:15%">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -472,10 +472,10 @@ export function getManagementHTML() {
         let actions = '';
         if (filter === 'active') {
             actions = `
-                <button onclick="handleUpdateEmployee(${emp.id})" class="bg-blue-500 text-white px-1 py-0.5 rounded" style="font-size:10px">저장</button>
-                <button onclick="handleRetireEmployee(${emp.id})" class="bg-gray-500 text-white px-1 py-0.5 rounded" style="font-size:10px">퇴사</button>
-                <button onclick="handleResetPassword(${emp.id})" class="bg-yellow-500 text-white px-1 py-0.5 rounded" style="font-size:10px">PW</button>
-                <button onclick="handleDeleteEmployee(${emp.id})" class="bg-red-500 text-white px-1 py-0.5 rounded" style="font-size:10px">삭제</button>
+                <button onclick="handleUpdateEmployee(${emp.id})" class="text-xs bg-blue-500 text-white px-2 py-1 rounded">저장</button>
+                <button onclick="handleRetireEmployee(${emp.id})" class="text-xs bg-gray-500 text-white px-2 py-1 rounded ml-1">퇴사</button>
+                <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-1">PW</button>
+                <button onclick="handleDeleteEmployee(${emp.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1">삭제</button>
              `;
         } else {
             actions = `
@@ -486,22 +486,22 @@ export function getManagementHTML() {
 
         return `
             <tr class="border-b hover:bg-gray-50">
-                <td class="p-1 text-center"><input type="checkbox" class="employee-checkbox" value="${emp.id}"></td>
-                <td class="p-1"><input type="text" id="name-${emp.id}" class="table-input" value="${emp.name}" style="width:100%;padding:2px 4px;font-size:12px;"></td>
-                <td class="p-1">
-                    <select id="dept-${emp.id}" class="table-input" style="width:100%;padding:2px;font-size:12px;">
+                <td class="p-2 text-center"><input type="checkbox" class="employee-checkbox" value="${emp.id}"></td>
+                <td class="p-2"><input type="text" id="name-${emp.id}" class="table-input" value="${emp.name}"></td>
+                <td class="p-2">
+                    <select id="dept-${emp.id}" class="table-input">
                         ${deptOptions}
                     </select>
                 </td>
-                <td class="p-1"><input type="date" id="entry-${emp.id}" class="table-input emp-date-input" value="${emp.entryDate}" style="width:100%;padding:1px;font-size:11px;"></td>
-                <td class="p-1" style="overflow:hidden;text-overflow:ellipsis;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}" style="width:100%;padding:2px 4px;font-size:11px;"></td>
-                <td class="p-1 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
-                <td class="p-1 text-center">
-                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-1 py-1 hover:bg-gray-100 w-full text-left" style="font-size:11px;line-height:1.3;">
+                <td class="p-2"><input type="date" id="entry-${emp.id}" class="table-input emp-date-input" value="${emp.entryDate}"></td>
+                <td class="p-2" style="overflow:hidden;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
+                <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
+                <td class="p-2 text-center">
+                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 w-full text-left">
                         <b>주${emp.weekly_work_days || 5}일</b>${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ` <span style="color:#2563eb">${emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(',')}</span>휴무` : ''}${emp.can_substitute === false ? '' : (emp.regular_holiday_rules?.length > 0 ? ' <span style="color:#059669">대체○</span>' : '')}
                     </button>
                 </td>
-                <td class="p-1 text-center" style="white-space:nowrap;">${actions}</td>
+                <td class="p-2 text-center" style="white-space:nowrap;">${actions}</td>
             </tr>
         `;
     }).join('');
