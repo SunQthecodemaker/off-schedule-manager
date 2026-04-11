@@ -871,9 +871,10 @@ export function getLeaveListHTML() {
         <div class="mb-6">
             <div class="flex flex-wrap gap-2 mb-2 items-center">
                 <div class="flex gap-2">
+                    <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
                     <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
                     <button onclick="window.filterLeaveCalendar('approved')" id="cal-filter-approved" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
-                    <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
+                    <button onclick="window.filterLeaveCalendar('rejected')" id="cal-filter-rejected" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려</button>
                 </div>
                 <div class="flex gap-2 items-center ml-4">
                     <label class="text-sm font-semibold">직원:</label>
@@ -991,6 +992,8 @@ window.filterLeaveCalendar = function (status) {
             activeBtn.classList.add('active', 'bg-yellow-500', 'text-white');
         } else if (status === 'approved') {
             activeBtn.classList.add('active', 'bg-green-500', 'text-white');
+        } else if (status === 'rejected') {
+            activeBtn.classList.add('active', 'bg-red-500', 'text-white');
         } else {
             activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
         }
@@ -1034,7 +1037,7 @@ window.renderLeaveCalendar = function (containerSelector) {
     }, {});
 
     // 필터링
-    let filteredRequests = leaveRequests.filter(req => req.status !== 'rejected');
+    let filteredRequests = [...leaveRequests];
 
     if (currentCalendarFilter !== 'all') {
         filteredRequests = filteredRequests.filter(req => req.status === currentCalendarFilter);
@@ -1048,8 +1051,8 @@ window.renderLeaveCalendar = function (containerSelector) {
     const events = [];
     filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
-        const color = req.status === 'pending' ? '#fbbf24' : '#10b981';
-        const borderColor = req.status === 'pending' ? '#f59e0b' : '#059669';
+        const color = req.status === 'approved' ? '#10b981' : req.status === 'pending' ? '#fbbf24' : '#ef4444';
+        const borderColor = req.status === 'approved' ? '#059669' : req.status === 'pending' ? '#f59e0b' : '#dc2626';
 
         req.dates?.forEach(date => {
             events.push({
