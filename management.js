@@ -456,13 +456,13 @@ export function getManagementHTML() {
 
     const headerHtml = `
         <th class="p-1" style="width:28px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-1 text-left" style="width:60px">이름</th>
-        <th class="p-1 text-left" style="width:72px">부서</th>
-        <th class="p-1 text-left" style="width:100px">입사일</th>
-        <th class="p-1 text-left" style="width:160px">이메일</th>
-        <th class="p-1 text-center" style="width:40px">매니저</th>
-        <th class="p-1 text-center" style="width:150px">근무 규칙</th>
-        <th class="p-1 text-center" style="width:160px">관리</th>
+        <th class="p-1 text-left" style="width:56px">이름</th>
+        <th class="p-1 text-left" style="width:64px">부서</th>
+        <th class="p-1 text-left" style="width:88px">입사일</th>
+        <th class="p-1 text-left" style="min-width:100px">이메일</th>
+        <th class="p-1 text-center" style="width:36px">매니저</th>
+        <th class="p-1 text-center" style="width:148px">근무 규칙</th>
+        <th class="p-1 text-center" style="width:150px">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -493,8 +493,8 @@ export function getManagementHTML() {
                         ${deptOptions}
                     </select>
                 </td>
-                <td class="p-1"><input type="date" id="entry-${emp.id}" class="table-input" value="${emp.entryDate}" style="width:100%;padding:2px;font-size:11px;"></td>
-                <td class="p-1"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}" style="width:100%;padding:2px 4px;font-size:11px;"></td>
+                <td class="p-1"><input type="date" id="entry-${emp.id}" class="table-input" value="${emp.entryDate}" style="width:100%;padding:1px;font-size:11px;"></td>
+                <td class="p-1" style="overflow:hidden;text-overflow:ellipsis;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}" style="width:100%;padding:2px 4px;font-size:11px;"></td>
                 <td class="p-1 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
                 <td class="p-1 text-center">
                     <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-1 py-1 hover:bg-gray-100 w-full text-left" style="font-size:11px;line-height:1.3;">
