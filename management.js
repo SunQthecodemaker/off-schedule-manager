@@ -497,8 +497,8 @@ export function getManagementHTML() {
                 <td class="p-2"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
                 <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
                 <td class="p-2 text-center">
-                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 truncate w-20">
-                        ${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? emp.regular_holiday_rules.map(d => ['일', '월', '화', '수', '목', '금', '토'][d]).join(',') : '설정'}
+                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 truncate" style="min-width:60px;">
+                        ${emp.weekly_work_days || 5}일${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ' ' + emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(',') : ''}
                     </button>
                 </td>
                 <td class="p-2 text-center">${actions}</td>
@@ -2652,14 +2652,29 @@ function openRegularHolidayModal(employeeId, employeeName) {
         `;
     }).join('');
 
+    const workDays = employee.weekly_work_days || 5;
+    const workDaysOptions = [3,4,5,6].map(n =>
+        `<option value="${n}" ${n === workDays ? 'selected' : ''}>${n}일</option>`
+    ).join('');
+
     const modalHTML = `
         <div id="regular-holiday-modal" class="modal-overlay">
             <div class="modal-content" style="max-width: 400px;">
-                <h3 class="text-xl font-bold mb-4">${employeeName}님 정기 휴무 설정</h3>
-                <p class="text-sm text-gray-500 mb-4">매주 반복되는 휴무 요일을 선택해주세요. 스케줄 자동 생성 시 반영됩니다.</p>
-                
-                <div class="grid grid-cols-2 gap-2 mb-6 border p-4 rounded bg-white">
-                    ${checkBoxesHtml}
+                <h3 class="text-xl font-bold mb-4">${employeeName}님 근무 규칙</h3>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">주 근무일수</label>
+                    <select id="modal-work-days" class="w-full border rounded px-3 py-2">
+                        ${workDaysOptions}
+                    </select>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">고정 휴무 요일</label>
+                    <p class="text-xs text-gray-400 mb-2">매주 고정으로 쉬는 요일이 있으면 선택 (없으면 선택 안 함)</p>
+                    <div class="grid grid-cols-3 gap-2 border p-4 rounded bg-white">
+                        ${checkBoxesHtml}
+                    </div>
                 </div>
 
                 <div class="flex justify-end gap-2">
@@ -2690,17 +2705,16 @@ function openRegularHolidayModal(employeeId, employeeName) {
 window.handleSaveRegularHoliday = async function (employeeId) {
     const checkboxes = document.querySelectorAll('.regular-rule-checkbox:checked');
     const selectedDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    const workDaysInput = document.getElementById('modal-work-days');
+    const weeklyWorkDays = workDaysInput ? parseInt(workDaysInput.value) : 5;
 
-    // Sort days (0 to 6)
     selectedDays.sort((a, b) => a - b);
 
-    console.log(`💾 정기 휴무 저장: Emp ${employeeId}, Rules: ${selectedDays}`);
+    console.log(`💾 근무 규칙 저장: Emp ${employeeId}, 주${weeklyWorkDays}일, 고정휴무: ${selectedDays}`);
 
     try {
-        // DB 업데이트
-        // 주의: regular_holiday_rules 컬럼이 JSONB로 존재해야 함
         const { error } = await db.from('employees')
-            .update({ regular_holiday_rules: selectedDays })
+            .update({ regular_holiday_rules: selectedDays, weekly_work_days: weeklyWorkDays })
             .eq('id', employeeId);
 
         if (error) {
@@ -2711,7 +2725,7 @@ window.handleSaveRegularHoliday = async function (employeeId) {
                 throw error;
             }
         } else {
-            alert('정기 휴무 규칙이 저장되었습니다.');
+            alert('근무 규칙이 저장되었습니다.');
             document.getElementById('regular-holiday-modal').remove();
             await window.loadAndRenderManagement();
         }
