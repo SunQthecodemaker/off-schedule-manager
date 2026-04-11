@@ -3450,6 +3450,11 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const businessDayCount = businessDays.length;
     const isCrossMonth = allDates.length !== thisMonthDates.length;
 
+    // 이번 주 공휴일 목록 (요일 번호)
+    const holidayDaysOfWeek = allDates
+        .filter(dateStr => holidays.has(dateStr))
+        .map(dateStr => dayjs(dateStr).day());
+
     // 승인된 연차 데이터
     const leaveRequests = state.management?.leaveRequests || [];
     const approvedLeaves = leaveRequests.filter(r => r.final_manager_status === 'approved');
@@ -3495,25 +3500,41 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             );
         }
 
+        // 대체근무 가능 여부:
+        // 공휴일이 있고, 고정 휴무일과 다른 날에 공휴일이 있으면
+        // → 고정 휴무일에 출근 + 공휴일에 쉬는 대체근무 가능
+        let canSubstitute = false;
+        if (fixedOffDays.length > 0 && holidayDaysOfWeek.length > 0) {
+            // 공휴일 중 고정 휴무일이 아닌 날이 있으면 대체 가능
+            const hasNonFixedHoliday = holidayDaysOfWeek.some(dow => !fixedOffDays.includes(dow));
+            // 고정 휴무일 중 공휴일이 아닌 날이 있으면 (대체할 대상이 있음)
+            const hasWorkableFixedOff = fixedOffDays.some(dow => !holidayDaysOfWeek.includes(dow));
+            canSubstitute = hasNonFixedHoliday && hasWorkableFixedOff;
+        }
+
         // 색상: -N+연차=파란, -N+연차없음=빨간, 0=없음
         let bgColor = 'transparent';
         let diffColor = '#6b7280';
         if (diff < 0) {
-            bgColor = hasLeave ? '#dbeafe' : '#fee2e2';  // 파란 / 빨간 배경
-            diffColor = hasLeave ? '#2563eb' : '#dc2626'; // 파란 / 빨간 글자
+            bgColor = hasLeave ? '#dbeafe' : '#fee2e2';
+            diffColor = hasLeave ? '#2563eb' : '#dc2626';
         }
 
-        return { emp, workCount, expected, diff, hasLeave, bgColor, diffColor };
+        return { emp, workCount, expected, diff, hasLeave, canSubstitute, bgColor, diffColor };
     }).filter(row => row.workCount > 0 || row.diff !== 0);
 
     // HTML: 직원 목록
     const listHtml = rows.map(row => {
         const diffText = row.diff === 0 ? '' : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
+        const subBadge = (row.diff < 0 && row.canSubstitute && !row.hasLeave)
+            ? '<span style="font-size:7px; color:#059669; font-weight:600;" title="고정휴무일 출근으로 대체 가능">대체</span>'
+            : '';
         return `<div style="display:flex; align-items:center; gap:2px; padding:1px 2px; background:${row.bgColor}; border-radius:2px;">
             <span style="font-size:9px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
             <span style="font-size:9px; font-weight:700; min-width:24px; text-align:right;">${row.workCount}/${row.expected}</span>
             ${diffText ? `<span style="font-size:8px; font-weight:600; color:${row.diffColor}; min-width:14px; text-align:right;">${diffText}</span>` : ''}
+            ${subBadge}
         </div>`;
     }).join('');
 
