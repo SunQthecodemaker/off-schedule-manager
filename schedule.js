@@ -1888,13 +1888,27 @@ async function loadAndRenderScheduleData(date) {
     const startOfMonth = dayjs(date).startOf('month').format('YYYY-MM-DD');
     const endOfMonth = dayjs(date).endOf('month').format('YYYY-MM-DD');
 
-    console.log('Loading data for:', { currentMonth, startOfMonth, endOfMonth });
+    // 검수열 주간 계산을 위해 달력 표시 범위(첫째 주 월요일 ~ 마지막 주 토요일)로 확장
+    const firstDay = dayjs(date).startOf('month');
+    const lastDay = dayjs(date).endOf('month');
+    const firstDayOfWeek = firstDay.day();
+    let calendarStart;
+    if (firstDayOfWeek === 0) {
+        calendarStart = firstDay.add(1, 'day'); // 일요일이면 월요일부터
+    } else {
+        calendarStart = firstDay.subtract(firstDayOfWeek - 1, 'day'); // 해당 주 월요일
+    }
+    const calendarEnd = lastDay.endOf('week'); // 마지막 주 토요일
+    const fetchStart = calendarStart.format('YYYY-MM-DD');
+    const fetchEnd = calendarEnd.format('YYYY-MM-DD');
+
+    console.log('Loading data for:', { currentMonth, startOfMonth, endOfMonth, fetchStart, fetchEnd });
 
     try {
         const [layoutRes, scheduleRes, holidayRes] = await Promise.all([
             db.from('team_layouts').select('layout_data').lte('month', currentMonth).order('month', { ascending: false }).limit(1),
-            db.from('schedules').select('*').gte('date', startOfMonth).lte('date', endOfMonth),
-            db.from('company_holidays').select('date').gte('date', startOfMonth).lte('date', endOfMonth)
+            db.from('schedules').select('*').gte('date', fetchStart).lte('date', fetchEnd),
+            db.from('company_holidays').select('date').gte('date', fetchStart).lte('date', fetchEnd)
         ]);
 
         console.log('Data loaded:', { layoutRes, scheduleRes, holidayRes });
