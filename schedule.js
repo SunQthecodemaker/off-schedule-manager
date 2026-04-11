@@ -1138,7 +1138,75 @@ function getOffEmployeesOnDate(dateStr) {
     return offEmps;
 }
 
+// ✅ 직원 기본 그리드 위치 (수동 이동 전까지 고정, 자동 이동 금지)
+function getEmployeeBasePositions() {
+    const posMap = new Map();
 
+    // 1. 현재 월 스케줄에서 각 직원의 최빈 grid_position
+    const posCount = new Map();
+    state.schedule.schedules.forEach(s => {
+        if (s.employee_id <= 0 || s.grid_position == null) return;
+        if (!posCount.has(s.employee_id)) posCount.set(s.employee_id, new Map());
+        const counts = posCount.get(s.employee_id);
+        counts.set(s.grid_position, (counts.get(s.grid_position) || 0) + 1);
+    });
+    posCount.forEach((counts, empId) => {
+        let bestPos = 0, bestCount = 0;
+        counts.forEach((count, pos) => {
+            if (count > bestCount) { bestCount = count; bestPos = pos; }
+        });
+        posMap.set(empId, bestPos);
+    });
+
+    // 2. 스케줄에 없는 직원 → team_layout 기반 빈 position 배정
+    const usedPositions = new Set(posMap.values());
+    const layout = state.schedule.teamLayout?.data?.[0]?.members;
+    if (layout) {
+        const activeIds = new Set(
+            (state.management.employees || [])
+                .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+                .map(e => e.id)
+        );
+        layout.forEach(id => {
+            if (id > 0 && activeIds.has(id) && !posMap.has(id)) {
+                let pos = 0;
+                while (usedPositions.has(pos)) pos++;
+                posMap.set(id, pos);
+                usedPositions.add(pos);
+            }
+        });
+        // layout에도 없는 활성 직원
+        activeIds.forEach(id => {
+            if (!posMap.has(id)) {
+                let pos = 0;
+                while (usedPositions.has(pos)) pos++;
+                posMap.set(id, pos);
+                usedPositions.add(pos);
+            }
+        });
+    }
+
+    return posMap;
+}
+
+// ✅ 특정 날짜에 직원의 상태 판별
+function getEmployeeStatusOnDate(empId, dateStr) {
+    // 1. 승인된 연차 (확정 휴무, 수정 불가)
+    const leaveReqs = state.management.leaveRequests || [];
+    const hasLeave = leaveReqs.some(req =>
+        req.employee_id === empId &&
+        (req.status === 'approved' || req.final_manager_status === 'approved') &&
+        req.dates?.includes(dateStr)
+    );
+    if (hasLeave) return 'leave';
+
+    // 2. DB 스케줄
+    const sched = state.schedule.schedules.find(s => s.employee_id === empId && s.date === dateStr);
+    if (sched) return sched.status === '휴무' ? 'off' : 'working';
+
+    // 3. 데이터 없음 → 평일이면 근무
+    return 'working';
+}
 
 // ✨ 선택 해제 함수
 function clearSelection() {
@@ -1281,55 +1349,79 @@ function renderCalendar() {
         else if (isSaturday) numberClass += ' text-blue-500';
 
         let eventsHTML = '';
-        if (state.schedule.viewMode === 'working' || state.schedule.viewMode === 'all') {
-            // ✅ 항상 28칸(4×7) 고정 렌더링
-            const GRID_SIZE = 28;
-            const gridSlots = new Array(GRID_SIZE).fill(null);
+        const GRID_SIZE = 28;
+        const gridSlots = new Array(GRID_SIZE).fill(null);
+        const basePositions = getEmployeeBasePositions();
+        const excludedIds = getExcludedEmployeeIds();
 
-            // 해당 날짜의 스케줄을 그리드 위치에 배치
+        // ✅ 부서 필터
+        const filteredEmployeeIds = new Set();
+        if (state.schedule.activeDepartmentFilters.size > 0) {
+            state.management.employees.forEach(emp => {
+                if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
+                    filteredEmployeeIds.add(emp.id);
+                }
+            });
+        }
 
-            // ✅ 부서 필터 적용된 직원 ID 목록
-            const filteredEmployeeIds = new Set();
-            if (state.schedule.activeDepartmentFilters.size > 0) {
-                state.management.employees.forEach(emp => {
-                    if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
-                        filteredEmployeeIds.add(emp.id);
-                    }
-                });
-            }
+        // ✅ 해당 날짜 스케줄 빠른 조회용 맵
+        const dateSchedMap = new Map();
+        state.schedule.schedules.forEach(s => {
+            if (s.date === dateStr) dateSchedMap.set(s.employee_id, s);
+        });
 
-            const excludedIds = getExcludedEmployeeIds();
-            const offDataMap = new Map(); // employeeId -> {type, schedule}
+        if (state.schedule.viewMode === 'all') {
+            // ═══════════════════════════════════════════
+            // 통합 보기: 전체 활성 직원을 기본 위치에 배치
+            // 근무=뚜렷, 휴무/연차=흐릿
+            // ═══════════════════════════════════════════
+            const activeEmps = (state.management.employees || []).filter(
+                e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+            );
 
-            if (state.schedule.viewMode === 'all') {
-                const offData = getOffEmployeesOnDate(dateStr);
-                offData.forEach(item => {
-                    offDataMap.set(item.employee.id, item);
-                });
-            }
+            activeEmps.forEach(emp => {
+                if (excludedIds.has(emp.id)) return;
+                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
 
+                const pos = basePositions.get(emp.id);
+                if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+                const status = getEmployeeStatusOnDate(emp.id, dateStr);
+                const sched = dateSchedMap.get(emp.id);
+
+                gridSlots[pos] = {
+                    id: sched?.id || `auto-${emp.id}-${dateStr}`,
+                    employee_id: emp.id,
+                    date: dateStr,
+                    status: status === 'leave' ? '연차' : status === 'off' ? '휴무' : '근무',
+                    grid_position: pos,
+                    _empStatus: status  // leave | off | working
+                };
+            });
+
+            // 빈칸(spacer) 배치
+            state.schedule.schedules.forEach(s => {
+                if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
+                    gridSlots[s.grid_position] = s;
+                }
+            });
+
+        } else if (state.schedule.viewMode === 'working') {
+            // ═══════════════════════════════════════════
+            // 근무자 보기: 근무 상태인 직원만 (위치 고정, 빈칸 유지)
+            // ═══════════════════════════════════════════
             state.schedule.schedules.forEach(schedule => {
-                // 'all' 모드인 경우 '근무' 상태뿐만 아니라 '휴무' 상태도 그리드에 배치 (연차 포함)
-                // 만약 휴무자라면 offDataMap에 존재함
-                let isValidStatus = schedule.status === '근무';
-                let isOffOrLeave = false;
+                if (schedule.date !== dateStr || schedule.grid_position == null) return;
+                if (excludedIds.has(schedule.employee_id)) return;
+                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(schedule.employee_id) && schedule.employee_id > 0) return;
 
-                if (state.schedule.viewMode === 'all') {
-                    if (offDataMap.has(schedule.employee_id)) {
-                        isValidStatus = true;
-                        isOffOrLeave = true;
-                    }
+                // 승인된 연차는 근무자 보기에서 제외
+                if (schedule.employee_id > 0) {
+                    const status = getEmployeeStatusOnDate(schedule.employee_id, dateStr);
+                    if (status !== 'working') return;
                 }
 
-                if (schedule.date === dateStr && isValidStatus && schedule.grid_position != null) {
-                    if (excludedIds.has(schedule.employee_id)) return; // 🌟 제외 직원 필터링 작동
-
-                    // ✅ 부서 필터가 있으면 필터링된 직원만 표시
-                    if (state.schedule.activeDepartmentFilters.size > 0) {
-                        if (!filteredEmployeeIds.has(schedule.employee_id) && schedule.employee_id > 0) {
-                            return; // 필터에 해당하지 않는 직원은 스킵
-                        }
-                    }
+                if (schedule.status === '근무' || schedule.employee_id < 0) {
                     const pos = schedule.grid_position;
                     if (pos >= 0 && pos < GRID_SIZE) {
                         gridSlots[pos] = schedule;
@@ -1337,92 +1429,90 @@ function renderCalendar() {
                 }
             });
 
-            // ✨ 'all' 뷰에서 schedules 배열에 잡히지 않은(스케줄 데이터가 없는) 연차자/휴무자 강제 배치
-            if (state.schedule.viewMode === 'all') {
-                offDataMap.forEach((offItem, empId) => {
-                    const alreadyInGrid = gridSlots.some(s => s && String(s.employee_id) === String(empId));
-                    if (!alreadyInGrid) {
-                        // 빈 슬롯 찾기
-                        const emptyIndex = gridSlots.findIndex(s => !s);
-                        if (emptyIndex !== -1) {
-                            gridSlots[emptyIndex] = {
-                                id: offItem.schedule?.id || `dummy-${empId}-${dateStr}`,
-                                employee_id: empId,
-                                date: dateStr,
-                                status: offItem.type === 'leave' ? 'leave' : '휴무',
-                                grid_position: emptyIndex
-                            };
-                        }
-                    }
-                });
-            }
+        } else if (state.schedule.viewMode === 'off') {
+            // ═══════════════════════════════════════════
+            // 휴무자 보기: 연차+휴무 직원만 (기본 위치에 배치)
+            // ═══════════════════════════════════════════
+            const activeEmps = (state.management.employees || []).filter(
+                e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+            );
 
-            // 각 슬롯을 HTML로 변환
-            eventsHTML = gridSlots.map((schedule, position) => {
-                if (!schedule) {
-                    // 빈 슬롯
+            activeEmps.forEach(emp => {
+                if (excludedIds.has(emp.id)) return;
+                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
+
+                const status = getEmployeeStatusOnDate(emp.id, dateStr);
+                if (status === 'working') return; // 근무자는 표시 안 함
+
+                const pos = basePositions.get(emp.id);
+                if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+                const sched = dateSchedMap.get(emp.id);
+                gridSlots[pos] = {
+                    id: sched?.id || `off-${emp.id}-${dateStr}`,
+                    employee_id: emp.id,
+                    date: dateStr,
+                    status: status === 'leave' ? '연차' : '휴무',
+                    grid_position: pos,
+                    _empStatus: status
+                };
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // 그리드 슬롯 → HTML 변환 (공통)
+        // ═══════════════════════════════════════════
+        eventsHTML = gridSlots.map((schedule, position) => {
+            if (!schedule) {
+                return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
+                    <span class="slot-number">${position + 1}</span>
+                </div>`;
+            } else if (schedule.employee_id < 0) {
+                const spacerName = `빈칸${-schedule.employee_id}`;
+                const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
+                    <span class="event-dot" style="background-color: #f3f4f6;"></span>
+                    <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
+                </div>`;
+            } else {
+                const emp = state.management.employees.find(e => e.id === schedule.employee_id);
+                if (!emp) {
                     return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
                         <span class="slot-number">${position + 1}</span>
                     </div>`;
-                } else if (schedule.employee_id < 0) {
-                    // ✅ 빈칸 카드
-                    const spacerName = `빈칸${-schedule.employee_id}`;
-                    const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
-                    return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
-                        <span class="event-dot" style="background-color: #f3f4f6;"></span>
-                        <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
-                    </div>`;
-                } else {
-                    // 직원 카드
-                    const emp = state.management.employees.find(e => e.id === schedule.employee_id);
-                    if (!emp) {
-                        // 삭제된 직원
-                        const spacerName = schedule.employee_id < 0 ? `빈칸${-schedule.employee_id}` : '알수없음';
-                        const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
-                        return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
-                            <span class="event-dot" style="background-color: #f3f4f6;"></span>
-                            <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
-                        </div>`;
-                    }
-
-                    const deptColor = getDepartmentColor(emp.departments?.id);
-                    const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
-
-                    let cardTypeClass = 'event-working';
-                    let typeAttr = 'working';
-
-                    if (state.schedule.viewMode === 'all' && offDataMap.has(emp.id)) {
-                        const offItem = offDataMap.get(emp.id);
-                        if (offItem.type === 'leave') {
-                            cardTypeClass = 'event-leave';
-                            typeAttr = 'leave';
-                        } else {
-                            cardTypeClass = 'event-off';
-                            typeAttr = '휴무';
-                        }
-                    }
-
-                    return `<div class="event-card ${cardTypeClass} ${isSelected}" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="${typeAttr}">
-                        <span class="event-dot" style="background-color: ${deptColor};"></span>
-                        <span class="event-name">${emp.name}</span>
-                    </div>`;
                 }
-            }).join('');
-        } else if (state.schedule.viewMode === 'off') {
-            const offData = getOffEmployeesOnDate(dateStr);
-            eventsHTML = offData.map(item => {
-                const scheduleId = item.schedule?.id || '';
-                const type = item.type;
-                const deptColor = getDepartmentColor(item.employee.departments?.id);
-                // ✨ 휴무자 보기에서는 흐리지 않게 뚜렷한 클래스 적용
-                const eventClass = type === 'leave' ? 'event-leave-focus' : 'event-off-focus';
-                // ✨ 삭제 버튼 제거
-                return `<div class="event-card ${eventClass}" data-employee-id="${item.employee.id}" data-schedule-id="${scheduleId}" data-type="${type}">
+
+                const deptColor = getDepartmentColor(emp.departments?.id);
+                const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                const empStatus = schedule._empStatus || getEmployeeStatusOnDate(emp.id, dateStr);
+
+                let cardTypeClass, typeAttr;
+                if (empStatus === 'leave') {
+                    cardTypeClass = 'event-leave';
+                    typeAttr = 'leave';
+                } else if (empStatus === 'off') {
+                    cardTypeClass = 'event-off';
+                    typeAttr = '휴무';
+                } else {
+                    cardTypeClass = 'event-working';
+                    typeAttr = 'working';
+                }
+
+                // 통합 보기: 휴무/연차는 흐릿하게 표시
+                const offStyle = (state.schedule.viewMode === 'all' && empStatus !== 'working')
+                    ? 'opacity: 0.45;' : '';
+                // 휴무자 보기: 뚜렷하게 표시
+                const offFocusClass = (state.schedule.viewMode === 'off')
+                    ? (empStatus === 'leave' ? 'event-leave-focus' : 'event-off-focus') : '';
+
+                const finalClass = offFocusClass || cardTypeClass;
+
+                return `<div class="event-card ${finalClass} ${isSelected}" data-position="${position}" data-employee-id="${emp.id}" data-schedule-id="${schedule.id}" data-type="${typeAttr}" style="${offStyle}">
                     <span class="event-dot" style="background-color: ${deptColor};"></span>
-                    <span class="event-name">${item.employee.name}</span>
+                    <span class="event-name">${emp.name}</span>
                 </div>`;
-            }).join('');
-        }
+            }
+        }).join('');
 
 
         calendarHTML += `
@@ -1710,9 +1800,8 @@ function handleEventCardDblClick(e, card) {
     );
 
     if (isLeave) {
-        if (!confirm('승인된 연차(특별휴가) 대상자입니다. 이 스케줄을 삭제하거나 근무 상태로 변경하시겠습니까? (연차 기록 자체는 휴가 관리 탭에서 변경해야 합니다)')) {
-            return;
-        }
+        alert('승인된 연차는 확정 휴무이므로 스케줄에서 수정할 수 없습니다.\n연차 취소는 연차 관리에서 처리해주세요.');
+        return;
     }
 
     if (schedule) {
@@ -2530,6 +2619,13 @@ function handleContextMenu(e) {
         const cardType = card.dataset.type; // 'working', 'leave', 'humu', etc.
 
         if (!employeeId || !date) return;
+
+        // ✅ 승인된 연차는 수정 불가 (컨텍스트 메뉴 차단)
+        const empIdNum = parseInt(employeeId);
+        if (empIdNum > 0 && getEmployeeStatusOnDate(empIdNum, date) === 'leave') {
+            alert('승인된 연차는 확정 휴무이므로 수정할 수 없습니다.\n연차 취소는 연차 관리에서 처리해주세요.');
+            return;
+        }
 
         // 메뉴 데이터 설정
         contextMenuV2.dataset.employeeId = employeeId;
