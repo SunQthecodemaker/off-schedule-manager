@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-1" style="width:24px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-1 text-left" style="width:64px">이름</th>
-        <th class="p-1 text-left" style="width:72px">부서</th>
-        <th class="p-1 text-left" style="width:84px">입사일</th>
-        <th class="p-1 text-left">이메일</th>
-        <th class="p-1 text-center" style="width:40px">매니저</th>
-        <th class="p-1 text-center" style="width:160px">근무 규칙</th>
-        <th class="p-1 text-center" style="width:150px">관리</th>
+        <th class="p-1" style="width:2%"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-1 text-left" style="width:6%">이름</th>
+        <th class="p-1 text-left" style="width:7%">부서</th>
+        <th class="p-1 text-left" style="width:9%">입사일</th>
+        <th class="p-1 text-left" style="width:16%">이메일</th>
+        <th class="p-1 text-center" style="width:4%">매니저</th>
+        <th class="p-1 text-center" style="width:16%">근무 규칙</th>
+        <th class="p-1 text-center" style="width:13%">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -472,10 +472,10 @@ export function getManagementHTML() {
         let actions = '';
         if (filter === 'active') {
             actions = `
-                <button onclick="handleUpdateEmployee(${emp.id})" class="text-xs bg-blue-500 text-white px-2 py-1 rounded">저장</button>
-                <button onclick="handleRetireEmployee(${emp.id})" class="text-xs bg-gray-500 text-white px-2 py-1 rounded ml-1">퇴사</button>
-                <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-1">재설정</button>
-                <button onclick="handleDeleteEmployee(${emp.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1">삭제</button>
+                <button onclick="handleUpdateEmployee(${emp.id})" class="bg-blue-500 text-white px-1 py-0.5 rounded" style="font-size:10px">저장</button>
+                <button onclick="handleRetireEmployee(${emp.id})" class="bg-gray-500 text-white px-1 py-0.5 rounded" style="font-size:10px">퇴사</button>
+                <button onclick="handleResetPassword(${emp.id})" class="bg-yellow-500 text-white px-1 py-0.5 rounded" style="font-size:10px">PW</button>
+                <button onclick="handleDeleteEmployee(${emp.id})" class="bg-red-500 text-white px-1 py-0.5 rounded" style="font-size:10px">삭제</button>
              `;
         } else {
             actions = `
