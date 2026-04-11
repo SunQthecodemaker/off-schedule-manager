@@ -1315,7 +1315,7 @@ async function renderManagerLeaveList() {
 async function renderManagerScheduleTab() {
     const container = _('#employee-schedule-tab');
     if (!container) return;
-    await renderScheduleManagement(container);
+    await renderScheduleManagement(container, false, true); // isReadOnly=false, isManager=true
 }
 
 window.openDocSubmissionModal = async function (requestId) {

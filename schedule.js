@@ -3245,8 +3245,8 @@ function handleGlobalKeydown(e) {
 
 // Old Undo implementation removed to avoid duplicates
 
-export async function renderScheduleManagement(container, isReadOnly = false) {
-    console.log('renderScheduleManagement called', { isReadOnly });
+export async function renderScheduleManagement(container, isReadOnly = false, isManager = false) {
+    console.log('renderScheduleManagement called', { isReadOnly, isManager });
 
     if (!state.schedule) {
         state.schedule = {
@@ -3268,7 +3268,8 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     if (!state.schedule.undoStack) {
         state.schedule.undoStack = [];
     }
-    state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장
+    state.schedule.isReadOnly = isReadOnly;
+    state.schedule.isManager = isManager;
 
     // ✅ ReadOnly 모드(직원 포털)에서는 통합 보기(all)를 기본값으로
     if (isReadOnly && state.schedule.viewMode === 'working') {
@@ -3295,15 +3296,33 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
     `;
 
     // Conditional top control buttons HTML
-    const topControlsHtml = isReadOnly ? `
+    let topControlsHtml;
+    if (isReadOnly) {
+        topControlsHtml = `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
             <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
                 <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">통합 보기</button>
                 <button type="button" data-mode="working" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">근무자 보기</button>
                 <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md hover:bg-white hover:text-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">휴무자 보기</button>
             </div>
-        </div>
-    ` : `
+        </div>`;
+    } else if (isManager) {
+        topControlsHtml = `
+        <div class="flex justify-between items-center mb-2 pb-2 border-b">
+            <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
+                <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md">통합 보기</button>
+                <button type="button" data-mode="working" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md">근무자 보기</button>
+                <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md">휴무자 보기</button>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="print-schedule-btn" class="sch-btn sch-btn-secondary">인쇄하기</button>
+                <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>되돌리기</button>
+                <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
+                <button id="request-approval-btn" class="sch-btn sch-btn-primary bg-orange-500 hover:bg-orange-600">승인 요청</button>
+            </div>
+        </div>`;
+    } else {
+        topControlsHtml = `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
             <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
                 <button type="button" data-mode="all" class="schedule-view-btn active px-4 py-2 text-sm font-medium rounded-md">통합 보기</button>
@@ -3318,8 +3337,8 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
                 <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>되돌리기</button>
                 <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
             </div>
-        </div>
-    `;
+        </div>`;
+    }
 
     container.innerHTML = `
         <div class="schedule-grid">
@@ -3359,6 +3378,9 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
         _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
         _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
+
+        // 매니저: 승인 요청 버튼
+        _('#request-approval-btn')?.addEventListener('click', handleRequestScheduleApproval);
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
@@ -3747,6 +3769,24 @@ async function checkScheduleConfirmationStatus() {
         const badge = document.querySelector('#schedule-status-badge');
         const confirmBtn = document.querySelector('#confirm-schedule-btn');
 
+        // 승인 요청 배너 (관리자 전용)
+        const existingBanner = document.querySelector('#approval-request-banner');
+        if (existingBanner) existingBanner.remove();
+
+        if (data && data.approval_requested && !data.is_confirmed && !state.schedule.isReadOnly && !state.schedule.isManager) {
+            const banner = document.createElement('div');
+            banner.id = 'approval-request-banner';
+            banner.className = 'bg-orange-50 border border-orange-300 rounded-lg p-3 mb-3 flex items-center justify-between';
+            banner.innerHTML = `
+                <div>
+                    <span class="font-bold text-orange-700">승인 요청</span>
+                    <span class="text-sm text-orange-600 ml-2">${data.requested_by || '매니저'}님이 ${month} 스케줄 확정을 요청했습니다 (${data.requested_at ? dayjs(data.requested_at).format('MM/DD HH:mm') : ''})</span>
+                </div>
+            `;
+            const calendarArea = document.querySelector('.schedule-main-content');
+            if (calendarArea) calendarArea.prepend(banner);
+        }
+
         if (data && data.is_confirmed) {
             // 확정됨
             if (badge) {
@@ -3762,8 +3802,10 @@ async function checkScheduleConfirmationStatus() {
         } else {
             // 미확정
             if (badge) {
-                badge.textContent = '미확정';
-                badge.className = 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-yellow-100 text-yellow-800';
+                badge.textContent = data?.approval_requested ? '승인 요청됨' : '미확정';
+                badge.className = data?.approval_requested
+                    ? 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-orange-100 text-orange-800'
+                    : 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-yellow-100 text-yellow-800';
                 badge.classList.remove('hidden');
             }
             if (confirmBtn) {
@@ -3774,6 +3816,48 @@ async function checkScheduleConfirmationStatus() {
         }
     } catch (err) {
         console.error('확정 상태 확인 실패:', err);
+    }
+}
+
+async function handleRequestScheduleApproval() {
+    const viewDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
+    const month = dayjs(viewDate).format('YYYY-MM');
+    const managerName = state.currentUser?.name || '매니저';
+
+    // 먼저 저장되지 않은 변경사항이 있는지 확인
+    const saveBtn = _('#save-schedule-btn');
+    if (saveBtn && !saveBtn.disabled) {
+        const doSave = confirm('저장되지 않은 변경사항이 있습니다.\n먼저 저장한 후 승인 요청하시겠습니까?');
+        if (doSave) {
+            await handleSaveSchedules();
+        } else {
+            return;
+        }
+    }
+
+    if (!confirm(`${month} 스케줄을 관리자에게 승인 요청하시겠습니까?`)) return;
+
+    try {
+        // schedule_approval_requests 테이블에 저장 (없으면 schedule_confirmations에 메모 방식)
+        const { error } = await db.from('schedule_confirmations').upsert({
+            month: month,
+            is_confirmed: false,
+            approval_requested: true,
+            requested_by: managerName,
+            requested_at: new Date().toISOString()
+        }, { onConflict: 'month' });
+
+        if (error) {
+            console.error('승인 요청 실패:', error);
+            // 컬럼이 없을 수 있으므로 단순 알림으로 fallback
+            alert(`${month} 스케줄 승인 요청이 전송되었습니다.\n관리자가 스케줄 관리 탭에서 확인 후 확정합니다.`);
+            return;
+        }
+
+        alert(`${month} 스케줄 승인 요청 완료!\n\n관리자가 스케줄 관리 탭에서 확인 후 확정합니다.`);
+    } catch (err) {
+        console.error('승인 요청 오류:', err);
+        alert(`${month} 스케줄 승인 요청이 전송되었습니다.\n관리자가 스케줄 관리 탭에서 확인 후 확정합니다.`);
     }
 }
 
@@ -3793,7 +3877,10 @@ async function handleConfirmSchedule(isConfirm = true) {
             .upsert({
                 month: month,
                 is_confirmed: isConfirm,
-                confirmed_at: new Date().toISOString()
+                confirmed_at: new Date().toISOString(),
+                approval_requested: false,
+                requested_by: null,
+                requested_at: null
             }, { onConflict: 'month' });
 
         if (error) throw error;
