@@ -2160,9 +2160,10 @@ async function renderScheduleSidebar() {
             }
         });
 
-        // ✅ 저장된 순서에 없는 신규 직원은 해당 부서 위치에 자동 배치
+        // ✅ 저장된 순서에 없는 신규 직원은 해당 부서 위치에 자동 배치 (퇴사/휴직 제외)
         regularEmployees.forEach(emp => {
             if (!savedLayout.members.includes(emp.id)) {
+                if (emp.retired) return; // 퇴사/휴직 직원은 자동 배치하지 않음
                 // 해당 부서의 마지막 직원 뒤에 삽입
                 const deptName = deptNameMap[emp.department_id] || '기타';
                 let insertIdx = -1;
