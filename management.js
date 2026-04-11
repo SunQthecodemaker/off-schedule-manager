@@ -375,15 +375,18 @@ window.handleRetireEmployee = async function (id) {
 };
 
 window.handleResetPassword = async function (id) {
-    const newPassword = prompt("새로운 비밀번호를 입력해주세요:");
-    if (!newPassword) return; // 취소 또는 빈 값
+    const emp = state.management.employees.find(e => e.id === id);
+    const empName = emp?.name || '';
+    const defaultPassword = '1234';
 
-    const { error } = await db.from('employees').update({ password: newPassword }).eq('id', id);
+    if (!confirm(`${empName}님의 비밀번호를 "${defaultPassword}"로 초기화하시겠습니까?\n\n직원에게 초기화 사실을 알려주시고,\n로그인 후 비밀번호를 변경하도록 안내해주세요.`)) return;
+
+    const { error } = await db.from('employees').update({ password: defaultPassword }).eq('id', id);
 
     if (error) {
-        alert('비밀번호 변경 실패: ' + error.message);
+        alert('비밀번호 초기화 실패: ' + error.message);
     } else {
-        alert('비밀번호가 성공적으로 변경되었습니다.');
+        alert(`${empName}님의 비밀번호가 "${defaultPassword}"로 초기화되었습니다.\n\n직원에게 로그인 후 비밀번호 변경을 안내해주세요.`);
     }
 };
 
