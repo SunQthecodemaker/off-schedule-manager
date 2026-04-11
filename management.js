@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-1" style="width:28px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-1 text-left" style="width:56px">이름</th>
-        <th class="p-1 text-left" style="width:64px">부서</th>
-        <th class="p-1 text-left" style="width:88px">입사일</th>
-        <th class="p-1 text-left" style="min-width:100px">이메일</th>
-        <th class="p-1 text-center" style="width:36px">매니저</th>
-        <th class="p-1 text-center" style="width:148px">근무 규칙</th>
-        <th class="p-1 text-center" style="width:150px">관리</th>
+        <th class="p-1" style="width:3%"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-1 text-left" style="width:8%">이름</th>
+        <th class="p-1 text-left" style="width:8%">부서</th>
+        <th class="p-1 text-left" style="width:11%">입사일</th>
+        <th class="p-1 text-left" style="width:18%">이메일</th>
+        <th class="p-1 text-center" style="width:5%">매니저</th>
+        <th class="p-1 text-center" style="width:22%">근무 규칙</th>
+        <th class="p-1 text-center" style="width:25%">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -540,7 +540,7 @@ export function getManagementHTML() {
             </div>
         </div>
         <div class="overflow-x-auto">
-            <table class="text-sm mb-6" style="table-layout:fixed;width:100%;border-collapse:collapse;">
+            <table class="text-sm mb-6" style="width:100%;border-collapse:collapse;">
                 <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
                 <tbody>${rows}</tbody>
                 <tfoot>${newRow}</tfoot>
