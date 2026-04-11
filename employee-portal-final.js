@@ -269,13 +269,15 @@ async function renderEmployeeScheduleView() {
         // state.management가 없으면 최소 데이터 로드
         // 항상 최소 데이터 로드 (직원 포털에서는 management 데이터가 미로드 상태)
         if (!state.management) state.management = {};
-        const [deptRes, empRes] = await Promise.all([
+        const [deptRes, empRes, leaveRes] = await Promise.all([
             db.from('departments').select('*').order('id'),
-            db.from('employees').select('*, departments(*)').order('id')
+            db.from('employees').select('*, departments(*)').order('id'),
+            db.from('leave_requests').select('*').in('status', ['approved'])
         ]);
         state.management.departments = deptRes.data || [];
         state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
-        console.log('📋 직원 스케줄 뷰: departments', state.management.departments.length, 'employees', state.management.employees.length);
+        state.management.leaveRequests = leaveRes.data || [];
+        console.log('📋 직원 스케줄 뷰: departments', state.management.departments.length, 'employees', state.management.employees.length, 'leaveRequests', state.management.leaveRequests.length);
         container.style.height = 'auto';
         await renderScheduleManagement(container, true);
     } else {
@@ -1197,7 +1199,14 @@ export async function handleSubmitLeaveRequest() {
     // 과거 날짜 포함 여부 체크 (신청 후 서류 요청 자동 생성용)
     const today = dayjs().format('YYYY-MM-DD');
     const pastDates = dates.filter(d => d < today);
+    const futureDates = dates.filter(d => d >= today);
     const hasPastDates = pastDates.length > 0;
+
+    // 과거+미래 날짜 혼합 신청 차단
+    if (hasPastDates && futureDates.length > 0) {
+        alert('⚠️ 과거 날짜와 미래 날짜를 동시에 신청할 수 없습니다.\n\n과거 날짜와 미래 날짜를 각각 따로 신청해주세요.');
+        return;
+    }
 
     // 당겨쓰기 동의 체크 확인
     const borrowingSection = _('#borrowing-agreement-section');

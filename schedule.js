@@ -1089,7 +1089,7 @@ function getOffEmployeesOnDate(dateStr) {
     // ✅ 1. 승인된 연차 먼저 확인 (Leave -> Green)
     // DB에 스케줄이 '휴무'로 되어있더라도, 연차 기록이 있으면 '연차'로 표시해야 함
     const leaveEmployees = new Set();
-    state.management.leaveRequests.forEach(req => {
+    (state.management.leaveRequests || []).forEach(req => {
         // status 확인: 'approved' OR 'final_manager_status' === 'approved'
         // 수동 등록된 건도 'approved'로 간주
         if ((req.status === 'approved' || req.final_manager_status === 'approved') && req.dates?.includes(dateStr)) {
@@ -3163,6 +3163,11 @@ export async function renderScheduleManagement(container, isReadOnly = false) {
         state.schedule.undoStack = [];
     }
     state.schedule.isReadOnly = isReadOnly; // ✅ ReadOnly 상태 저장
+
+    // ✅ ReadOnly 모드(직원 포털)에서는 통합 보기(all)를 기본값으로
+    if (isReadOnly && state.schedule.viewMode === 'working') {
+        state.schedule.viewMode = 'all';
+    }
 
     if (!state.management) {
         console.error('state.management is not initialized');
