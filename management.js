@@ -871,9 +871,9 @@ export function getLeaveListHTML() {
         <div class="mb-6">
             <div class="flex flex-wrap gap-2 mb-2 items-center">
                 <div class="flex gap-2">
-                    <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-yellow-500 text-white">대기중</button>
+                    <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
                     <button onclick="window.filterLeaveCalendar('approved')" id="cal-filter-approved" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
-                    <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">전체</button>
+                    <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
                 </div>
                 <div class="flex gap-2 items-center ml-4">
                     <label class="text-sm font-semibold">직원:</label>
@@ -972,7 +972,7 @@ function applyListFilters() {
 }
 
 // 달력 필터 상태
-let currentCalendarFilter = 'pending';
+let currentCalendarFilter = 'all';
 let currentCalendarEmployee = 'all';
 
 window.filterLeaveCalendar = function (status) {
