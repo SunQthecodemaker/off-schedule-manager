@@ -1328,6 +1328,14 @@ function renderCalendar() {
         calendarHTML += `<div class="calendar-header weekly-audit-cell" style="background:#f0f9ff; color:#1e40af; font-size:12px;">검수</div>`;
     }
 
+    // ✅ 루프 밖에서 한 번만 계산 (성능)
+    const GRID_SIZE = 28;
+    const basePositions = getEmployeeBasePositions();
+    const excludedIds = getExcludedEmployeeIds();
+    const activeEmps = (state.management.employees || []).filter(
+        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+    );
+
     let currentLoop = startDate.clone();
     while (currentLoop.valueOf() <= endDate.valueOf()) {
         const dateStr = currentLoop.format('YYYY-MM-DD');
@@ -1349,10 +1357,7 @@ function renderCalendar() {
         else if (isSaturday) numberClass += ' text-blue-500';
 
         let eventsHTML = '';
-        const GRID_SIZE = 28;
         const gridSlots = new Array(GRID_SIZE).fill(null);
-        const basePositions = getEmployeeBasePositions();
-        const excludedIds = getExcludedEmployeeIds();
 
         // ✅ 부서 필터
         const filteredEmployeeIds = new Set();
@@ -1375,10 +1380,6 @@ function renderCalendar() {
             // 통합 보기: 전체 활성 직원을 기본 위치에 배치
             // 근무=뚜렷, 휴무/연차=흐릿
             // ═══════════════════════════════════════════
-            const activeEmps = (state.management.employees || []).filter(
-                e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
-            );
-
             activeEmps.forEach(emp => {
                 if (excludedIds.has(emp.id)) return;
                 if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
@@ -1433,10 +1434,6 @@ function renderCalendar() {
             // ═══════════════════════════════════════════
             // 휴무자 보기: 연차+휴무 직원만 (기본 위치에 배치)
             // ═══════════════════════════════════════════
-            const activeEmps = (state.management.employees || []).filter(
-                e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
-            );
-
             activeEmps.forEach(emp => {
                 if (excludedIds.has(emp.id)) return;
                 if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
