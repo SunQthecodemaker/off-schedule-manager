@@ -3537,13 +3537,13 @@ async function handlePrintSchedule() {
         const auditCells = calendarEl.querySelectorAll('.weekly-audit-cell');
         auditCells.forEach(el => { el.style.display = 'none'; });
 
-        // 2. 달력 그리드를 7열(일~토, 검수 제외)로 변경 + 그리드 갭 최소화
+        // 2. 달력 그리드를 6열(월~토, 검수 제외)로 변경 + 그리드 갭 최소화
         const calendarGrid = calendarEl.querySelector('.calendar-grid');
         const originalGridStyle = calendarGrid ? calendarGrid.style.gridTemplateColumns : '';
         const originalGridGap = calendarGrid ? calendarGrid.style.gap : '';
         if (calendarGrid) {
-            calendarGrid.style.gridTemplateColumns = '0.4fr repeat(6, 1fr)';
-            calendarGrid.style.gap = '1px'; // WHY: 그리드 셀 간 최소 간격
+            calendarGrid.style.gridTemplateColumns = 'repeat(6, 1fr)';
+            calendarGrid.style.gap = '1px';
         }
 
         // 3. 요일 헤더(calendar-header) 세로 공백 최소화
@@ -3587,16 +3587,17 @@ async function handlePrintSchedule() {
         eventCards.forEach(el => {
             el.style.border = 'none';
             el.style.borderRadius = '0';
-            el.style.padding = '1px 2px';
-            el.style.fontSize = '13px';
+            el.style.padding = '1px 3px';
+            el.style.fontSize = '14px';
             el.style.gap = '1px';
-            el.style.lineHeight = '1.2';       // 텍스트 줄간격 약간 축소하여 공간 확보
+            el.style.lineHeight = '1.3';
         });
         const eventNames = calendarEl.querySelectorAll('.event-name');
         eventNames.forEach(el => {
-            el.style.fontSize = '13px';
+            el.style.fontSize = '14px';
             el.style.fontWeight = '600';
-            el.style.lineHeight = '1.2';       // 이름 텍스트 줄간격도 축소
+            el.style.lineHeight = '1.3';
+            el.style.whiteSpace = 'nowrap';
         });
         // 부서 도트 약간 축소
         const eventDots = calendarEl.querySelectorAll('.event-dot');
