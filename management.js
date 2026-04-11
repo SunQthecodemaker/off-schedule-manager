@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-2" style="width:25px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-2 text-left" style="width:80px">이름</th>
-        <th class="p-2 text-left" style="width:75px">부서</th>
-        <th class="p-2 text-left" style="width:110px">입사일</th>
+        <th class="p-2" style="width:100px"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-2 text-left" style="width:250px">이름</th>
+        <th class="p-2 text-left" style="width:250px">부서</th>
+        <th class="p-2 text-left" style="width:300px">입사일</th>
         <th class="p-2 text-left">이메일</th>
-        <th class="p-2 text-center" style="width:45px">매니저</th>
-        <th class="p-2 text-center" style="width:170px">근무 규칙</th>
-        <th class="p-2 text-center" style="width:165px">관리</th>
+        <th class="p-2 text-center" style="width:100px">매니저</th>
+        <th class="p-2 text-center" style="width:250px">근무 규칙</th>
+        <th class="p-2 text-center" style="width:180px">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
