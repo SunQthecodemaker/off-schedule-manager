@@ -262,7 +262,7 @@ async function renderEmployeeScheduleView() {
     const container = _('#employee-work-schedule-tab');
     if (!container) return;
 
-    const isPC = window.innerWidth >= 768;
+    const isPC = window.innerWidth >= 1024;
 
     if (isPC) {
         // PC: 관리자 달력 그리드 (읽기전용)
