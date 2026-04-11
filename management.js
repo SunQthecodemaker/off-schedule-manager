@@ -456,12 +456,12 @@ export function getManagementHTML() {
 
     const headerHtml = `
         <th class="p-1" style="width:2%"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-1 text-left" style="width:6%">이름</th>
+        <th class="p-1 text-left" style="width:7%">이름</th>
         <th class="p-1 text-left" style="width:7%">부서</th>
         <th class="p-1 text-left" style="width:9%">입사일</th>
-        <th class="p-1 text-left" style="width:16%">이메일</th>
+        <th class="p-1 text-left" style="width:20%">이메일</th>
         <th class="p-1 text-center" style="width:4%">매니저</th>
-        <th class="p-1 text-center" style="width:16%">근무 규칙</th>
+        <th class="p-1 text-center" style="width:18%">근무 규칙</th>
         <th class="p-1 text-center" style="width:13%">관리</th>
     `;
 
@@ -540,7 +540,7 @@ export function getManagementHTML() {
             </div>
         </div>
         <div class="overflow-x-auto">
-            <table class="text-sm mb-6" style="width:100%;border-collapse:collapse;">
+            <table class="text-sm mb-6" style="width:100%;border-collapse:collapse;table-layout:fixed;">
                 <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
                 <tbody>${rows}</tbody>
                 <tfoot>${newRow}</tfoot>
