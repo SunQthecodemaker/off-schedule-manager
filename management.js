@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-2 w-10"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-2 text-left">이름</th>
-        <th class="p-2 w-48 text-left">부서</th>
-        <th class="p-2 text-left">입사일</th>
+        <th class="p-2" style="width:30px"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-2 text-left" style="width:70px">이름</th>
+        <th class="p-2 text-left" style="width:80px">부서</th>
+        <th class="p-2 text-left" style="width:110px">입사일</th>
         <th class="p-2 text-left">이메일</th>
-        <th class="p-2 text-center w-20">매니저</th>
-        <th class="p-2 text-center w-24">정기휴무</th>
-        <th class="p-2 text-center w-48">관리</th>
+        <th class="p-2 text-center" style="width:50px">매니저</th>
+        <th class="p-2 text-center" style="width:140px">근무 규칙</th>
+        <th class="p-2 text-center" style="width:180px">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -497,8 +497,8 @@ export function getManagementHTML() {
                 <td class="p-2"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
                 <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
                 <td class="p-2 text-center">
-                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 truncate" style="min-width:60px;">
-                        ${emp.weekly_work_days || 5}일${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ' ' + emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(',') : ''}
+                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 w-full text-left" style="min-width:100px;">
+                        <span class="font-semibold">주${emp.weekly_work_days || 5}일</span>${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ` <span class="text-blue-600">${emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(' ')}</span> 휴무` : ''}${emp.can_substitute === false ? '' : (emp.regular_holiday_rules?.length > 0 ? ' <span class="text-green-600">대체○</span>' : '')}
                     </button>
                 </td>
                 <td class="p-2 text-center">${actions}</td>
