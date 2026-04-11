@@ -455,14 +455,14 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-2" style="width:30px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-2 text-left" style="width:70px">이름</th>
-        <th class="p-2 text-left" style="width:80px">부서</th>
-        <th class="p-2 text-left" style="width:110px">입사일</th>
-        <th class="p-2 text-left">이메일</th>
-        <th class="p-2 text-center" style="width:50px">매니저</th>
-        <th class="p-2 text-center" style="width:140px">근무 규칙</th>
-        <th class="p-2 text-center" style="width:180px">관리</th>
+        <th class="p-1" style="width:28px"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-1 text-left" style="width:60px">이름</th>
+        <th class="p-1 text-left" style="width:72px">부서</th>
+        <th class="p-1 text-left" style="width:100px">입사일</th>
+        <th class="p-1 text-left" style="width:160px">이메일</th>
+        <th class="p-1 text-center" style="width:40px">매니저</th>
+        <th class="p-1 text-center" style="width:150px">근무 규칙</th>
+        <th class="p-1 text-center" style="width:160px">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -486,22 +486,22 @@ export function getManagementHTML() {
 
         return `
             <tr class="border-b hover:bg-gray-50">
-                <td class="p-2 text-center"><input type="checkbox" class="employee-checkbox" value="${emp.id}"></td>
-                <td class="p-2"><input type="text" id="name-${emp.id}" class="table-input" value="${emp.name}"></td>
-                <td class="p-2">
-                    <select id="dept-${emp.id}" class="table-input">
+                <td class="p-1 text-center"><input type="checkbox" class="employee-checkbox" value="${emp.id}"></td>
+                <td class="p-1"><input type="text" id="name-${emp.id}" class="table-input" value="${emp.name}" style="width:100%;padding:2px 4px;font-size:12px;"></td>
+                <td class="p-1">
+                    <select id="dept-${emp.id}" class="table-input" style="width:100%;padding:2px;font-size:12px;">
                         ${deptOptions}
                     </select>
                 </td>
-                <td class="p-2"><input type="date" id="entry-${emp.id}" class="table-input" value="${emp.entryDate}"></td>
-                <td class="p-2"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
-                <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
-                <td class="p-2 text-center">
-                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 w-full text-left" style="min-width:100px;">
-                        <span class="font-semibold">주${emp.weekly_work_days || 5}일</span>${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ` <span class="text-blue-600">${emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(' ')}</span> 휴무` : ''}${emp.can_substitute === false ? '' : (emp.regular_holiday_rules?.length > 0 ? ' <span class="text-green-600">대체○</span>' : '')}
+                <td class="p-1"><input type="date" id="entry-${emp.id}" class="table-input" value="${emp.entryDate}" style="width:100%;padding:2px;font-size:11px;"></td>
+                <td class="p-1"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}" style="width:100%;padding:2px 4px;font-size:11px;"></td>
+                <td class="p-1 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
+                <td class="p-1 text-center">
+                    <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-1 py-1 hover:bg-gray-100 w-full text-left" style="font-size:11px;line-height:1.3;">
+                        <b>주${emp.weekly_work_days || 5}일</b>${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ` <span style="color:#2563eb">${emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(',')}</span>휴무` : ''}${emp.can_substitute === false ? '' : (emp.regular_holiday_rules?.length > 0 ? ' <span style="color:#059669">대체○</span>' : '')}
                     </button>
                 </td>
-                <td class="p-2 text-center">${actions}</td>
+                <td class="p-1 text-center" style="white-space:nowrap;">${actions}</td>
             </tr>
         `;
     }).join('');
@@ -540,7 +540,7 @@ export function getManagementHTML() {
             </div>
         </div>
         <div class="overflow-x-auto">
-            <table class="fixed-table whitespace-nowrap text-sm mb-6">
+            <table class="text-sm mb-6" style="table-layout:fixed;width:100%;border-collapse:collapse;">
                 <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
                 <tbody>${rows}</tbody>
                 <tfoot>${newRow}</tfoot>
