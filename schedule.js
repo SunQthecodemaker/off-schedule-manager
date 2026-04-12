@@ -1399,17 +1399,31 @@ function renderCalendar() {
             if (s.date === dateStr) dateSchedMap.set(s.employee_id, s);
         });
 
+        // ✅ 위치 결정: schedule.grid_position 우선, 없으면 basePositions fallback
+        function getEmpPosition(empId) {
+            const sched = dateSchedMap.get(empId);
+            if (sched && sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE) {
+                return sched.grid_position;
+            }
+            return basePositions.get(empId);
+        }
+
         if (state.schedule.viewMode === 'all') {
             // ═══════════════════════════════════════════
-            // 통합 보기: 전체 활성 직원을 기본 위치에 배치
+            // 통합 보기: 전체 활성 직원을 배치
             // 근무=뚜렷, 휴무/연차=흐릿
             // ═══════════════════════════════════════════
             activeEmps.forEach(emp => {
                 if (excludedIds.has(emp.id)) return;
                 if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
 
-                const pos = basePositions.get(emp.id);
+                let pos = getEmpPosition(emp.id);
                 if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+                // 충돌 시 다음 빈 자리로 밀기
+                if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
+                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+                }
 
                 const status = getEmployeeStatusOnDate(emp.id, dateStr);
                 const sched = dateSchedMap.get(emp.id);
@@ -1420,30 +1434,34 @@ function renderCalendar() {
                     date: dateStr,
                     status: status === 'leave' ? '연차' : status === 'off' ? '휴무' : '근무',
                     grid_position: pos,
-                    _empStatus: status  // leave | off | working
+                    _empStatus: status
                 };
             });
 
             // 빈칸(spacer) 배치
             state.schedule.schedules.forEach(s => {
                 if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                    gridSlots[s.grid_position] = s;
+                    if (!gridSlots[s.grid_position]) gridSlots[s.grid_position] = s;
                 }
             });
 
         } else if (state.schedule.viewMode === 'working') {
             // ═══════════════════════════════════════════
-            // 근무자 보기: 근무 상태인 직원만 (basePositions 기반, 충돌 방지)
+            // 근무자 보기: 근무 상태인 직원만
             // ═══════════════════════════════════════════
             activeEmps.forEach(emp => {
                 if (excludedIds.has(emp.id)) return;
                 if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
 
                 const status = getEmployeeStatusOnDate(emp.id, dateStr);
-                if (status !== 'working') return; // 근무자만 표시
+                if (status !== 'working') return;
 
-                const pos = basePositions.get(emp.id);
+                let pos = getEmpPosition(emp.id);
                 if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+                if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
+                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+                }
 
                 const sched = dateSchedMap.get(emp.id);
                 gridSlots[pos] = {
@@ -1459,23 +1477,27 @@ function renderCalendar() {
             // 빈칸(spacer) 배치
             state.schedule.schedules.forEach(s => {
                 if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                    gridSlots[s.grid_position] = s;
+                    if (!gridSlots[s.grid_position]) gridSlots[s.grid_position] = s;
                 }
             });
 
         } else if (state.schedule.viewMode === 'off') {
             // ═══════════════════════════════════════════
-            // 휴무자 보기: 연차+휴무 직원만 (기본 위치에 배치)
+            // 휴무자 보기: 연차+휴무 직원만
             // ═══════════════════════════════════════════
             activeEmps.forEach(emp => {
                 if (excludedIds.has(emp.id)) return;
                 if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
 
                 const status = getEmployeeStatusOnDate(emp.id, dateStr);
-                if (status === 'working') return; // 근무자는 표시 안 함
+                if (status === 'working') return;
 
-                const pos = basePositions.get(emp.id);
+                let pos = getEmpPosition(emp.id);
                 if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+                if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
+                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+                }
 
                 const sched = dateSchedMap.get(emp.id);
                 gridSlots[pos] = {
