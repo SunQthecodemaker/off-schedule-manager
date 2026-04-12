@@ -1060,8 +1060,8 @@ body {
     min-width: 0;
     background-color: var(--color-bg);
     border: 1px dashed var(--color-border);
-    border-radius: 4px;
-    padding: 3px 5px;
+    border-radius: 3px;
+    padding: 1px 3px;
     font-size: 10px;
     color: var(--color-text-placeholder);
     display: flex;
