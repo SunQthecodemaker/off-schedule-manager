@@ -3164,11 +3164,10 @@ function handleGlobalKeydown(e) {
                 if (schedule) {
                     scheduleClipboard.push({
                         employee_id: schedule.employee_id,
-                        status: schedule.status
+                        status: '근무'  // 붙여넣기 시 항상 근무로 배치
                     });
                 }
             });
-            // alert(`${scheduleClipboard.length}개의 스케줄이 복사되었습니다.`); // 알림 너무 자주 뜨면 귀찮음
             console.log('Copied to clipboard:', scheduleClipboard);
 
             // 시각적 피드백 (선택된 카드 반짝임)
@@ -3189,14 +3188,10 @@ function handleGlobalKeydown(e) {
             state.schedule.selectedSchedules.forEach(scheduleId => {
                 const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
                 if (schedule) {
-                    // 복사
                     scheduleClipboard.push({
                         employee_id: schedule.employee_id,
-                        status: schedule.status
+                        status: '근무'
                     });
-
-                    // 삭제 (상태 변경 또는 제거)
-                    // 여기서는 '휴무'로 변경보다는 아예 제거(빈칸) 처리하거나 휴무로 처리
                     // 사용자 요청: "제거" -> 휴무로 변경이 일반적이나, 드래그앤드롭 맥락에서는 '삭제'일 수도.
                     // 임시 직원은 삭제, 정규직원은 휴무로? 
                     // 통일성을 위해 '휴무'로 처리.
@@ -3248,7 +3243,13 @@ function handleGlobalKeydown(e) {
             }
         }
 
-        // 3순위: 날짜 셀 hover (C6 제거 — 빈 슬롯/카드 없이 날짜만 hover는 무시)
+        // 3순위: 날짜 셀 hover (자동 배치)
+        if (!targetDate) {
+            const hoveredDay = document.querySelector('.calendar-day:hover');
+            if (hoveredDay) {
+                targetDate = hoveredDay.dataset.date;
+            }
+        }
 
         if (targetDate && scheduleClipboard.length > 0) {
             pushUndoState('Paste Schedules');
