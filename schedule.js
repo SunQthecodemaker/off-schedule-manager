@@ -1363,7 +1363,12 @@ function getEmployeeStatusOnDate(empId, dateStr) {
 // ✨ 선택 해제 함수
 function clearSelection() {
     state.schedule.selectedSchedules.clear();
-    document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
+    document.querySelectorAll('.event-card.selected, .event-slot.selected').forEach(el => el.classList.remove('selected'));
+    // 빈 슬롯 선택 상태도 초기화
+    if (window.selectedEmptySlot) {
+        window.selectedEmptySlot = null;
+    }
+    window.lastClickedSlot = null;
 }
 
 function handleDateNumberClick(e) {
@@ -1881,17 +1886,17 @@ function handleEventCardClick(e) {
         document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
         card.classList.add('selected');
 
-        // ✨ [Fix] 빈 슬롯 클릭 시 전역 변수에 저장하여 선택 유지
+        // ✨ 클릭한 위치 저장 (Ctrl+V 붙여넣기 위치로 사용)
+        window.lastClickedSlot = {
+            date: card.closest('.calendar-day').dataset.date,
+            position: parseInt(card.dataset.position, 10)
+        };
         if (card.classList.contains('event-slot')) {
-            window.selectedEmptySlot = card; // DOM 요소 자체를 저장
-            window.lastClickedSlot = {
-                date: card.closest('.calendar-day').dataset.date,
-                position: parseInt(card.dataset.position, 10)
-            };
+            window.selectedEmptySlot = card;
             console.log('📍 Empty Slot Selected:', window.lastClickedSlot);
         } else {
             window.selectedEmptySlot = null;
-            window.lastClickedSlot = null;
+            console.log('���� Card Selected:', window.lastClickedSlot);
         }
 
         // 일반 클릭도 기준점 업데이트 (Shift+클릭 시작점)
@@ -3418,6 +3423,25 @@ function handleGlobalKeydown(e) {
                 targetDate = dayEl.dataset.date;
                 targetPosition = parseInt(pos, 10);
             }
+        }
+
+        // 1.5순위: 선택된 카드 위치 (카드 클릭 후 붙여넣기)
+        if (targetPosition === null || isNaN(targetPosition)) {
+            const selectedCard = document.querySelector('.event-card.selected');
+            if (selectedCard) {
+                const dayEl = selectedCard.closest('.calendar-day');
+                const pos = selectedCard.dataset.position;
+                if (dayEl && pos !== undefined) {
+                    targetDate = dayEl.dataset.date;
+                    targetPosition = parseInt(pos, 10);
+                }
+            }
+        }
+
+        // 1.7순위: lastClickedSlot (클릭했지만 DOM 리렌더링으로 .selected가 사라진 경우)
+        if ((targetPosition === null || isNaN(targetPosition)) && window.lastClickedSlot) {
+            targetDate = window.lastClickedSlot.date;
+            targetPosition = window.lastClickedSlot.position;
         }
 
         // 2순위: 마우스가 올려진 빈 슬롯 또는 카드
