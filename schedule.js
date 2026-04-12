@@ -1922,7 +1922,26 @@ async function loadAndRenderScheduleData(date) {
         let employeeOrder = [];
         if (latestLayout && latestLayout.layout_data && latestLayout.layout_data.length > 0) {
             // 첫 번째 팀의 members를 순서로 사용
-            employeeOrder = latestLayout.layout_data[0].members || [];
+            employeeOrder = [...(latestLayout.layout_data[0].members || [])];
+        }
+        // ✅ 활성 직원 중 members에 없는 직원 자동 추가 (신규 입사 등)
+        const activeEmployeeIds = (state.management?.employees || [])
+            .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+            .map(e => e.id);
+        if (employeeOrder.length > 0) {
+            const memberSet = new Set(employeeOrder);
+            activeEmployeeIds.forEach(id => {
+                if (!memberSet.has(id)) {
+                    // -1(구분선) 앞에 삽입, 없으면 끝에 추가
+                    const sepIdx = employeeOrder.indexOf(-1);
+                    if (sepIdx >= 0) {
+                        employeeOrder.splice(sepIdx, 0, id);
+                    } else {
+                        employeeOrder.push(id);
+                    }
+                    memberSet.add(id);
+                }
+            });
         }
         state.schedule.teamLayout = {
             month: dayjs(date).format('YYYY-MM'),
