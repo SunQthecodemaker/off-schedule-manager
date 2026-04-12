@@ -3504,8 +3504,8 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
     const holidays = state.schedule.companyHolidays || new Set();
 
-    // ✅ 해당 월 날짜 기준 영업일 (달력 표시와 일치)
-    const businessDays = thisMonthDates.filter(dateStr => !holidays.has(dateStr));
+    // ✅ 주 단위(월~토) 전체 영업일 기준 카운트
+    const businessDays = allDates.filter(dateStr => !holidays.has(dateStr));
     const businessDayCount = businessDays.length;
     const isCrossMonth = allDates.length !== thisMonthDates.length;
 
