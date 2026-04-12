@@ -1420,24 +1420,33 @@ function renderCalendar() {
 
         } else if (state.schedule.viewMode === 'working') {
             // ═══════════════════════════════════════════
-            // 근무자 보기: 근무 상태인 직원만 (위치 고정, 빈칸 유지)
+            // 근무자 보기: 근무 상태인 직원만 (basePositions 기반, 충돌 방지)
             // ═══════════════════════════════════════════
-            state.schedule.schedules.forEach(schedule => {
-                if (schedule.date !== dateStr || schedule.grid_position == null) return;
-                if (excludedIds.has(schedule.employee_id)) return;
-                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(schedule.employee_id) && schedule.employee_id > 0) return;
+            activeEmps.forEach(emp => {
+                if (excludedIds.has(emp.id)) return;
+                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
 
-                // 승인된 연차는 근무자 보기에서 제외
-                if (schedule.employee_id > 0) {
-                    const status = getEmployeeStatusOnDate(schedule.employee_id, dateStr);
-                    if (status !== 'working') return;
-                }
+                const status = getEmployeeStatusOnDate(emp.id, dateStr);
+                if (status !== 'working') return; // 근무자만 표시
 
-                if (schedule.status === '근무' || schedule.employee_id < 0) {
-                    const pos = schedule.grid_position;
-                    if (pos >= 0 && pos < GRID_SIZE) {
-                        gridSlots[pos] = schedule;
-                    }
+                const pos = basePositions.get(emp.id);
+                if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+                const sched = dateSchedMap.get(emp.id);
+                gridSlots[pos] = {
+                    id: sched?.id || `work-${emp.id}-${dateStr}`,
+                    employee_id: emp.id,
+                    date: dateStr,
+                    status: '근무',
+                    grid_position: pos,
+                    _empStatus: status
+                };
+            });
+
+            // 빈칸(spacer) 배치
+            state.schedule.schedules.forEach(s => {
+                if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
+                    gridSlots[s.grid_position] = s;
                 }
             });
 
