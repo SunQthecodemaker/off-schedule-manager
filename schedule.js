@@ -3506,13 +3506,20 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         // 의무 근무일 = min(주근무일수, 영업일수)
         const expected = Math.min(empWorkDays, businessDayCount);
 
-        // 실제 근무일 카운트
+        // 실제 근무일 카운트 + 휴무 요일 수집
         let workCount = 0;
+        const offDayNames = []; // 영업일인데 쉬는 요일 이름
         businessDays.forEach(dateStr => {
             const hasSchedule = state.schedule.schedules.some(
                 s => s.date === dateStr && s.employee_id === emp.id && s.status === '근무'
             );
-            if (hasSchedule) workCount++;
+            if (hasSchedule) {
+                workCount++;
+            } else {
+                // 영업일인데 근무 안 하는 날 → 요일 표시
+                const dayIdx = dayjs(dateStr).day(); // 0=일~6=토
+                offDayNames.push(weekDayNames[dayIdx]);
+            }
         });
 
         const diff = workCount - expected;
@@ -3538,27 +3545,29 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             diffColor = hasLeave ? '#2563eb' : '#dc2626';
         }
 
-        return { emp, workCount, expected, diff, hasLeave, canSubstitute, bgColor, diffColor };
+        return { emp, workCount, expected, diff, hasLeave, canSubstitute, bgColor, diffColor, offDayNames };
     }).filter(row => row.workCount > 0 || row.diff !== 0);
 
     // HTML: 직원 목록 (2열 배치)
     const listHtml = rows.map(row => {
         const diffText = row.diff > 0 ? `+${row.diff}` : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
+        const offLabel = row.offDayNames.length > 0 ? `<span style="font-size:9px; color:#9ca3af;">${row.offDayNames.join('')}</span>` : '';
         return `<div style="display:flex; align-items:center; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
-            <span style="font-size:8px; width:40%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
-            <span style="font-size:8px; font-weight:700; width:35%; text-align:center; white-space:nowrap;">${row.workCount}/${row.expected}</span>
-            <span style="font-size:8px; font-weight:700; width:25%; text-align:center; color:${row.diffColor};">${diffText}</span>
+            <span style="font-size:10px; width:35%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
+            <span style="font-size:10px; font-weight:700; width:25%; text-align:center; white-space:nowrap;">${row.workCount}/${row.expected}</span>
+            <span style="font-size:10px; font-weight:700; width:15%; text-align:center; color:${row.diffColor};">${diffText}</span>
+            <span style="width:25%; text-align:right;">${offLabel}</span>
         </div>`;
     }).join('');
 
     const errorCount = rows.filter(r => r.diff < 0 && !r.hasLeave).length;
-    const crossBadge = isCrossMonth ? '<span style="font-size:7px; color:#6366f1; margin-left:2px;">+익월</span>' : '';
-    const errorBadge = errorCount > 0 ? `<span style="background:#fee2e2; font-size:7px; padding:0 2px; border-radius:3px; color:#dc2626;">${errorCount}명확인</span>` : '';
+    const crossBadge = isCrossMonth ? '<span style="font-size:9px; color:#6366f1; margin-left:2px;">+익월</span>' : '';
+    const errorBadge = errorCount > 0 ? `<span style="background:#fee2e2; font-size:9px; padding:0 2px; border-radius:3px; color:#dc2626;">${errorCount}명확인</span>` : '';
 
-    return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px; overflow-y:auto; font-size:8px;">
+    return `<div class="weekly-audit-cell" style="background:#fafbfc; padding:2px; overflow-y:auto; font-size:10px;">
         <div style="display:flex; align-items:center; gap:2px; margin-bottom:1px; padding-bottom:1px; border-bottom:1px solid #e5e7eb; flex-wrap:wrap;">
-            <span style="font-size:7px; color:#6b7280;">영업${businessDayCount}일</span>${crossBadge}${errorBadge}
+            <span style="font-size:9px; color:#6b7280;">영업${businessDayCount}일</span>${crossBadge}${errorBadge}
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:1px;">
             ${listHtml}
