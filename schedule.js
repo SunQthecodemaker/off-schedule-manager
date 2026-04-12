@@ -9,6 +9,19 @@ import { ScheduleGenerator } from './schedule-generator.js';
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
 
+// ✅ 기본 팀 배치 (엑셀 팀표 순서 — 스케줄 리셋 시 기본값)
+// 1행: 원장 / 2~5행: 진료실 / 6행: 경영지원실 / 7행: 기공실
+const DEFAULT_TEAM_MEMBERS = [
+    1, 29, 30, 31,       // 원장: 박선규, 류효경, 박보현, 김민재
+    32, 35, 34, 38,      // 진료실1: 이고은, 최수연, 정유진, 정해인
+    36, 37, 224, 40,     // 진료실2: 김민주, 최지은, 신현채, 김가현
+    41, 39, 234,         // 진료실3: 최윤미, 최지혜, 김규빈
+    -1,                  // 구분선
+    43, 44, 45, 46,      // 경영지원실: 유시온, 최나은, 김채이, 이진현
+    -1,                  // 구분선
+    47, 48, 226          // 기공실: 이우현, 용윤지, 이지민
+];
+
 state.schedule.activeDepartmentFilters = new Set();
 state.schedule.companyHolidays = new Set();
 state.schedule.activeReorder = {
@@ -1927,11 +1940,13 @@ async function loadAndRenderScheduleData(date) {
         if (holidayRes.error) throw holidayRes.error;
 
         const latestLayout = layoutRes.data?.[0];
-        // ✅ 단순 직원 순서만 저장
+        // ✅ 단순 직원 순서만 저장 (DB 없으면 기본 배치 사용)
         let employeeOrder = [];
         if (latestLayout && latestLayout.layout_data && latestLayout.layout_data.length > 0) {
-            // 첫 번째 팀의 members를 순서로 사용
             employeeOrder = [...(latestLayout.layout_data[0].members || [])];
+        }
+        if (employeeOrder.length === 0) {
+            employeeOrder = [...DEFAULT_TEAM_MEMBERS];
         }
         // ✅ 활성 직원 중 members에 없는 직원 자동 추가 (신규 입사 등)
         const activeEmployeeIds = (state.management?.employees || [])
