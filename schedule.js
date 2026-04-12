@@ -150,6 +150,11 @@ let dragStartTime = 0;
 // ✨ 다중 선택 및 클립보드 상태
 state.schedule.selectedSchedules = new Set(); // Set<schedule_id>
 let scheduleClipboard = []; // Array of { employee_id, status }
+let lastSelectedCardInfo = null; // { date, position } — Shift+클릭 범위선택 기준점
+
+// ✨ 마우스 드래그 범위선택 상태
+let dragSelectState = null; // { startDate, startPos, active }
+let dragSelectJustFinished = false; // 드래그 선택 직후 클릭 방지
 
 // ✨ Sortable: Using complete ESM bundle (Plugins included)
 
@@ -1748,6 +1753,8 @@ function handleCalendarClick(e) {
     // ✨ [Fix] 이벤트 카드 또는 빈 슬롯 클릭 (드래그 아닐 때만)
     const card = e.target.closest('.event-card, .event-slot');
     if (card && !isDragging) {
+        // ✨ [A4] 드래그 선택 직후 클릭 무시
+        if (dragSelectJustFinished) { dragSelectJustFinished = false; return; }
         handleEventCardClick(e);
         return;
     }
@@ -1772,7 +1779,66 @@ function handleEventCardClick(e) {
 
     // if (!scheduleId) return; // ❌ 빈 슬롯(ID 없음)도 선택되어야 함
 
-    // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
+    const cardDate = card.closest('.calendar-day')?.dataset.date;
+    const cardPos = parseInt(card.dataset.position, 10);
+
+    // ✨ [A3] Shift+클릭: 범위 선택 (lastSelectedCardInfo ~ 현재 카드)
+    if (e.shiftKey && lastSelectedCardInfo) {
+        e.preventDefault();
+        const fromDate = lastSelectedCardInfo.date;
+        const fromPos = lastSelectedCardInfo.position;
+
+        // 같은 날짜 내에서만 범위 선택
+        if (cardDate === fromDate) {
+            const minPos = Math.min(fromPos, cardPos);
+            const maxPos = Math.max(fromPos, cardPos);
+
+            // 범위 내 모든 카드 선택
+            const dayEl = card.closest('.calendar-day');
+            if (dayEl) {
+                dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
+                    const pos = parseInt(el.dataset.position, 10);
+                    if (pos >= minPos && pos <= maxPos) {
+                        const sid = el.dataset.scheduleId;
+                        if (sid) {
+                            state.schedule.selectedSchedules.add(sid);
+                        }
+                        el.classList.add('selected');
+                    }
+                });
+            }
+        }
+        // 다른 날짜 간 범위: 모든 날짜에서 같은 position 범위 선택
+        else {
+            const allDayEls = document.querySelectorAll('.calendar-day');
+            const dates = Array.from(allDayEls).map(d => d.dataset.date).filter(Boolean).sort();
+            const startIdx = dates.indexOf(fromDate);
+            const endIdx = dates.indexOf(cardDate);
+            if (startIdx >= 0 && endIdx >= 0) {
+                const minIdx = Math.min(startIdx, endIdx);
+                const maxIdx = Math.max(startIdx, endIdx);
+                const minPos = Math.min(fromPos, cardPos);
+                const maxPos = Math.max(fromPos, cardPos);
+
+                for (let di = minIdx; di <= maxIdx; di++) {
+                    const dayEl = document.querySelector(`.calendar-day[data-date="${dates[di]}"]`);
+                    if (!dayEl) continue;
+                    dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
+                        const pos = parseInt(el.dataset.position, 10);
+                        if (pos >= minPos && pos <= maxPos) {
+                            const sid = el.dataset.scheduleId;
+                            if (sid) state.schedule.selectedSchedules.add(sid);
+                            el.classList.add('selected');
+                        }
+                    });
+                }
+            }
+        }
+
+        console.log('🔲 Shift+Click range selected:', state.schedule.selectedSchedules.size);
+        return;
+    }
+
     // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
     if (e.ctrlKey || e.metaKey) {
         if (scheduleId) {
@@ -1787,6 +1853,8 @@ function handleEventCardClick(e) {
             // 빈 슬롯 토글
             card.classList.toggle('selected');
         }
+        // Ctrl+클릭도 기준점 업데이트
+        lastSelectedCardInfo = { date: cardDate, position: cardPos };
     }
     // 일반 클릭: 기존 선택 해제하고 단일 선택
     else {
@@ -1825,6 +1893,9 @@ function handleEventCardClick(e) {
             window.selectedEmptySlot = null;
             window.lastClickedSlot = null;
         }
+
+        // 일반 클릭도 기준점 업데이트 (Shift+클릭 시작점)
+        lastSelectedCardInfo = { date: cardDate, position: cardPos };
     }
 
     console.log('Selected count:', state.schedule.selectedSchedules.size);
@@ -3140,9 +3211,131 @@ function initializeCalendarEvents() {
     // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
     document.removeEventListener('keydown', handleGlobalKeydown);
     document.addEventListener('keydown', handleGlobalKeydown);
+
+    // ✨ [A4] 마우스 드래그 범위선택
+    if (calendarGrid) {
+        calendarGrid.removeEventListener('mousedown', handleDragSelectStart);
+        calendarGrid.addEventListener('mousedown', handleDragSelectStart);
+        document.removeEventListener('mousemove', handleDragSelectMove);
+        document.addEventListener('mousemove', handleDragSelectMove);
+        document.removeEventListener('mouseup', handleDragSelectEnd);
+        document.addEventListener('mouseup', handleDragSelectEnd);
+    }
 }
 
-// ✨ 키보드 이벤트 핸들러
+// ═══════════════════════════════════════════════════════
+// ✨ [A4] 마우스 드래그 범위선택 핸들러
+// ═══════════════════════════════════════════════════════
+function getCardInfoFromPoint(x, y) {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    const card = el.closest('.event-card, .event-slot');
+    if (!card) return null;
+    const dayEl = card.closest('.calendar-day');
+    if (!dayEl) return null;
+    return {
+        date: dayEl.dataset.date,
+        position: parseInt(card.dataset.position, 10),
+        element: card
+    };
+}
+
+function handleDragSelectStart(e) {
+    // 왼쪽 버튼만, Ctrl/Shift 없이, 카드/슬롯 위에서만 시작
+    if (e.button !== 0) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+
+    const card = e.target.closest('.event-card, .event-slot');
+    if (!card) return;
+
+    // Sortable 드래그와 충돌 방지: 이미 드래그 중이면 무시
+    if (isDragging) return;
+
+    const dayEl = card.closest('.calendar-day');
+    if (!dayEl) return;
+
+    dragSelectState = {
+        startDate: dayEl.dataset.date,
+        startPos: parseInt(card.dataset.position, 10),
+        active: false,
+        startX: e.clientX,
+        startY: e.clientY
+    };
+}
+
+function handleDragSelectMove(e) {
+    if (!dragSelectState) return;
+    if (isDragging) { dragSelectState = null; return; }
+
+    // 최소 이동 거리 (5px) 초과 시 드래그 선택 활성화
+    const dx = e.clientX - dragSelectState.startX;
+    const dy = e.clientY - dragSelectState.startY;
+    if (!dragSelectState.active && (Math.abs(dx) < 5 && Math.abs(dy) < 5)) return;
+
+    if (!dragSelectState.active) {
+        dragSelectState.active = true;
+        // 텍스트 선택 방지
+        e.preventDefault();
+        document.body.style.userSelect = 'none';
+    }
+
+    // 현재 마우스 아래의 카드 정보
+    const info = getCardInfoFromPoint(e.clientX, e.clientY);
+    if (!info) return;
+
+    // 기존 드래그 선택 표시 제거
+    document.querySelectorAll('.drag-select-highlight').forEach(el => {
+        el.classList.remove('drag-select-highlight', 'selected');
+        const sid = el.dataset.scheduleId;
+        if (sid) state.schedule.selectedSchedules.delete(sid);
+    });
+
+    // 범위 계산 (날짜 간 + 위치 간)
+    const allDayEls = document.querySelectorAll('.calendar-day');
+    const dates = Array.from(allDayEls).map(d => d.dataset.date).filter(Boolean).sort();
+    const startIdx = dates.indexOf(dragSelectState.startDate);
+    const endIdx = dates.indexOf(info.date);
+    if (startIdx < 0 || endIdx < 0) return;
+
+    const minDateIdx = Math.min(startIdx, endIdx);
+    const maxDateIdx = Math.max(startIdx, endIdx);
+    const minPos = Math.min(dragSelectState.startPos, info.position);
+    const maxPos = Math.max(dragSelectState.startPos, info.position);
+
+    clearSelection();
+
+    for (let di = minDateIdx; di <= maxDateIdx; di++) {
+        const dayEl = document.querySelector(`.calendar-day[data-date="${dates[di]}"]`);
+        if (!dayEl) continue;
+        dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
+            const pos = parseInt(el.dataset.position, 10);
+            if (pos >= minPos && pos <= maxPos) {
+                el.classList.add('selected', 'drag-select-highlight');
+                const sid = el.dataset.scheduleId;
+                if (sid) state.schedule.selectedSchedules.add(sid);
+            }
+        });
+    }
+}
+
+function handleDragSelectEnd(e) {
+    if (!dragSelectState) return;
+    const wasActive = dragSelectState.active;
+    dragSelectState = null;
+    document.body.style.userSelect = '';
+
+    if (wasActive) {
+        // 드래그 선택 하이라이트 마커 제거 (selected 클래스는 유지)
+        document.querySelectorAll('.drag-select-highlight').forEach(el => {
+            el.classList.remove('drag-select-highlight');
+        });
+        // 드래그 선택 직후 클릭 이벤트 방지
+        dragSelectJustFinished = true;
+        setTimeout(() => { dragSelectJustFinished = false; }, 50);
+        console.log('🔲 Drag select done:', state.schedule.selectedSchedules.size, 'cards');
+    }
+}
+
 // ✨ 키보드 이벤트 핸들러
 function handleGlobalKeydown(e) {
     // 입력 필드 등에서는 무시
