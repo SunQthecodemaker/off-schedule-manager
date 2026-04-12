@@ -498,7 +498,17 @@ export function getManagementHTML() {
                 <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
                 <td class="p-2 text-center">
                     <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 w-full text-left">
-                        <b>주${emp.weekly_work_days || 5}일</b>${(emp.regular_holiday_rules && emp.regular_holiday_rules.length > 0) ? ` <span style="color:#2563eb">${emp.regular_holiday_rules.map(d => ['일','월','화','수','목','금','토'][d]).join(',')}</span>휴무` : ''}${emp.can_substitute === false ? '' : (emp.regular_holiday_rules?.length > 0 ? ' <span style="color:#059669">대체○</span>' : '')}
+                        <b>주${emp.weekly_work_days || 5}일</b>${(() => {
+                            const rules = emp.regular_holiday_rules || [];
+                            if (!rules.length) return '';
+                            const dayNames = ['일','월','화','수','목','금','토'];
+                            const parsed = (typeof rules[0] === 'number') ? rules.map(d => ({day:d, sub:true})) : rules;
+                            const dayLabels = parsed.map(r => {
+                                const name = dayNames[r.day];
+                                return r.sub !== false ? `<span style="color:#059669">${name}</span>` : `<span style="color:#dc2626">${name}</span>`;
+                            }).join('');
+                            return ` ${dayLabels}휴무`;
+                        })()}
                     </button>
                 </td>
                 <td class="p-2 text-center" style="white-space:nowrap;">${actions}</td>
@@ -2638,20 +2648,35 @@ function openRegularHolidayModal(employeeId, employeeName) {
     const employee = state.management.employees.find(e => e.id === employeeId);
     if (!employee) return;
 
-    const rules = employee.regular_holiday_rules || [];
+    const rawRules = employee.regular_holiday_rules || [];
+    // 기존 숫자 배열 호환: [2,4] → [{day:2,sub:true},{day:4,sub:true}]
+    const parsedRules = (!rawRules.length || typeof rawRules[0] === 'number')
+        ? rawRules.map(d => ({ day: d, sub: true }))
+        : rawRules;
     const days = [null, '월', '화', '수', '목', '금', '토']; // 일요일(0) 제외
 
     const existing = document.getElementById('regular-holiday-modal');
     if (existing) existing.remove();
 
     const checkBoxesHtml = days.map((day, index) => {
-        if (!day) return ''; // 일요일 건너뜀
-        const isChecked = rules.includes(index) ? 'checked' : '';
+        if (!day) return '';
+        const rule = parsedRules.find(r => r.day === index);
+        const isChecked = rule ? 'checked' : '';
+        const subChecked = rule ? (rule.sub !== false ? 'checked' : '') : 'checked';
         return `
-            <label class="flex items-center space-x-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
-                <input type="checkbox" class="regular-rule-checkbox w-4 h-4 text-blue-600 rounded" value="${index}" ${isChecked}>
-                <span class="text-gray-700">${day}요일</span>
-            </label>
+            <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" class="regular-rule-checkbox w-4 h-4 text-blue-600 rounded" value="${index}" ${isChecked}
+                        onchange="document.getElementById('sub-toggle-${index}').style.display = this.checked ? 'flex' : 'none'">
+                    <span class="text-gray-700">${day}요일</span>
+                </label>
+                <div id="sub-toggle-${index}" class="flex items-center gap-1" style="display:${rule ? 'flex' : 'none'}">
+                    <label class="flex items-center space-x-1 cursor-pointer text-xs">
+                        <input type="checkbox" class="sub-checkbox w-3 h-3 text-green-600 rounded" value="${index}" ${subChecked}>
+                        <span class="text-gray-500">대체○</span>
+                    </label>
+                </div>
+            </div>
         `;
     }).join('');
 
@@ -2674,18 +2699,10 @@ function openRegularHolidayModal(employeeId, employeeName) {
 
                 <div class="mb-4">
                     <label class="block text-sm font-semibold text-gray-700 mb-1">고정 휴무 요일</label>
-                    <p class="text-xs text-gray-400 mb-2">매주 고정으로 쉬는 요일이 있으면 선택 (없으면 선택 안 함)</p>
-                    <div class="grid grid-cols-3 gap-2 border p-4 rounded bg-white">
+                    <p class="text-xs text-gray-400 mb-2">매주 고정으로 쉬는 요일 선택, 체크 시 대체근무 가능 여부 설정</p>
+                    <div class="border p-3 rounded bg-white space-y-1">
                         ${checkBoxesHtml}
                     </div>
-                </div>
-
-                <div class="mb-6">
-                    <label class="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" id="modal-can-substitute" class="w-4 h-4 text-blue-600 rounded" ${employee.can_substitute !== false ? 'checked' : ''}>
-                        <span class="text-sm font-semibold text-gray-700">대체근무 가능</span>
-                    </label>
-                    <p class="text-xs text-gray-400 mt-1 ml-6">고정 휴무일을 바꿔서 다른 날 근무할 수 있는지</p>
                 </div>
 
                 <div class="flex justify-end gap-2">
@@ -2715,16 +2732,25 @@ function openRegularHolidayModal(employeeId, employeeName) {
 
 window.handleSaveRegularHoliday = async function (employeeId) {
     const checkboxes = document.querySelectorAll('.regular-rule-checkbox:checked');
-    const selectedDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    const subCheckboxes = document.querySelectorAll('.sub-checkbox');
+
+    // 요일별 대체가능 여부를 맵으로 수집
+    const subMap = {};
+    subCheckboxes.forEach(cb => { subMap[cb.value] = cb.checked; });
+
+    // 새 형식: [{day, sub}]
+    const selectedRules = Array.from(checkboxes).map(cb => {
+        const dayVal = parseInt(cb.value);
+        return { day: dayVal, sub: subMap[String(dayVal)] !== false };
+    });
+    selectedRules.sort((a, b) => a.day - b.day);
+
     const workDaysInput = document.getElementById('modal-work-days');
     const weeklyWorkDays = workDaysInput ? parseInt(workDaysInput.value) : 5;
-    const canSubstitute = document.getElementById('modal-can-substitute')?.checked ?? true;
-
-    selectedDays.sort((a, b) => a - b);
 
     try {
         const { error } = await db.from('employees')
-            .update({ regular_holiday_rules: selectedDays, weekly_work_days: weeklyWorkDays, can_substitute: canSubstitute })
+            .update({ regular_holiday_rules: selectedRules, weekly_work_days: weeklyWorkDays })
             .eq('id', employeeId);
 
         if (error) {

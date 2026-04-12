@@ -26,6 +26,37 @@ const DEFAULT_TEAM_MEMBERS = [
 const GRID_SIZE = 32;
 
 // ═══════════════════════════════════════════════════════
+// ✅ 고정 휴무 규칙 헬퍼
+// DB 형식: [{day:2, sub:true}, {day:4, sub:false}] (신규)
+// 호환 형식: [2, 4, 6] (기존 — 자동 변환, sub=true 기본)
+// ═══════════════════════════════════════════════════════
+function parseHolidayRules(rules) {
+    if (!rules || !Array.isArray(rules) || rules.length === 0) return [];
+    // 기존 숫자 배열 호환
+    if (typeof rules[0] === 'number') {
+        return rules.map(d => ({ day: d, sub: true }));
+    }
+    return rules;
+}
+
+/** 고정 휴무 요일 번호 배열 반환 (기존 코드 호환) */
+function getFixedOffDays(rules) {
+    return parseHolidayRules(rules).map(r => r.day);
+}
+
+/** 특정 요일이 고정 휴무인지 */
+function isFixedOffDay(rules, dayOfWeek) {
+    return getFixedOffDays(rules).includes(dayOfWeek);
+}
+
+/** 특정 요일의 대체근무 가능 여부 */
+function isSubstitutable(rules, dayOfWeek) {
+    const parsed = parseHolidayRules(rules);
+    const rule = parsed.find(r => r.day === dayOfWeek);
+    return rule ? rule.sub !== false : false; // 고정 휴무 아니면 false
+}
+
+// ═══════════════════════════════════════════════════════
 // ✅ 통합 네임카드 조작 헬퍼 (모든 이동/붙여넣기가 이 함수를 사용)
 // 공통 규칙:
 //   R1: 덮어쓰기 — 타겟 위치에 기존 카드 있으면 휴무 처리
@@ -3735,52 +3766,71 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     // 직원별 검수
     const rows = targetEmployees.map(emp => {
         const empWorkDays = emp.weekly_work_days || 5;
-        const fixedOffDays = emp.regular_holiday_rules || []; // [4] = 목요일
+        const parsedRules = parseHolidayRules(emp.regular_holiday_rules);
+        const fixedOffDayNums = parsedRules.map(r => r.day);
 
         // 의무 근무일 = min(주근무일수, 영업일수)
         const expected = Math.min(empWorkDays, businessDayCount);
 
-        // 실제 근무일 카운트 + 휴무 요일 수집
-        // ✅ 달력 표시와 동일한 getEmployeeStatusOnDate() 사용
+        // 실제 근무일 카운트 + 비정상 휴무 수집
         let workCount = 0;
         let leaveCount = 0;
-        const offDayNames = []; // 영업일인데 쉬는 요일 이름
+        const unexpectedOffNames = []; // 고정 휴무가 아닌데 쉬는 요일
         businessDays.forEach(dateStr => {
             const status = getEmployeeStatusOnDate(emp.id, dateStr);
             if (status === 'working') {
                 workCount++;
             } else {
                 if (status === 'leave') leaveCount++;
-                // 영업일인데 근무 안 하는 날 → 요일 표시
-                const dayIdx = dayjs(dateStr).day(); // 0=일~6=토
-                offDayNames.push(weekDayNames[dayIdx]);
+                const dayIdx = dayjs(dateStr).day();
+                // 고정 휴무일은 표시하지 않음 (예정된 휴무)
+                if (!fixedOffDayNums.includes(dayIdx)) {
+                    unexpectedOffNames.push(weekDayNames[dayIdx]);
+                }
             }
         });
 
-        const diff = workCount - expected;
+        // 공휴일이 근무일에 겹칠 때 대체가능 고정 휴무일 확인
+        const holidayOnWorkDay = businessDays.filter(dateStr => {
+            const dayIdx = dayjs(dateStr).day();
+            return holidays.has(dateStr) && !fixedOffDayNums.includes(dayIdx);
+        });
+        let subAvailable = false;
+        if (holidayOnWorkDay.length > 0) {
+            // 이번 주에 대�� 가능한 고정 휴무일이 있는지
+            subAvailable = parsedRules.some(r => r.sub !== false);
+        }
 
-        // diff < 0 일 때: 해당 주에 연차가 있는지 (getEmployeeStatusOnDate에서 이미 확인)
+        const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
 
-        // 대체근무 가능 여부: 직원 속성 (고정 휴무일을 바꿀 수 있는 사람인지)
-        const canSubstitute = emp.can_substitute !== false && fixedOffDays.length > 0;
-
-        // 색상: -N+연차=파란, -N+연차없음=빨간, 0=없음
+        // 색상: -N+연차=파란, -N+연차없음+대체가능=노란, -N+연차없음=빨간, 0=없음
         let bgColor = 'transparent';
         let diffColor = '#6b7280';
         if (diff < 0) {
-            bgColor = hasLeave ? '#dbeafe' : '#fee2e2';
-            diffColor = hasLeave ? '#2563eb' : '#dc2626';
+            if (hasLeave) {
+                bgColor = '#dbeafe'; diffColor = '#2563eb';
+            } else if (subAvailable) {
+                bgColor = '#fef3c7'; diffColor = '#d97706';
+            } else {
+                bgColor = '#fee2e2'; diffColor = '#dc2626';
+            }
         }
 
-        return { emp, workCount, expected, diff, hasLeave, canSubstitute, bgColor, diffColor, offDayNames };
+        return { emp, workCount, expected, diff, hasLeave, subAvailable, bgColor, diffColor, unexpectedOffNames };
     }).filter(row => row.workCount > 0 || row.diff !== 0);
 
     // HTML: 직원 목록 (2열 배치)
     const listHtml = rows.map(row => {
         const diffText = row.diff > 0 ? `+${row.diff}` : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
-        const offLabel = row.offDayNames.length > 0 ? `<span style="font-size:9px; color:#9ca3af;">${row.offDayNames.join('')}</span>` : '';
+        // ���정상 휴무 요��만 표시 + 대체가능 표시
+        let offLabel = '';
+        if (row.unexpectedOffNames.length > 0) {
+            offLabel = `<span style="font-size:9px; color:#9ca3af;">${row.unexpectedOffNames.join('')}</span>`;
+        } else if (row.subAvailable && row.diff < 0) {
+            offLabel = `<span style="font-size:8px; color:#d97706;">대체◎</span>`;
+        }
         return `<div style="display:flex; align-items:center; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
             <span style="font-size:10px; width:35%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
             <span style="font-size:10px; font-weight:700; width:25%; text-align:center; white-space:nowrap;">${row.workCount}/${row.expected}</span>
@@ -4286,9 +4336,8 @@ async function handleImportPreviousMonth() {
                 let positionCounter = 0;
 
                 activeEmployees.forEach(emp => {
-                    const rules = emp.regular_holiday_rules || [];
                     // 정기 휴무 요일이면 제외
-                    if (!rules.includes(dayOfWeek)) {
+                    if (!isFixedOffDay(emp.regular_holiday_rules, dayOfWeek)) {
                         schedulesForDay.push({
                             date: targetDateStr,
                             employee_id: emp.id,
