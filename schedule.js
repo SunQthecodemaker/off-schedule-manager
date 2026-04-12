@@ -3526,15 +3526,16 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         const expected = Math.min(empWorkDays, businessDayCount);
 
         // 실제 근무일 카운트 + 휴무 요일 수집
+        // ✅ 달력 표시와 동일한 getEmployeeStatusOnDate() 사용
         let workCount = 0;
+        let leaveCount = 0;
         const offDayNames = []; // 영업일인데 쉬는 요일 이름
         businessDays.forEach(dateStr => {
-            const hasSchedule = state.schedule.schedules.some(
-                s => s.date === dateStr && s.employee_id === emp.id && s.status === '근무'
-            );
-            if (hasSchedule) {
+            const status = getEmployeeStatusOnDate(emp.id, dateStr);
+            if (status === 'working') {
                 workCount++;
             } else {
+                if (status === 'leave') leaveCount++;
                 // 영업일인데 근무 안 하는 날 → 요일 표시
                 const dayIdx = dayjs(dateStr).day(); // 0=일~6=토
                 offDayNames.push(weekDayNames[dayIdx]);
@@ -3543,15 +3544,8 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
         const diff = workCount - expected;
 
-        // diff < 0 일 때: 해당 주에 승인된 연차가 있는지 확인
-        let hasLeave = false;
-        if (diff < 0) {
-            const weekDateSet = new Set(businessDays);
-            hasLeave = approvedLeaves.some(req =>
-                req.employee_id === emp.id &&
-                (req.dates || []).some(d => weekDateSet.has(d))
-            );
-        }
+        // diff < 0 일 때: 해당 주에 연차가 있는지 (getEmployeeStatusOnDate에서 이미 확인)
+        const hasLeave = leaveCount > 0;
 
         // 대체근무 가능 여부: 직원 속성 (고정 휴무일을 바꿀 수 있는 사람인지)
         const canSubstitute = emp.can_substitute !== false && fixedOffDays.length > 0;
