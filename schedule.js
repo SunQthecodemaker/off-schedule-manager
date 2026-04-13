@@ -718,13 +718,11 @@ async function handleSaveEmployeeOrder(options = {}) {
     saveBtn.disabled = true;
     saveBtn.textContent = '저장중...';
 
-    // ✅ 4×8 그리드에서 순서 수집
+    // ✅ 4×8 그리드에서 순서 수집 (달력과 동일한 event-card/event-slot 구조)
     const employeeOrder = [];
-    document.querySelectorAll('#layout-grid .layout-slot').forEach(slot => {
+    document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(slot => {
         const empId = slot.dataset.employeeId;
         if (empId === 'empty') {
-            // 빈 슬롯은 저장하지 않음 (끝에 있는 빈칸은 무시)
-            // 하지만 중간에 있는 빈칸은 -1로 저장 (spacer와 구분)
             employeeOrder.push(0); // placeholder
         } else {
             const id = parseInt(empId, 10);
@@ -788,11 +786,10 @@ async function handleSaveEmployeeOrder(options = {}) {
 // 배치 그리드에서 employee → position 매핑 추출
 function getLayoutPositionMap() {
     const positionMap = new Map();
-    document.querySelectorAll('#layout-grid .layout-slot').forEach(slot => {
-        const pos = parseInt(slot.dataset.position);
+    document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach((slot, idx) => {
         const empId = parseInt(slot.dataset.employeeId);
         if (!isNaN(empId) && empId > 0) {
-            positionMap.set(empId, pos);
+            positionMap.set(empId, idx);
         }
     });
     return positionMap;
@@ -2429,59 +2426,39 @@ async function loadAndRenderScheduleData(date) {
 
 // ═══ 배치 그리드 헬퍼 함수 ═══
 
-// 빈 슬롯 HTML 생성
-function createEmptySlotElement(pos) {
-    const el = document.createElement('div');
-    el.className = 'layout-slot layout-empty';
-    el.dataset.position = pos;
-    el.dataset.employeeId = 'empty';
-    el.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-    return el;
-}
-
 // 그리드 전체 position 동기화 (DOM 순서 = position)
 function syncGridPositions() {
-    document.querySelectorAll('#layout-grid .layout-slot').forEach((slot, idx) => {
+    const grid = document.getElementById('layout-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.event-card, .event-slot').forEach((slot, idx) => {
         slot.dataset.position = idx;
         const numEl = slot.querySelector('.slot-number');
         if (numEl) numEl.textContent = idx + 1;
     });
 }
 
-// 그리드가 정확히 GRID_SIZE 칸인지 보정
-function enforceGridSize() {
-    const grid = document.getElementById('layout-grid');
-    if (!grid) return;
-    const slots = grid.querySelectorAll('.layout-slot');
-    // 초과분 제거
-    while (grid.children.length > GRID_SIZE) {
-        grid.removeChild(grid.lastChild);
-    }
-    // 부족분 채우기
-    while (grid.children.length < GRID_SIZE) {
-        grid.appendChild(createEmptySlotElement(grid.children.length));
-    }
-    syncGridPositions();
-}
-
 function initializeSortableAndDraggable() {
     state.schedule.sortableInstances.forEach(s => s.destroy());
     state.schedule.sortableInstances = [];
 
-    // ═══ 4×8 그리드: 고정 32칸, 드래그=교환(swap)만, 밀림 없음 ═══
+    // ═══ 배치 그리드: 달력 날짜칸과 동일한 Sortable 설정 ═══
     const layoutGrid = document.querySelector('#layout-grid');
     if (layoutGrid) {
-        const gridSortable = new Sortable(layoutGrid, {
+        if (layoutGrid.sortableInstance) layoutGrid.sortableInstance.destroy();
+
+        layoutGrid.sortableInstance = new Sortable(layoutGrid, {
             group: {
-                name: 'layout-editor',
-                pull: false,  // 그리드에서 밖으로 드래그 불가 (제거는 ×/Delete로만)
-                put: true     // 외부(직원 목록)에서 드래그 가능
+                name: 'calendar-group',  // 달력과 같은 그룹
+                pull: false,             // 그리드에서 밖으로 드래그 불가
+                put: ['calendar-group', 'layout-pool']  // 달력/직원목록에서 받기
             },
-            draggable: '.layout-slot',  // 빈 슬롯 포함 전체 드래그 가능
+            draggable: '.event-card, .event-slot',
             animation: 150,
-            ghostClass: 'layout-ghost',
-            sort: true,       // 그리드 내 순서 변경 허용 (교환)
-            swap: false,      // swap 플러그인 끔 (sort로 통일)
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            chosenClass: 'sortable-chosen',
+            swap: true,
+            swapClass: 'sortable-swap-highlight',
             delay: 200,
             delayOnTouchOnly: false,
 
@@ -2491,51 +2468,43 @@ function initializeSortableAndDraggable() {
                 document.body.style.userSelect = 'none';
             },
 
+            onUpdate(evt) {
+                // 그리드 내 순서 변경 → position 동기화
+                syncGridPositions();
+            },
+
             onAdd(evt) {
-                // 외부(직원 목록)에서 clone이 들어온 경우
-                // Sortable이 삽입한 clone을 제거하고, 드롭 위치의 빈 슬롯을 교체
-                const clonedEl = evt.item;
-                const empId = clonedEl.dataset.employeeId;
-                const emp = (state.management.employees || []).find(e => e.id === parseInt(empId));
+                // 직원 목록에서 들어온 clone 처리
+                const el = evt.item;
+                const empId = parseInt(el.dataset.employeeId);
+                const emp = (state.management.employees || []).find(e => e.id === empId);
 
-                // 삽입된 clone 제거 (Sortable이 DOM에 넣은 것)
-                clonedEl.remove();
-
-                // 드롭 위치 계산: 삽입된 인덱스 기반으로 교체할 슬롯 결정
-                let targetPos = evt.newIndex;
-                if (targetPos >= GRID_SIZE) targetPos = GRID_SIZE - 1;
-
-                const grid = document.getElementById('layout-grid');
-                const targetSlot = grid.children[targetPos];
-
-                if (targetSlot && emp) {
-                    const deptColor = getDepartmentColor(emp.departments?.id);
-                    const isTemp = emp.is_temp || (emp.email && emp.email.startsWith('temp-'));
-                    const tempClass = isTemp ? ' layout-temp' : '';
-                    const deleteBtn = isTemp ? `<button class="delete-temp-btn" data-id="${emp.id}" title="삭제">×</button>` : '';
-
-                    targetSlot.className = `layout-slot layout-filled${tempClass}`;
-                    targetSlot.dataset.employeeId = emp.id;
-                    targetSlot.innerHTML = `
-                        <span class="layout-dot" style="background-color:${deptColor};"></span>
-                        <span class="layout-name">${emp.name}</span>
-                        ${deleteBtn}
-                    `;
+                if (!emp || isNaN(empId)) {
+                    el.remove();
+                    return;
                 }
 
-                // 그리드 크기 보정 + position 동기화
-                enforceGridSize();
-                console.log(`📥 직원 "${emp?.name}" → 배치 그리드 위치 ${targetPos + 1}`);
+                // clone을 달력과 동일한 event-card 구조로 교체
+                const deptColor = getDepartmentColor(emp.departments?.id);
+                el.className = 'event-card event-working';
+                el.dataset.employeeId = emp.id;
+                el.dataset.type = 'working';
+                el.innerHTML = `
+                    <span class="event-dot" style="background-color: ${deptColor};"></span>
+                    <span class="event-name">${emp.name}</span>
+                `;
+
+                syncGridPositions();
+                console.log(`📥 직원 "${emp.name}" → 배치 그리드`);
             },
 
             onEnd(evt) {
                 setTimeout(() => { isDragging = false; }, 100);
                 document.body.style.userSelect = '';
-                // 드래그로 순서 변경 후 position 동기화
-                enforceGridSize();
+                syncGridPositions();
             }
         });
-        state.schedule.sortableInstances.push(gridSortable);
+        state.schedule.sortableInstances.push(layoutGrid.sortableInstance);
 
         // ✅ 마우스 드래그 범위선택 (달력과 동일)
         layoutGrid.addEventListener('mousedown', handleLayoutDragSelectStart);
@@ -2545,7 +2514,7 @@ function initializeSortableAndDraggable() {
     document.querySelectorAll('.layout-dept-row').forEach(row => {
         const rowSortable = new Sortable(row, {
             group: {
-                name: 'layout-editor',
+                name: 'layout-pool',
                 pull: 'clone',
                 put: false
             },
@@ -2581,14 +2550,14 @@ async function handleSidebarDeleteClick(e) {
     // 그리드 안의 × → 배치에서 제거만 (빈 슬롯으로 교체)
     const inGrid = e.target.closest('#layout-grid');
     if (inGrid) {
-        const slot = e.target.closest('.layout-slot');
+        const slot = e.target.closest('.event-card, .event-slot');
         if (slot) {
-            // DOM 인덱스 기반으로 position 결정 (NaN 방지)
             const grid = document.getElementById('layout-grid');
             const pos = Array.from(grid.children).indexOf(slot);
-            slot.className = 'layout-slot layout-empty';
+            slot.className = 'event-slot empty-slot';
             slot.dataset.position = pos;
             slot.dataset.employeeId = 'empty';
+            slot.dataset.type = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
         }
         return;
@@ -2671,21 +2640,22 @@ async function renderScheduleSidebar() {
 
     console.log('📋 그리드 배치 편집기: 배치됨', gridSlots.filter(s => s).length, '/ 미배치', unplacedEmployees.length, '/ 임시', tempEmployees.length, '/ 테스트', testEmployees.length, '/ 휴직', retiredEmployees.length);
 
-    // ═══ 그리드 슬롯 HTML 생성 ═══
+    // ═══ 그리드 슬롯 HTML 생성 (달력 날짜칸과 동일한 구조) ═══
     const gridSlotsHtml = gridSlots.map((slot, pos) => {
         if (!slot) {
-            return `<div class="layout-slot layout-empty" data-position="${pos}" data-employee-id="empty">
+            return `<div class="event-slot empty-slot" data-position="${pos}" data-employee-id="empty" data-type="empty">
                 <span class="slot-number">${pos + 1}</span>
             </div>`;
         } else if (slot.isSpacer) {
-            return `<div class="layout-slot layout-spacer" data-position="${pos}" data-employee-id="${slot.id}">
-                <span class="slot-number" style="color:#d1d5db;">${pos + 1}</span>
+            return `<div class="event-card event-working" data-position="${pos}" data-employee-id="${slot.id}" data-type="working" style="background-color: #f3f4f6;">
+                <span class="event-dot" style="background-color: #f3f4f6;"></span>
+                <span class="event-name" style="color: #f3f4f6;">빈칸</span>
             </div>`;
         } else {
             const deptColor = getDepartmentColor(slot.departments?.id);
-            return `<div class="layout-slot layout-filled" data-position="${pos}" data-employee-id="${slot.id}">
-                <span class="layout-dot" style="background-color:${deptColor};"></span>
-                <span class="layout-name">${slot.name}</span>
+            return `<div class="event-card event-working" data-position="${pos}" data-employee-id="${slot.id}" data-type="working">
+                <span class="event-dot" style="background-color: ${deptColor};"></span>
+                <span class="event-name">${slot.name}</span>
             </div>`;
         }
     }).join('');
@@ -2761,7 +2731,7 @@ async function renderScheduleSidebar() {
                 <h3 class="layout-editor-title">${currentMonth}<br>배치</h3>
             </div>
             <div class="layout-col layout-col-grid">
-                <div class="layout-grid" id="layout-grid">
+                <div class="layout-grid day-events" id="layout-grid">
                     ${gridSlotsHtml}
                 </div>
             </div>
@@ -2799,18 +2769,21 @@ async function renderScheduleSidebar() {
     if (layoutGrid) {
         layoutGrid.addEventListener('click', handleLayoutGridClick);
         layoutGrid.addEventListener('dblclick', (e) => {
-            const slot = e.target.closest('.layout-slot');
-            if (!slot) return;
+            const slot = e.target.closest('.event-card, .event-slot');
+            if (!slot || !slot.closest('#layout-grid')) return;
             const empId = slot.dataset.employeeId;
+            const pos = parseInt(slot.dataset.position);
             if (empId === 'empty') {
-                const pos = parseInt(slot.dataset.position);
-                slot.className = 'layout-slot layout-spacer';
+                // 빈 슬롯 더블클릭 → spacer로 변경
+                slot.className = 'event-card event-working';
                 slot.dataset.employeeId = '-1';
-                slot.innerHTML = `<span class="slot-number" style="color:#d1d5db;">${pos + 1}</span>`;
-            } else if (slot.classList.contains('layout-spacer')) {
-                const pos = parseInt(slot.dataset.position);
-                slot.className = 'layout-slot layout-empty';
+                slot.dataset.type = 'working';
+                slot.innerHTML = `<span class="event-dot" style="background-color: #f3f4f6;"></span><span class="event-name" style="color: #f3f4f6;">빈칸</span>`;
+            } else if (parseInt(empId) < 0) {
+                // spacer 더블클릭 → 빈 슬롯으로 복원
+                slot.className = 'event-slot empty-slot';
                 slot.dataset.employeeId = 'empty';
+                slot.dataset.type = 'empty';
                 slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
             }
         });
@@ -2828,7 +2801,7 @@ let layoutDragSelectJustFinished = false;
 
 function clearLayoutSelection() {
     layoutSelectedSlots.clear();
-    document.querySelectorAll('#layout-grid .layout-slot.layout-selected').forEach(el => {
+    document.querySelectorAll('#layout-grid .layout-selected').forEach(el => {
         el.classList.remove('layout-selected');
     });
 }
@@ -2838,7 +2811,7 @@ function handleLayoutGridClick(e) {
     if (layoutDragSelectJustFinished) { layoutDragSelectJustFinished = false; return; }
     if (isDragging) return;
 
-    const slot = e.target.closest('.layout-slot');
+    const slot = e.target.closest('.event-card, .event-slot');
     if (!slot || !slot.closest('#layout-grid')) return;
     const pos = parseInt(slot.dataset.position, 10);
 
@@ -2852,7 +2825,7 @@ function handleLayoutGridClick(e) {
         const minRow = Math.min(startRow, endRow), maxRow = Math.max(startRow, endRow);
         const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
-        document.querySelectorAll('#layout-grid .layout-slot').forEach(el => {
+        document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(el => {
             const p = parseInt(el.dataset.position, 10);
             const r = Math.floor(p / COLS), c = p % COLS;
             if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
@@ -2894,8 +2867,8 @@ function handleLayoutDragSelectStart(e) {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (isDragging) return;
 
-    const slot = e.target.closest('.layout-slot');
-    if (!slot) return;
+    const slot = e.target.closest('.event-card, .event-slot');
+    if (!slot || !slot.closest('#layout-grid')) return;
 
     layoutDragState = {
         startPos: parseInt(slot.dataset.position, 10),
@@ -2925,7 +2898,7 @@ function handleLayoutDragSelectMove(e) {
     // 마우스 아래의 슬롯 찾기
     const el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el) return;
-    const slot = el.closest('.layout-slot');
+    const slot = el.closest('.event-card, .event-slot');
     if (!slot || !slot.closest('#layout-grid')) return;
     const endPos = parseInt(slot.dataset.position, 10);
 
@@ -2939,7 +2912,7 @@ function handleLayoutDragSelectMove(e) {
     const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
     clearLayoutSelection();
-    document.querySelectorAll('#layout-grid .layout-slot').forEach(sl => {
+    document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(sl => {
         const p = parseInt(sl.dataset.position, 10);
         const r = Math.floor(p / COLS), c = p % COLS;
         if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
@@ -2974,11 +2947,27 @@ function handleLayoutKeyAction(e) {
     const grid = _('#layout-grid');
     if (!grid) return false;
 
+    const SLOT_SEL = '.event-card, .event-slot';
+    const makeEmpty = (slot, pos) => {
+        slot.className = 'event-slot empty-slot';
+        slot.dataset.position = pos;
+        slot.dataset.employeeId = 'empty';
+        slot.dataset.type = 'empty';
+        slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+    };
+    const makeFilled = (slot, empId, name, deptId) => {
+        const deptColor = getDepartmentColor(deptId);
+        slot.className = 'event-card event-working';
+        slot.dataset.employeeId = String(empId);
+        slot.dataset.type = 'working';
+        slot.innerHTML = `<span class="event-dot" style="background-color:${deptColor};"></span><span class="event-name">${name}</span>`;
+    };
+
     // Ctrl+X: 잘라내기
     if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
         e.preventDefault();
         layoutClipboard = [];
-        const slots = grid.querySelectorAll('.layout-slot');
+        const slots = grid.querySelectorAll(SLOT_SEL);
         const sortedPositions = Array.from(layoutSelectedSlots).sort((a, b) => a - b);
         const basePos = sortedPositions[0];
 
@@ -2990,18 +2979,9 @@ function handleLayoutKeyAction(e) {
                 layoutClipboard.push({ employeeId: null, offset: pos - basePos });
             } else {
                 const emp = (state.management.employees || []).find(e => e.id === empId);
-                layoutClipboard.push({
-                    employeeId: empId,
-                    name: emp?.name || '',
-                    deptId: emp?.departments?.id,
-                    offset: pos - basePos
-                });
+                layoutClipboard.push({ employeeId: empId, name: emp?.name || '', deptId: emp?.departments?.id, offset: pos - basePos });
             }
-            // 원래 위치를 비움
-            slot.className = 'layout-slot layout-empty';
-            slot.dataset.position = pos;
-            slot.dataset.employeeId = 'empty';
-            slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+            makeEmpty(slot, pos);
         });
         clearLayoutSelection();
         console.log(`✂️ 배치 잘라내기: ${layoutClipboard.length}개`);
@@ -3012,7 +2992,7 @@ function handleLayoutKeyAction(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         e.preventDefault();
         layoutClipboard = [];
-        const slots = grid.querySelectorAll('.layout-slot');
+        const slots = grid.querySelectorAll(SLOT_SEL);
         const sortedPositions = Array.from(layoutSelectedSlots).sort((a, b) => a - b);
         const basePos = sortedPositions[0];
 
@@ -3024,15 +3004,9 @@ function handleLayoutKeyAction(e) {
                 layoutClipboard.push({ employeeId: null, offset: pos - basePos });
             } else {
                 const emp = (state.management.employees || []).find(e => e.id === empId);
-                layoutClipboard.push({
-                    employeeId: empId,
-                    name: emp?.name || '',
-                    deptId: emp?.departments?.id,
-                    offset: pos - basePos
-                });
+                layoutClipboard.push({ employeeId: empId, name: emp?.name || '', deptId: emp?.departments?.id, offset: pos - basePos });
             }
         });
-        // 시각적 피드백
         document.querySelectorAll('#layout-grid .layout-selected').forEach(el => {
             el.style.opacity = '0.5';
             setTimeout(() => el.style.opacity = '', 200);
@@ -3045,7 +3019,7 @@ function handleLayoutKeyAction(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         if (layoutClipboard.length === 0) return false;
         e.preventDefault();
-        const slots = grid.querySelectorAll('.layout-slot');
+        const slots = grid.querySelectorAll(SLOT_SEL);
         const targetPos = layoutLastClickedPos ?? Math.min(...layoutSelectedSlots);
 
         layoutClipboard.forEach(item => {
@@ -3053,17 +3027,11 @@ function handleLayoutKeyAction(e) {
             if (destPos < 0 || destPos >= GRID_SIZE) return;
             const destSlot = slots[destPos];
             if (!destSlot) return;
-
             destSlot.dataset.position = destPos;
             if (!item.employeeId) {
-                destSlot.className = 'layout-slot layout-empty';
-                destSlot.dataset.employeeId = 'empty';
-                destSlot.innerHTML = `<span class="slot-number">${destPos + 1}</span>`;
+                makeEmpty(destSlot, destPos);
             } else {
-                const deptColor = getDepartmentColor(item.deptId);
-                destSlot.className = 'layout-slot layout-filled';
-                destSlot.dataset.employeeId = String(item.employeeId);
-                destSlot.innerHTML = `<span class="layout-dot" style="background-color:${deptColor};"></span><span class="layout-name">${item.name}</span>`;
+                makeFilled(destSlot, item.employeeId, item.name, item.deptId);
             }
         });
         clearLayoutSelection();
@@ -3074,14 +3042,11 @@ function handleLayoutKeyAction(e) {
     // Delete: 선택 비우기
     if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        const slots = grid.querySelectorAll('.layout-slot');
+        const slots = grid.querySelectorAll(SLOT_SEL);
         layoutSelectedSlots.forEach(pos => {
             const slot = slots[pos];
             if (!slot) return;
-            slot.className = 'layout-slot layout-empty';
-            slot.dataset.position = pos;
-            slot.dataset.employeeId = 'empty';
-            slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+            makeEmpty(slot, pos);
         });
         clearLayoutSelection();
         console.log('🗑️ 배치 삭제');
