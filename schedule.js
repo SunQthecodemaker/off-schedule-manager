@@ -4346,6 +4346,12 @@ function handlePrintSchedule() {
     const holidays = state.schedule.companyHolidays || new Set();
     const COLS = 4; // 이름 4열 배치
 
+    // 인쇄 제외 부서 (기공실) — A4 한 장에 맞추기 위해
+    const PRINT_EXCLUDE_DEPT_ID = 2;
+    const excludeEmpIds = new Set(
+        allEmployees.filter(e => e.department_id === PRINT_EXCLUDE_DEPT_ID).map(e => e.id)
+    );
+
     // 부서 색상 맵
     const deptColorMap = {};
     allEmployees.forEach(emp => {
@@ -4377,6 +4383,7 @@ function handlePrintSchedule() {
                 }
                 const emp = allEmployees.find(e => e.id === s.employee_id);
                 if (!emp) return;
+                if (excludeEmpIds.has(emp.id)) return; // 기공실 제외
 
                 const pos = (s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
                 if (pos == null) return;
@@ -4456,30 +4463,31 @@ function handlePrintSchedule() {
 <html><head>
 <title>${currentDate.format('YYYY년 M월')} 스케줄</title>
 <style>
-@page { size: A4 landscape; margin: 8mm; }
+@page { size: A4 landscape; margin: 5mm; }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'Pretendard','맑은 고딕',sans-serif; background:#fff; padding:8mm; }
-h1 { text-align:center; font-size:16pt; margin-bottom:2mm; font-weight:700; }
-.p-sub { text-align:center; font-size:9pt; color:#888; margin-bottom:4mm; }
+body { font-family: 'Pretendard','맑은 고딕',sans-serif; background:#fff; padding:5mm; }
+h1 { text-align:center; font-size:13pt; margin-bottom:1mm; font-weight:700; }
+.p-sub { text-align:center; font-size:8pt; color:#888; margin-bottom:2mm; }
 .p-table { width:100%; border-collapse:collapse; table-layout:fixed; }
-.p-table th { background:#1a1a1a; color:#fff; font-size:9pt; padding:4px 2px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
+.p-table th { background:#1a1a1a; color:#fff; font-size:8pt; padding:2px 1px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
 .p-table th.p-sat { background:#1e40af; }
-.p-table td { border:1px solid #ccc; vertical-align:top; padding:2px 3px; font-size:8pt; }
+.p-table td { border:1px solid #bbb; vertical-align:top; padding:1px 2px; font-size:7pt; }
 .p-table tr { page-break-inside:avoid; }
-.p-date { font-weight:700; font-size:10pt; padding:1px 2px 2px; border-bottom:1px solid #e5e5e5; margin-bottom:2px; color:#1a1a1a; }
+.p-date { font-weight:700; font-size:9pt; padding:0 2px 1px; border-bottom:1px solid #ddd; margin-bottom:1px; color:#1a1a1a; }
 .p-other-date { color:#bbb; }
 .p-other { background:#fafafa; }
 .p-sat .p-date { color:#1e40af; }
 .p-holiday { background:#fff5f5; }
 .p-holiday .p-date { color:#dc2626; }
-.p-names { display:grid; grid-template-columns:repeat(${COLS},1fr); gap:1px; }
-.p-name { font-size:8pt; padding:1px 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; display:flex; align-items:center; gap:2px; }
-.p-name i { display:inline-block; width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+.p-names { display:grid; grid-template-columns:repeat(${COLS},1fr); gap:0; }
+.p-name { font-size:7.5pt; padding:0 1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; display:flex; align-items:center; gap:1px; }
+.p-name i { display:inline-block; width:4px; height:4px; border-radius:50%; flex-shrink:0; }
+.p-empty { visibility:hidden; }
 .p-leave { color:#b45309; font-style:italic; }
 .p-off { color:#999; text-decoration:line-through; }
 @media print {
     body { padding:0; }
-    h1 { font-size:14pt; }
+    h1 { font-size:12pt; }
 }
 </style>
 </head><body>
