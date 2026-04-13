@@ -567,18 +567,20 @@ body {
     order: -1;
 }
 
-/* ═══ Layout Editor — 가로 1줄 레이아웃 (CSS Grid) ═══ */
+/* ═══ Layout Editor — 가로 1줄 레이아웃 ═══ */
 .layout-editor {
-    display: grid;
-    grid-template-columns: auto 2fr auto 3fr;
-    gap: 8px;
+    display: flex;
+    flex-direction: row;
     align-items: stretch;
+    justify-content: space-between;
+    gap: 16px;
 }
 
 /* 열 1: 타이틀 */
 .layout-col-title {
     display: flex;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .layout-editor-title {
@@ -590,8 +592,9 @@ body {
     text-align: center;
 }
 
-/* 열 2: 4×8 그리드 */
+/* 열 2: 4×8 그리드 — 달력 날짜 1칸과 동일 폭 */
 .layout-col-grid {
+    flex: 0 0 calc((100% - 200px) / 6);
     min-width: 0;
 }
 
@@ -601,10 +604,12 @@ body {
     flex-direction: column;
     gap: 3px;
     justify-content: center;
+    flex-shrink: 0;
 }
 
-/* 열 4: 부서별 직원 목록 */
+/* 열 4: 부서별 직원 목록 (나머지 공간) */
 .layout-col-list {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
 }
