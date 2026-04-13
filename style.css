@@ -591,7 +591,7 @@ body {
     text-align: center;
 }
 
-/* 열 2: 4×8 그리드 — 달력 날짜 1칸과 동일 폭 (전체의 약 1/6) */
+/* 열 2: 4×8 그리드 — 달력 날짜 1칸과 동일 폭 */
 .layout-col-grid {
     flex: 0 0 calc((100% - 200px) / 6);
     min-width: 0;
@@ -606,15 +606,40 @@ body {
     flex-shrink: 0;
 }
 
-/* 열 4: 비활성 직원 풀 */
-.layout-col-inactive {
+/* 열 4: 부서별 직원 목록 (나머지 공간 전부) */
+.layout-col-list {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.layout-list-scroll {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    flex-shrink: 0;
-    min-width: 80px;
-    max-width: 140px;
+    gap: 1px;
+    max-height: 160px;
     overflow-y: auto;
+}
+
+/* 부서 행 */
+.layout-dept-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: wrap;
+    padding: 1px 0;
+}
+
+.layout-dept-label {
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+    min-width: 32px;
+    flex-shrink: 0;
+}
+
+.layout-pool-card {
+    cursor: grab;
 }
 
 .layout-btn {
@@ -691,6 +716,13 @@ body {
     border-color: #93c5fd;
 }
 
+/* 선택됨 */
+.layout-selected {
+    outline: 2px solid #3b82f6 !important;
+    outline-offset: -1px;
+    background: #eff6ff !important;
+}
+
 .layout-dot {
     width: 6px;
     height: 6px;
@@ -712,38 +744,6 @@ body {
     font-size: 8px;
     color: #d1d5db;
     font-weight: 500;
-}
-
-/* 비활성 풀 그룹 */
-.layout-pool-group {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.layout-pool-label {
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--color-text-muted);
-    line-height: 1;
-}
-
-.layout-pool {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1px;
-    padding: 2px;
-    background: #f9fafb;
-    border: 1px dashed #d1d5db;
-    border-radius: 3px;
-}
-
-.layout-pool .layout-slot {
-    width: auto;
-    flex: 0 0 auto;
-    font-size: 10px;
-    min-height: 16px;
-    padding: 1px 3px;
 }
 
 /* 임시 직원 */

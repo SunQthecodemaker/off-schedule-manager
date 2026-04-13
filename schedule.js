@@ -2390,58 +2390,33 @@ function initializeSortableAndDraggable() {
         state.schedule.sortableInstances.push(gridSortable);
     }
 
-    // ✅ 미배치 풀에 Sortable 적용
-    const unplacedPool = document.querySelector('#layout-unplaced-pool');
-    if (unplacedPool) {
-        const unplacedSortable = new Sortable(unplacedPool, {
+    // ✅ 우측 직원 목록의 각 부서 행 — 그리드/달력으로 복사 드래그
+    document.querySelectorAll('.layout-dept-row').forEach(row => {
+        const rowSortable = new Sortable(row, {
             group: {
                 name: 'layout-editor',
-                pull: true,
-                put: true
-            },
-            draggable: '.layout-slot',
-            animation: 150,
-            ghostClass: 'layout-ghost',
-            sort: true
-        });
-        state.schedule.sortableInstances.push(unplacedSortable);
-    }
-
-    // ✅ 임시 직원 풀 — 달력으로 복사만 가능
-    const tempPool = document.querySelector('#layout-temp-pool');
-    if (tempPool) {
-        const tempSortable = new Sortable(tempPool, {
-            group: {
-                name: 'sidebar-employees',
                 pull: 'clone',
                 put: false
             },
-            draggable: '.layout-slot',
+            draggable: '.layout-pool-card',
             animation: 150,
             ghostClass: 'layout-ghost',
             sort: false,
+            filter: '.layout-dept-label', // 라벨은 드래그 불가
 
             onStart(evt) {
                 isDragging = true;
                 dragStartTime = Date.now();
                 document.body.style.userSelect = 'none';
-                document.querySelectorAll('.day-events').forEach(el => {
-                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.05)';
-                    el.style.border = '2px dashed rgba(59, 130, 246, 0.3)';
-                });
             },
 
             onEnd(evt) {
                 setTimeout(() => { isDragging = false; }, 100);
                 document.body.style.userSelect = '';
-                document.querySelectorAll('.day-events').forEach(el => {
-                    el.style.backgroundColor = '';
-                    el.style.border = '';
-                });
             }
         });
-        state.schedule.sortableInstances.push(tempSortable);
-    }
+        state.schedule.sortableInstances.push(rowSortable);
+    });
 
     console.log('✅ Layout editor initialized with', state.schedule.sortableInstances.length, 'sortable instances');
 }
@@ -2535,47 +2510,61 @@ async function renderScheduleSidebar() {
         }
     }).join('');
 
-    // ═══ 미배치 직원 HTML ═══
-    const unplacedHtml = unplacedEmployees.map(emp => {
-        const deptColor = getDepartmentColor(emp.departments?.id);
-        return `<div class="layout-slot layout-filled layout-unplaced" data-employee-id="${emp.id}">
-            <span class="layout-dot" style="background-color:${deptColor};"></span>
-            <span class="layout-name">${emp.name}</span>
+    const currentMonth = dayjs(state.schedule.currentDate).format('YYYY년 M월');
+
+    // ═══ 부서별 직원 목록 HTML (우측 패널) ═══
+    const departments = state.management?.departments || [];
+    const deptNameMap = {};
+    departments.forEach(d => { deptNameMap[d.id] = d.name; });
+    const deptOrder = ['원장', '진료실', '경영지원실', '기공실'];
+
+    const deptGroups = {};
+    activeRegular.forEach(emp => {
+        const deptName = deptNameMap[emp.department_id] || '기타';
+        if (!deptGroups[deptName]) deptGroups[deptName] = [];
+        deptGroups[deptName].push(emp);
+    });
+
+    const allDeptNames = [...deptOrder];
+    Object.keys(deptGroups).forEach(name => {
+        if (!allDeptNames.includes(name)) allDeptNames.push(name);
+    });
+
+    const deptListHtml = allDeptNames.map(deptName => {
+        const emps = deptGroups[deptName];
+        if (!emps || emps.length === 0) return '';
+        const dept = departments.find(d => d.name === deptName);
+        const deptColor = dept ? getDepartmentColor(dept.id) : '#9ca3af';
+        const empCards = emps.map(emp => {
+            const c = getDepartmentColor(emp.departments?.id);
+            return `<div class="layout-slot layout-filled layout-pool-card" data-employee-id="${emp.id}">
+                <span class="layout-dot" style="background-color:${c};"></span>
+                <span class="layout-name">${emp.name}</span>
+            </div>`;
+        }).join('');
+        return `<div class="layout-dept-row">
+            <span class="layout-dept-label" style="color:${deptColor};">${deptName}</span>
+            ${empCards}
         </div>`;
     }).join('');
 
-    // ═══ 임시 직원 HTML ═══
-    const tempHtml = tempEmployees.map(emp => {
-        return `<div class="layout-slot layout-filled layout-temp" data-employee-id="${emp.id}">
+    // 임시 직원
+    const tempCards = tempEmployees.map(emp => {
+        return `<div class="layout-slot layout-filled layout-temp layout-pool-card" data-employee-id="${emp.id}">
             <span class="layout-dot" style="background-color:#a855f7;"></span>
             <span class="layout-name">${emp.name}</span>
             <button class="delete-temp-btn" data-id="${emp.id}" title="삭제">×</button>
         </div>`;
     }).join('');
 
-    // ═══ 휴직/퇴사 직원 HTML ═══
-    const retiredHtml = retiredEmployees.map(emp => {
-        const deptColor = getDepartmentColor(emp.departments?.id);
-        return `<div class="layout-slot layout-filled layout-retired" data-employee-id="${emp.id}">
-            <span class="layout-dot" style="background-color:${deptColor};"></span>
+    // 휴직 직원
+    const retiredCards = retiredEmployees.map(emp => {
+        const c = getDepartmentColor(emp.departments?.id);
+        return `<div class="layout-slot layout-filled layout-retired layout-pool-card" data-employee-id="${emp.id}">
+            <span class="layout-dot" style="background-color:${c};"></span>
             <span class="layout-name">${emp.name}</span>
         </div>`;
     }).join('');
-
-    const currentMonth = dayjs(state.schedule.currentDate).format('YYYY년 M월');
-
-    // ═══ 미배치 + 임시 + 휴직 통합 (비활성 풀) ═══
-    const hasInactive = unplacedEmployees.length > 0 || tempEmployees.length > 0 || retiredEmployees.length > 0;
-    let inactivePoolHtml = '';
-    if (unplacedEmployees.length > 0) {
-        inactivePoolHtml += `<div class="layout-pool-group"><span class="layout-pool-label">미배치</span><div class="layout-pool" id="layout-unplaced-pool">${unplacedHtml}</div></div>`;
-    }
-    if (tempEmployees.length > 0) {
-        inactivePoolHtml += `<div class="layout-pool-group"><span class="layout-pool-label" style="color:#7c3aed;">임시</span><div class="layout-pool temp-staff-list" id="layout-temp-pool">${tempHtml}</div></div>`;
-    }
-    if (retiredEmployees.length > 0) {
-        inactivePoolHtml += `<div class="layout-pool-group"><span class="layout-pool-label" style="color:#9ca3af;">휴직</span><div class="layout-pool" id="layout-retired-pool">${retiredHtml}</div></div>`;
-    }
 
     sidebar.innerHTML = `
         <div class="layout-editor">
@@ -2592,10 +2581,17 @@ async function renderScheduleSidebar() {
                 <button id="apply-layout-btn" class="layout-btn layout-btn-success" title="이 배치를 모든 날짜에 적용">전체 적용</button>
                 <button id="add-temp-staff-btn" class="layout-btn layout-btn-purple" title="임시 직원 추가">+임시</button>
             </div>
-            ${hasInactive ? `
-            <div class="layout-col layout-col-inactive">
-                ${inactivePoolHtml}
-            </div>` : ''}
+            <div class="layout-col layout-col-list">
+                <div class="layout-list-scroll" id="layout-employee-list">
+                    ${deptListHtml}
+                    ${tempEmployees.length > 0 ? `<div class="layout-dept-row">
+                        <span class="layout-dept-label" style="color:#7c3aed;">임시</span>${tempCards}
+                    </div>` : ''}
+                    ${retiredEmployees.length > 0 ? `<div class="layout-dept-row">
+                        <span class="layout-dept-label" style="color:#9ca3af;">휴직</span>${retiredCards}
+                    </div>` : ''}
+                </div>
+            </div>
         </div>`;
 
     _('#save-employee-order-btn')?.addEventListener('click', handleSaveEmployeeOrder);
@@ -2610,27 +2606,218 @@ async function renderScheduleSidebar() {
         }
     });
 
-    // 그리드 빈칸 더블클릭 → 빈칸(spacer) 토글
-    sidebar.addEventListener('dblclick', (e) => {
-        const slot = e.target.closest('.layout-slot');
-        if (!slot) return;
-        const empId = slot.dataset.employeeId;
-        if (empId === 'empty') {
-            // 빈 슬롯 → spacer로 변환
-            const pos = parseInt(slot.dataset.position);
-            slot.className = 'layout-slot layout-spacer';
-            slot.dataset.employeeId = '-1';
-            slot.innerHTML = `<span class="slot-number" style="color:#d1d5db;">${pos + 1}</span>`;
-        } else if (slot.classList.contains('layout-spacer')) {
-            // spacer → 빈 슬롯으로 변환
-            const pos = parseInt(slot.dataset.position);
+    // ═══ 그리드 클릭 선택 (달력과 동일한 조작) ═══
+    const layoutGrid = _('#layout-grid');
+    if (layoutGrid) {
+        layoutGrid.addEventListener('click', handleLayoutGridClick);
+        layoutGrid.addEventListener('dblclick', (e) => {
+            const slot = e.target.closest('.layout-slot');
+            if (!slot) return;
+            const empId = slot.dataset.employeeId;
+            if (empId === 'empty') {
+                const pos = parseInt(slot.dataset.position);
+                slot.className = 'layout-slot layout-spacer';
+                slot.dataset.employeeId = '-1';
+                slot.innerHTML = `<span class="slot-number" style="color:#d1d5db;">${pos + 1}</span>`;
+            } else if (slot.classList.contains('layout-spacer')) {
+                const pos = parseInt(slot.dataset.position);
+                slot.className = 'layout-slot layout-empty';
+                slot.dataset.employeeId = 'empty';
+                slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+            }
+        });
+    }
+
+    // ═══ 그리드 키보드 단축키 (Ctrl+X/V, Delete) ═══
+    // 전역 키보드 핸들러에서 layout-grid 포커스 시 처리
+    if (!window._layoutKeyHandler) {
+        window._layoutKeyHandler = (e) => handleLayoutGridKeydown(e);
+        document.addEventListener('keydown', window._layoutKeyHandler);
+    }
+
+    initializeSortableAndDraggable();
+}
+
+// ═══ 배치 그리드 선택 상태 ═══
+let layoutSelectedSlots = new Set(); // Set<position index>
+let layoutLastClickedPos = null;
+let layoutClipboard = []; // [{employeeId, departments, name}, ...]
+let layoutCutMode = false; // 잘라내기 모드 여부
+
+function clearLayoutSelection() {
+    layoutSelectedSlots.clear();
+    document.querySelectorAll('#layout-grid .layout-slot.layout-selected').forEach(el => {
+        el.classList.remove('layout-selected');
+    });
+}
+
+function handleLayoutGridClick(e) {
+    const slot = e.target.closest('.layout-slot');
+    if (!slot || !slot.closest('#layout-grid')) return;
+    const pos = parseInt(slot.dataset.position, 10);
+
+    // Shift+클릭: 범위 선택
+    if (e.shiftKey && layoutLastClickedPos != null) {
+        const minPos = Math.min(layoutLastClickedPos, pos);
+        const maxPos = Math.max(layoutLastClickedPos, pos);
+        document.querySelectorAll('#layout-grid .layout-slot').forEach(el => {
+            const p = parseInt(el.dataset.position, 10);
+            if (p >= minPos && p <= maxPos) {
+                layoutSelectedSlots.add(p);
+                el.classList.add('layout-selected');
+            }
+        });
+        return;
+    }
+
+    // Ctrl+클릭: 다중 선택 토글
+    if (e.ctrlKey || e.metaKey) {
+        if (layoutSelectedSlots.has(pos)) {
+            layoutSelectedSlots.delete(pos);
+            slot.classList.remove('layout-selected');
+        } else {
+            layoutSelectedSlots.add(pos);
+            slot.classList.add('layout-selected');
+        }
+        layoutLastClickedPos = pos;
+        return;
+    }
+
+    // 일반 클릭: 단일 선택 토글
+    if (layoutSelectedSlots.has(pos) && layoutSelectedSlots.size === 1) {
+        clearLayoutSelection();
+        layoutLastClickedPos = null;
+        return;
+    }
+    clearLayoutSelection();
+    layoutSelectedSlots.add(pos);
+    slot.classList.add('layout-selected');
+    layoutLastClickedPos = pos;
+}
+
+function handleLayoutGridKeydown(e) {
+    // 배치 그리드에 선택이 없으면 무시
+    if (layoutSelectedSlots.size === 0) return;
+    // 다른 입력 필드에 포커스가 있으면 무시
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    const grid = _('#layout-grid');
+    if (!grid) return;
+
+    // Ctrl+X: 잘라내기
+    if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        e.preventDefault();
+        layoutClipboard = [];
+        const slots = grid.querySelectorAll('.layout-slot');
+        const sortedPositions = Array.from(layoutSelectedSlots).sort((a, b) => a - b);
+        const basePos = sortedPositions[0];
+
+        sortedPositions.forEach(pos => {
+            const slot = slots[pos];
+            if (!slot) return;
+            const empId = parseInt(slot.dataset.employeeId, 10);
+            if (isNaN(empId) || slot.dataset.employeeId === 'empty') {
+                layoutClipboard.push({ employeeId: null, offset: pos - basePos });
+            } else {
+                const emp = (state.management.employees || []).find(e => e.id === empId);
+                layoutClipboard.push({
+                    employeeId: empId,
+                    name: emp?.name || '',
+                    deptId: emp?.departments?.id,
+                    offset: pos - basePos
+                });
+            }
+            // 잘라내기: 원래 위치를 비움
             slot.className = 'layout-slot layout-empty';
             slot.dataset.employeeId = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-        }
-    });
+            slot.classList.remove('layout-selected');
+        });
 
-    initializeSortableAndDraggable();
+        layoutCutMode = true;
+        layoutSelectedSlots.clear();
+        console.log(`✂️ 배치 그리드 잘라내기: ${layoutClipboard.length}개`);
+        return;
+    }
+
+    // Ctrl+C: 복사
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault();
+        layoutClipboard = [];
+        const slots = grid.querySelectorAll('.layout-slot');
+        const sortedPositions = Array.from(layoutSelectedSlots).sort((a, b) => a - b);
+        const basePos = sortedPositions[0];
+
+        sortedPositions.forEach(pos => {
+            const slot = slots[pos];
+            if (!slot) return;
+            const empId = parseInt(slot.dataset.employeeId, 10);
+            if (isNaN(empId) || slot.dataset.employeeId === 'empty') {
+                layoutClipboard.push({ employeeId: null, offset: pos - basePos });
+            } else {
+                const emp = (state.management.employees || []).find(e => e.id === empId);
+                layoutClipboard.push({
+                    employeeId: empId,
+                    name: emp?.name || '',
+                    deptId: emp?.departments?.id,
+                    offset: pos - basePos
+                });
+            }
+        });
+
+        layoutCutMode = false;
+        console.log(`📋 배치 그리드 복사: ${layoutClipboard.length}개`);
+        return;
+    }
+
+    // Ctrl+V: 붙여넣기
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        if (layoutClipboard.length === 0) return;
+        e.preventDefault();
+
+        const slots = grid.querySelectorAll('.layout-slot');
+        const targetPos = layoutLastClickedPos ?? Math.min(...layoutSelectedSlots);
+
+        layoutClipboard.forEach(item => {
+            const destPos = targetPos + item.offset;
+            if (destPos < 0 || destPos >= GRID_SIZE) return;
+            const destSlot = slots[destPos];
+            if (!destSlot) return;
+
+            if (!item.employeeId) {
+                destSlot.className = 'layout-slot layout-empty';
+                destSlot.dataset.employeeId = 'empty';
+                destSlot.innerHTML = `<span class="slot-number">${destPos + 1}</span>`;
+            } else {
+                const deptColor = getDepartmentColor(item.deptId);
+                destSlot.className = 'layout-slot layout-filled';
+                destSlot.dataset.employeeId = String(item.employeeId);
+                destSlot.innerHTML = `<span class="layout-dot" style="background-color:${deptColor};"></span><span class="layout-name">${item.name}</span>`;
+            }
+        });
+
+        clearLayoutSelection();
+        console.log(`📌 배치 그리드 붙여넣기: ${layoutClipboard.length}개 → position ${targetPos}`);
+        return;
+    }
+
+    // Delete: 선택 슬롯 비우기
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (e.target.tagName === 'BUTTON') return;
+        e.preventDefault();
+        const slots = grid.querySelectorAll('.layout-slot');
+        layoutSelectedSlots.forEach(pos => {
+            const slot = slots[pos];
+            if (!slot) return;
+            slot.className = 'layout-slot layout-empty';
+            slot.dataset.employeeId = 'empty';
+            slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+            slot.classList.remove('layout-selected');
+        });
+        layoutSelectedSlots.clear();
+        console.log('🗑️ 배치 그리드 삭제');
+        return;
+    }
 }
 
 // ✨ 임시 직원 삭제 핸들러
