@@ -827,6 +827,7 @@ async function handleApplyLayoutToAll() {
     try {
         await handleSaveEmployeeOrder();
 
+        pushUndoState('배치 전체 적용');
         const positionMap = getLayoutPositionMap();
         const updateCount = applyLayoutToSchedules(positionMap, null); // null = 전체 날짜
 
@@ -857,6 +858,7 @@ function handleMenuApplyLayoutToDate() {
         return;
     }
 
+    pushUndoState(`배치 적용: ${dateStr}`);
     const updateCount = applyLayoutToSchedules(positionMap, [dateStr]);
 
     if (updateCount === 0) {
