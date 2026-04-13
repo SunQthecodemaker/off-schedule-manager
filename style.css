@@ -591,9 +591,9 @@ body {
     text-align: center;
 }
 
-/* 열 2: 4×8 그리드 (달력 날짜칸과 동일 비율) */
+/* 열 2: 4×8 그리드 — 달력 날짜 1칸과 동일 폭 (전체의 약 1/6) */
 .layout-col-grid {
-    flex: 1;
+    flex: 0 0 calc((100% - 200px) / 6);
     min-width: 0;
 }
 
