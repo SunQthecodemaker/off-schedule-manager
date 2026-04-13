@@ -72,26 +72,25 @@ function isSubstitutable(rules, dayOfWeek) {
  * @returns {number} 배치된 개수
  */
 function placeCards(items, dateStr, startPos = null) {
-    console.log(`📋 placeCards: ${items.length}개 아이템, date=${dateStr}, startPos=${startPos}`, items.map(i => i.employee_id));
+    console.log(`📋 placeCards: ${items.length}개 아이템, date=${dateStr}, startPos=${startPos}`, items.map(i => `${i.employee_id}@${i._origPos}`));
     let placed = 0;
-    let nextPos = startPos;
+
+    // 상대 위치 보존: _origPos가 있으면 오프셋 계산
+    const hasOrigPos = items.some(i => i._origPos != null);
+    const baseOffset = (hasOrigPos && startPos != null && items[0]._origPos != null)
+        ? (startPos - items[0]._origPos) : 0;
 
     items.forEach((item, idx) => {
         const empId = item.employee_id;
 
-        // R2: 같은 날짜에 같은 직원이 이미 있으면 기존것 제거 (휴무 처리)
-        const existing = state.schedule.schedules.find(
-            s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
-        );
-        if (existing) {
-            existing.status = '휴무';
-            unsavedChanges.set(existing.id, { type: 'update', data: existing });
-        }
-
         // 배치할 position 결정
         let assignPos = -1;
-        if (nextPos != null && nextPos >= 0 && nextPos < GRID_SIZE) {
-            assignPos = nextPos;
+        if (hasOrigPos && item._origPos != null) {
+            // 상대 위치 보존 모드: 원래 position + 오프셋 (날짜 전체 복사 시 오프셋=0)
+            assignPos = item._origPos + baseOffset;
+        } else if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
+            // _origPos 없음: startPos부터 연속 배치
+            assignPos = startPos + idx;
         } else {
             // 자동 빈자리 탐색
             for (let i = 0; i < GRID_SIZE; i++) {
@@ -102,7 +101,19 @@ function placeCards(items, dateStr, startPos = null) {
             }
         }
 
-        if (assignPos < 0 || assignPos >= GRID_SIZE) return;
+        if (assignPos < 0 || assignPos >= GRID_SIZE) {
+            console.log(`  ⚠️ [${idx}] empId=${empId} → pos=${assignPos} 범위 초과, 건너뜀`);
+            return;
+        }
+
+        // R2: 같은 날짜에 같은 직원이 이미 있으면 기존것 제거 (휴무 처리)
+        const existing = state.schedule.schedules.find(
+            s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
+        );
+        if (existing) {
+            existing.status = '휴무';
+            unsavedChanges.set(existing.id, { type: 'update', data: existing });
+        }
 
         // R1: 타겟 위치에 다른 카드 있으면 덮어쓰기 (기존 카드 휴무)
         const blocking = state.schedule.schedules.find(
@@ -136,7 +147,6 @@ function placeCards(items, dateStr, startPos = null) {
             unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
         }
 
-        nextPos = assignPos + 1;
         placed++;
         console.log(`  📌 [${idx}] empId=${empId} → pos=${assignPos} (${target ? 'update' : 'create'})`);
     });
@@ -3084,7 +3094,8 @@ function handleMenuCopyDate() {
         scheduleClipboard.push({
             employee_id: s.employee_id,
             status: s.status,
-            grid_position: s.grid_position // 원본 위치 기억
+            grid_position: s.grid_position, // 원본 위치 기억
+            _origPos: s.grid_position
         });
     });
 
@@ -3407,11 +3418,14 @@ function handleGlobalKeydown(e) {
                 if (schedule) {
                     scheduleClipboard.push({
                         employee_id: schedule.employee_id,
-                        status: '근무'  // 붙여넣기 시 항상 근무로 배치
+                        status: '근무',
+                        _origPos: schedule.grid_position  // 상대 위치 보존용
                     });
                 }
             });
-            console.log(`📋 Copy: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => c.employee_id));
+            // position 순서로 정렬
+            scheduleClipboard.sort((a, b) => (a._origPos ?? 0) - (b._origPos ?? 0));
+            console.log(`📋 Copy: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => `${c.employee_id}@${c._origPos}`));
 
             // 시각적 피드백 (선택된 카드 반짝임)
             document.querySelectorAll('.event-card.selected').forEach(el => {
@@ -3433,17 +3447,16 @@ function handleGlobalKeydown(e) {
                 if (schedule) {
                     scheduleClipboard.push({
                         employee_id: schedule.employee_id,
-                        status: '근무'
+                        status: '근무',
+                        _origPos: schedule.grid_position  // 상대 위치 보존용
                     });
-                    // 사용자 요청: "제거" -> 휴무로 변경이 일반적이나, 드래그앤드롭 맥락에서는 '삭제'일 수도.
-                    // 임시 직원은 삭제, 정규직원은 휴무로? 
-                    // 통일성을 위해 '휴무'로 처리.
                     schedule.status = '휴무';
                     unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
                 }
             });
-
-            console.log(`✂️ Cut: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => c.employee_id));
+            // position 순서로 정렬
+            scheduleClipboard.sort((a, b) => (a._origPos ?? 0) - (b._origPos ?? 0));
+            console.log(`✂️ Cut: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => `${c.employee_id}@${c._origPos}`));
             clearSelection();
             renderCalendar();
             updateSaveButtonState();
