@@ -713,7 +713,7 @@ function handleDeleteSpacer(e) {
     }
 }
 
-async function handleSaveEmployeeOrder() {
+async function handleSaveEmployeeOrder(options = {}) {
     const saveBtn = _('#save-employee-order-btn');
     saveBtn.disabled = true;
     saveBtn.textContent = '저장중...';
@@ -772,7 +772,9 @@ async function handleSaveEmployeeOrder() {
         if (error) throw error;
 
         alert('배치가 저장되었습니다.');
-        await loadAndRenderScheduleData(state.schedule.currentDate);
+        if (!options.skipReload) {
+            await loadAndRenderScheduleData(state.schedule.currentDate);
+        }
     } catch (error) {
         console.error('배치 저장 실패:', error);
         alert(`배치 저장 실패: ${error.message}`);
@@ -825,9 +827,9 @@ async function handleApplyLayoutToAll() {
     btn.textContent = '적용중...';
 
     try {
-        await handleSaveEmployeeOrder();
-
         pushUndoState('배치 전체 적용');
+        await handleSaveEmployeeOrder({ skipReload: true });
+
         const positionMap = getLayoutPositionMap();
         const updateCount = applyLayoutToSchedules(positionMap, null); // null = 전체 날짜
 
