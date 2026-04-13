@@ -149,8 +149,10 @@ export class ScheduleGenerator {
 
         // 2. 근무 가능 직원 필터링
         const availableStaff = employees.filter(emp => {
-            // 퇴사자 제외
-            if (emp.status === 'retired') return false;
+            // 퇴사자/휴직자 제외
+            if (emp.status === 'retired' || emp.retired) return false;
+            // 임시직원 제외 (수동 배치 대상)
+            if (emp.is_temp) return false;
 
             // 연차 확인
             const isOnLeave = leaves.some(l => {

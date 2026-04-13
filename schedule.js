@@ -1747,6 +1747,19 @@ function renderCalendar() {
                 };
             });
 
+            // 임시직원 스케줄 배치 (근무만 존재)
+            state.schedule.schedules.forEach(s => {
+                if (s.date !== dateStr || s.employee_id <= 0) return;
+                const emp = (state.management.employees || []).find(e => e.id === s.employee_id);
+                if (!emp || !emp.is_temp) return;
+                if (s.status !== '근무') return;
+                let pos = (s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
+                if (pos == null) { for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } } }
+                if (pos != null && !gridSlots[pos]) {
+                    gridSlots[pos] = { ...s, _empStatus: 'working' };
+                }
+            });
+
             // 빈칸(spacer) 배치
             state.schedule.schedules.forEach(s => {
                 if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
@@ -1781,6 +1794,19 @@ function renderCalendar() {
                     grid_position: pos,
                     _empStatus: status
                 };
+            });
+
+            // 임시직원 스케줄 배치 (근무만 존재)
+            state.schedule.schedules.forEach(s => {
+                if (s.date !== dateStr || s.employee_id <= 0) return;
+                const emp = (state.management.employees || []).find(e => e.id === s.employee_id);
+                if (!emp || !emp.is_temp) return;
+                if (s.status !== '근무') return;
+                let pos = (s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
+                if (pos == null) { for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } } }
+                if (pos != null && !gridSlots[pos]) {
+                    gridSlots[pos] = { ...s, _empStatus: 'working' };
+                }
             });
 
             // 빈칸(spacer) 배치
@@ -2493,6 +2519,29 @@ function initializeSortableAndDraggable() {
     console.log('✅ Layout editor initialized with', state.schedule.sortableInstances.length, 'sortable instances');
 }
 
+// ✨ 사이드바 × 버튼 이벤트 핸들러 (명명 함수 — 중복 등록 방지)
+async function handleSidebarDeleteClick(e) {
+    if (!e.target.classList.contains('delete-temp-btn')) return;
+    e.stopPropagation();
+    const id = e.target.dataset.id;
+
+    // 그리드 안의 × → 배치에서 제거만 (빈 슬롯으로 교체)
+    const inGrid = e.target.closest('#layout-grid');
+    if (inGrid) {
+        const slot = e.target.closest('.layout-slot');
+        if (slot) {
+            const pos = parseInt(slot.dataset.position);
+            slot.className = 'layout-slot layout-empty';
+            slot.dataset.employeeId = 'empty';
+            slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+        }
+        return;
+    }
+
+    // 직원 목록의 × → DB에서 삭제
+    await handleDeleteTempStaff(id);
+}
+
 async function renderScheduleSidebar() {
     const sidebar = _('#schedule-sidebar-area');
     if (!sidebar) return;
@@ -2685,27 +2734,9 @@ async function renderScheduleSidebar() {
     _('#apply-layout-btn')?.addEventListener('click', handleApplyLayoutToAll);
     _('#add-temp-staff-btn')?.addEventListener('click', handleAddTempStaff);
 
-    // 이벤트 위임: 삭제 버튼
-    sidebar.addEventListener('click', async (e) => {
-        if (!e.target.classList.contains('delete-temp-btn')) return;
-        const id = e.target.dataset.id;
-
-        // 그리드 안의 × → 배치에서 제거만 (빈 슬롯으로 교체)
-        const inGrid = e.target.closest('#layout-grid');
-        if (inGrid) {
-            const slot = e.target.closest('.layout-slot');
-            if (slot) {
-                const pos = parseInt(slot.dataset.position);
-                slot.className = 'layout-slot layout-empty';
-                slot.dataset.employeeId = 'empty';
-                slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-            }
-            return;
-        }
-
-        // 직원 목록의 × → DB에서 삭제
-        await handleDeleteTempStaff(id);
-    });
+    // 이벤트 위임: 삭제 버튼 (중복 등록 방지)
+    sidebar.removeEventListener('click', handleSidebarDeleteClick);
+    sidebar.addEventListener('click', handleSidebarDeleteClick);
 
     // ═══ 그리드 클릭 선택 (달력과 동일한 조작) ═══
     const layoutGrid = _('#layout-grid');
@@ -3003,13 +3034,14 @@ function handleLayoutKeyAction(e) {
 
 // ✨ 임시 직원 삭제 핸들러
 async function handleDeleteTempStaff(id) {
-    if (!confirm('정말로 이 임시 직원을 삭제하시겠습니까?\n(배치된 스케줄에서도 모두 사라질 수 있습니다)')) return;
+    if (!confirm('이 임시 직원을 목록에서 제거하시겠습니까?\n(기존 스케줄은 그대로 유지됩니다)')) return;
 
     try {
-        const { error } = await db.from('employees').delete().eq('id', id);
+        // DB에서 완전 삭제 대신 retired=true로 변경 (스케줄 보존)
+        const { error } = await db.from('employees').update({ retired: true }).eq('id', id);
         if (error) throw error;
 
-        // ✨ 데이터 일관성을 위해 직원 목록 다시 불러오기
+        // 직원 목록 갱신
         const { data: empData, error: empError } = await db.from('employees')
             .select('*, departments(*)')
             .order('id');
@@ -3017,18 +3049,15 @@ async function handleDeleteTempStaff(id) {
         if (empError) throw empError;
         if (empData) {
             state.management.employees = empData;
-            console.log('✅ Temporary Staff Deleted & Employee List Updated:', empData.length);
+            console.log('✅ 임시직원 비활성화 & 직원목록 갱신:', empData.length);
         }
 
-        // 데이터 리로드 (스케줄 정리)
-        await loadAndRenderScheduleData(state.schedule.currentDate);
-
-        // ✨ 사이드바 명시적 갱신
+        // 사이드바만 갱신 (스케줄 리로드 불필요 — 기존 데이터 유지)
         renderScheduleSidebar();
 
     } catch (err) {
-        console.error('임시 직원 삭제 실패:', err);
-        alert('삭제 중 오류가 발생했습니다: ' + err.message);
+        console.error('임시 직원 제거 실패:', err);
+        alert('제거 중 오류가 발생했습니다: ' + err.message);
     }
 }
 
