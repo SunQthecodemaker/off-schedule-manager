@@ -783,6 +783,40 @@ async function handleSaveEmployeeOrder() {
 }
 
 // ✅ "전체 적용" — 현재 그리드 배치를 해당 월 모든 날짜의 grid_position에 적용
+// 배치 그리드에서 employee → position 매핑 추출
+function getLayoutPositionMap() {
+    const positionMap = new Map();
+    document.querySelectorAll('#layout-grid .layout-slot').forEach(slot => {
+        const pos = parseInt(slot.dataset.position);
+        const empId = parseInt(slot.dataset.employeeId);
+        if (!isNaN(empId) && empId > 0) {
+            positionMap.set(empId, pos);
+        }
+    });
+    return positionMap;
+}
+
+// 지정된 날짜들의 스케줄에 배치(grid_position)만 적용 (상태는 건드리지 않음)
+function applyLayoutToSchedules(positionMap, targetDates) {
+    const dateSet = targetDates ? new Set(targetDates) : null;
+    let updateCount = 0;
+
+    state.schedule.schedules.forEach(s => {
+        if (s.employee_id <= 0) return;
+        if (dateSet && !dateSet.has(s.date)) return;
+        if (!positionMap.has(s.employee_id)) return;
+
+        const newPos = positionMap.get(s.employee_id);
+        if (s.grid_position !== newPos) {
+            s.grid_position = newPos;
+            unsavedChanges.set(s.id, { type: 'update', data: s });
+            updateCount++;
+        }
+    });
+
+    return updateCount;
+}
+
 async function handleApplyLayoutToAll() {
     const btn = _('#apply-layout-btn');
     if (!confirm('현재 배치를 이번 달 모든 날짜에 적용하시겠습니까?\n(각 날짜의 휴무/연차 상태는 유지됩니다)')) return;
@@ -791,31 +825,10 @@ async function handleApplyLayoutToAll() {
     btn.textContent = '적용중...';
 
     try {
-        // 먼저 현재 그리드 배치 저장
         await handleSaveEmployeeOrder();
 
-        // 그리드에서 employee → position 매핑 추출
-        const positionMap = new Map();
-        document.querySelectorAll('#layout-grid .layout-slot').forEach(slot => {
-            const pos = parseInt(slot.dataset.position);
-            const empId = parseInt(slot.dataset.employeeId);
-            if (!isNaN(empId) && empId > 0) {
-                positionMap.set(empId, pos);
-            }
-        });
-
-        // 현재 월의 모든 스케줄의 grid_position 업데이트
-        let updateCount = 0;
-        state.schedule.schedules.forEach(s => {
-            if (s.employee_id > 0 && positionMap.has(s.employee_id)) {
-                const newPos = positionMap.get(s.employee_id);
-                if (s.grid_position !== newPos) {
-                    s.grid_position = newPos;
-                    unsavedChanges.set(s.id, { type: 'update', data: s });
-                    updateCount++;
-                }
-            }
-        });
+        const positionMap = getLayoutPositionMap();
+        const updateCount = applyLayoutToSchedules(positionMap, null); // null = 전체 날짜
 
         console.log(`📋 전체 적용: ${updateCount}개 스케줄의 grid_position 업데이트됨`);
         renderCalendar();
@@ -828,6 +841,39 @@ async function handleApplyLayoutToAll() {
     } finally {
         btn.disabled = false;
         btn.textContent = '전체 적용';
+    }
+}
+
+// 날짜 우클릭 메뉴: 이 날짜에 배치 적용
+function handleMenuApplyLayoutToDate() {
+    const dateContextMenu = document.getElementById('date-context-menu');
+    const dateStr = dateContextMenu.dataset.date;
+    if (!dateStr) return;
+    dateContextMenu.classList.add('hidden');
+
+    const positionMap = getLayoutPositionMap();
+    if (positionMap.size === 0) {
+        alert('배치 그리드에 직원이 없습니다.\n먼저 배치를 설정해주세요.');
+        return;
+    }
+
+    const updateCount = applyLayoutToSchedules(positionMap, [dateStr]);
+
+    if (updateCount === 0) {
+        alert(`${dateStr}: 변경할 배치가 없습니다.`);
+        return;
+    }
+
+    console.log(`📐 날짜 배치 적용: ${dateStr} → ${updateCount}개 변경`);
+    renderCalendar();
+    updateSaveButtonState();
+
+    // 시각적 피드백
+    const targetDayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
+    if (targetDayEl) {
+        const originalBg = targetDayEl.style.backgroundColor;
+        targetDayEl.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
+        setTimeout(() => { targetDayEl.style.backgroundColor = originalBg; }, 400);
     }
 }
 
@@ -3549,10 +3595,13 @@ function initializeCalendarEvents() {
     const pasteDateBtn = document.getElementById('ctx-paste-date');
     const selectAllDateBtn = document.getElementById('ctx-select-all-date');
 
+    const applyLayoutDateBtn = document.getElementById('ctx-apply-layout-date');
+
     if (toggleHolidayBtn) toggleHolidayBtn.onclick = handleMenuToggleHoliday;
     if (copyDateBtn) copyDateBtn.onclick = handleMenuCopyDate;
     if (pasteDateBtn) pasteDateBtn.onclick = handleMenuPasteDate;
     if (selectAllDateBtn) selectAllDateBtn.onclick = handleMenuSelectAllDate;
+    if (applyLayoutDateBtn) applyLayoutDateBtn.onclick = handleMenuApplyLayoutToDate;
 
     // ✨ 전역 키보드 이벤트 (복사/붙여넣기/삭제)
     document.removeEventListener('keydown', handleGlobalKeydown);
