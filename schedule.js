@@ -4329,225 +4329,152 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 }
 
 
-// ✨ 인쇄 핸들러 - 캡쳐 방식으로 변경
-async function handlePrintSchedule() {
+// ✨ 인쇄 핸들러 — 인쇄 전용 HTML 테이블 생성
+function handlePrintSchedule() {
     const currentDate = dayjs(state.schedule.currentDate);
-    const viewModeText = state.schedule.viewMode === 'working' ? '근무자 명단' : '휴무자 명단';
+    const year = currentDate.year();
+    const month = currentDate.month();
+    const viewMode = state.schedule.viewMode;
+    const viewModeText = viewMode === 'working' ? '근무자' : viewMode === 'off' ? '휴무자' : '전체';
 
-    // 달력 요소
-    const calendarEl = _('#pure-calendar');
-    if (!calendarEl) {
-        alert('달력을 찾을 수 없습니다.');
+    const firstDay = dayjs(new Date(year, month, 1));
+    const lastDay = dayjs(new Date(year, month + 1, 0));
+    const firstDayOfWeek = firstDay.day(); // 0=일
+    const startDate = firstDayOfWeek === 0 ? firstDay.add(1, 'day') : firstDay.subtract(firstDayOfWeek - 1, 'day');
+
+    const allEmployees = state.management.employees || [];
+    const holidays = state.schedule.companyHolidays || new Set();
+    const COLS = 4; // 이름 4열 배치
+
+    // 부서 색상 맵
+    const deptColorMap = {};
+    allEmployees.forEach(emp => {
+        if (emp.departments?.id) deptColorMap[emp.id] = getDepartmentColor(emp.departments.id);
+    });
+
+    // 주 단위로 날짜 모으기 (월~토)
+    const weeks = [];
+    let current = startDate.clone();
+    while (current.month() <= month || (current.month() > month && current.day() !== 1)) {
+        const week = [];
+        for (let d = 0; d < 6; d++) { // 월~토
+            const dateStr = current.format('YYYY-MM-DD');
+            const isCurrentMonth = current.month() === month;
+            const isSaturday = current.day() === 6;
+            const isHoliday = holidays.has(dateStr);
+
+            // 이 날짜의 직원 목록 (grid_position 순서)
+            const daySchedules = state.schedule.schedules
+                .filter(s => s.date === dateStr)
+                .sort((a, b) => (a.grid_position || 0) - (b.grid_position || 0));
+
+            let names = [];
+            if (viewMode === 'working' || viewMode === 'all') {
+                daySchedules.filter(s => s.status === '근무' && s.employee_id > 0).forEach(s => {
+                    const emp = allEmployees.find(e => e.id === s.employee_id);
+                    if (emp) names.push({ name: emp.name, color: deptColorMap[emp.id] || '#999', status: 'working' });
+                });
+            }
+            if (viewMode === 'off' || viewMode === 'all') {
+                daySchedules.filter(s => (s.status === '휴무' || s.status === '연차') && s.employee_id > 0).forEach(s => {
+                    const emp = allEmployees.find(e => e.id === s.employee_id);
+                    if (emp) names.push({ name: emp.name, color: '#999', status: s.status === '연차' ? 'leave' : 'off' });
+                });
+            }
+
+            week.push({
+                date: current.date(),
+                dateStr,
+                dayName: ['일','월','화','수','목','금','토'][current.day()],
+                isCurrentMonth,
+                isSaturday,
+                isHoliday,
+                names
+            });
+            current = current.add(1, 'day');
+            if (current.day() === 0) current = current.add(1, 'day'); // 일요일 건너뜀
+        }
+        weeks.push(week);
+        if (current.month() !== month && current.day() === 1) break;
+        if (weeks.length >= 6) break;
+    }
+
+    // 이름을 4열 그리드로 배치하는 HTML
+    function renderNames(names) {
+        if (names.length === 0) return '';
+        return `<div class="p-names">${names.map(n => {
+            const cls = n.status === 'leave' ? ' p-leave' : n.status === 'off' ? ' p-off' : '';
+            return `<span class="p-name${cls}"><i style="background:${n.color}"></i>${n.name}</span>`;
+        }).join('')}</div>`;
+    }
+
+    // 테이블 HTML 생성
+    let tableHtml = '<table class="p-table"><thead><tr>';
+    ['월','화','수','목','금','토'].forEach((d, i) => {
+        const cls = i === 5 ? ' class="p-sat"' : '';
+        tableHtml += `<th${cls}>${d}</th>`;
+    });
+    tableHtml += '</tr></thead><tbody>';
+
+    weeks.forEach(week => {
+        tableHtml += '<tr>';
+        week.forEach(day => {
+            let cls = '';
+            if (!day.isCurrentMonth) cls += ' p-other';
+            if (day.isSaturday) cls += ' p-sat';
+            if (day.isHoliday) cls += ' p-holiday';
+
+            const dateLabel = day.isCurrentMonth ? `<div class="p-date">${day.date}</div>` : `<div class="p-date p-other-date">${day.date}</div>`;
+            tableHtml += `<td class="${cls.trim()}">${dateLabel}${renderNames(day.names)}</td>`;
+        });
+        tableHtml += '</tr>';
+    });
+    tableHtml += '</tbody></table>';
+
+    // 새 창에서 인쇄
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert('팝업이 차단되었습니다. 브라우저에서 팝업을 허용해주세요.');
         return;
     }
 
-    try {
-        // 버튼 비활성화
-        const printBtn = _('#print-schedule-btn');
-        printBtn.disabled = true;
-        printBtn.textContent = '캡쳐 중...';
-
-        // WHY: html2canvas는 CSS @media print를 무시하므로 직접 숨김/스타일 변경
-        // 1. 검수열 숨기기
-        const auditCells = calendarEl.querySelectorAll('.weekly-audit-cell');
-        auditCells.forEach(el => { el.style.display = 'none'; });
-
-        // 2. 달력 그리드를 6열(월~토, 검수 제외)로 변경 + 그리드 갭 최소화
-        const calendarGrid = calendarEl.querySelector('.calendar-grid');
-        const originalGridStyle = calendarGrid ? calendarGrid.style.gridTemplateColumns : '';
-        const originalGridGap = calendarGrid ? calendarGrid.style.gap : '';
-        if (calendarGrid) {
-            calendarGrid.style.gridTemplateColumns = 'repeat(6, 1fr)';
-            calendarGrid.style.gap = '1px';
-        }
-
-        // 3. 요일 헤더(calendar-header) 세로 공백 최소화
-        // WHY: 기본 0.75rem 패딩이 인쇄 영역에서 불필요하게 세로 공간을 차지
-        const calendarHeaders = calendarEl.querySelectorAll('.calendar-header');
-        calendarHeaders.forEach(el => {
-            el.style.padding = '2px 4px';     // 0.75rem → 2px (세로 공백 대폭 축소)
-            el.style.fontSize = '11px';        // 요일 글자 약간 축소
-        });
-
-        // 4. 날짜 셀 스타일 최적화
-        // WHY: 셀 내부 패딩/마진을 최소화하여 네임카드에 세로 공간을 더 할당
-        const calendarDays = calendarEl.querySelectorAll('.calendar-day');
-        calendarDays.forEach(el => {
-            el.style.minHeight = '230px';      // 최소 높이 유지
-            el.style.padding = '1px';          // 0.25rem → 1px (셀 내부 공백 최소화)
-        });
-
-        // 5. 날짜 번호(day-header) 세로 공백 최소화
-        // WHY: 날짜 숫자와 네임카드 그리드 사이 불필요한 마진 제거
-        const dayHeaders = calendarEl.querySelectorAll('.day-header');
-        dayHeaders.forEach(el => {
-            el.style.marginBottom = '0px';     // 0.25rem → 0 (날짜와 카드 사이 간격 제거)
-        });
-        const dayNumbers = calendarEl.querySelectorAll('.day-number');
-        dayNumbers.forEach(el => {
-            el.style.padding = '0px';          // 날짜 숫자 패딩 제거
-            el.style.fontSize = '11px';        // 날짜 숫자 약간 축소
-        });
-
-        // 6. 네임카드 영역 - 갭 1% + 패딩 최소화
-        // WHY: 갭 0px는 카드끼리 겹침 위험, 1%로 미세 간격 확보하여 글씨 잘림 방지
-        const dayEventsEls = calendarEl.querySelectorAll('.day-events');
-        dayEventsEls.forEach(el => {
-            el.style.gap = '1%';               // 0px → 1% (네임카드 간 미세 간격)
-            el.style.padding = '0px';          // 그리드 영역 외부 패딩 제거
-        });
-
-        // 7. 네임카드(event-card) 스타일 - 텍스트 확대 + border 제거
-        const eventCards = calendarEl.querySelectorAll('.event-card');
-        eventCards.forEach(el => {
-            el.style.border = 'none';
-            el.style.borderRadius = '0';
-            el.style.padding = '1px 3px';
-            el.style.fontSize = '14px';
-            el.style.gap = '1px';
-            el.style.lineHeight = '1.3';
-        });
-        const eventNames = calendarEl.querySelectorAll('.event-name');
-        eventNames.forEach(el => {
-            el.style.fontSize = '14px';
-            el.style.fontWeight = '600';
-            el.style.lineHeight = '1.3';
-            el.style.whiteSpace = 'nowrap';
-        });
-        // 부서 도트 약간 축소
-        const eventDots = calendarEl.querySelectorAll('.event-dot');
-        eventDots.forEach(el => {
-            el.style.width = '5px';
-            el.style.height = '5px';
-            el.style.minWidth = '5px';
-        });
-
-        // html2canvas로 달력 캡쳐
-        const canvas = await html2canvas(calendarEl, {
-            scale: 2, // 고해상도
-            useCORS: true,
-            backgroundColor: '#ffffff',
-            logging: false,
-        });
-
-        // ===== 스타일 복원 =====
-        auditCells.forEach(el => { el.style.display = ''; });
-        if (calendarGrid) {
-            calendarGrid.style.gridTemplateColumns = originalGridStyle;
-            calendarGrid.style.gap = originalGridGap;
-        }
-        calendarHeaders.forEach(el => {
-            el.style.padding = '';
-            el.style.fontSize = '';
-        });
-        calendarDays.forEach(el => {
-            el.style.minHeight = '';
-            el.style.padding = '';
-        });
-        dayHeaders.forEach(el => {
-            el.style.marginBottom = '';
-        });
-        dayNumbers.forEach(el => {
-            el.style.padding = '';
-            el.style.fontSize = '';
-        });
-        dayEventsEls.forEach(el => {
-            el.style.gap = '';
-            el.style.padding = '';
-        });
-        eventCards.forEach(el => {
-            el.style.border = '';
-            el.style.borderRadius = '';
-            el.style.padding = '';
-            el.style.fontSize = '';
-            el.style.gap = '';
-            el.style.lineHeight = '';
-        });
-        eventNames.forEach(el => {
-            el.style.fontSize = '';
-            el.style.fontWeight = '';
-            el.style.lineHeight = '';
-        });
-        eventDots.forEach(el => {
-            el.style.width = '';
-            el.style.height = '';
-            el.style.minWidth = '';
-        });
-
-        // 새 창에 이미지 표시 및 인쇄
-        const imgData = canvas.toDataURL('image/png');
-        const printWindow = window.open('', '_blank');
-
-        // WHY: 팝업 차단 시 window.open()이 null 반환
-        if (!printWindow) {
-            alert('팝업이 차단되었습니다. 브라우저에서 팝업을 허용해주세요.');
-            return;
-        }
-
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>${currentDate.format('YYYY년 M월')} 스케줄 - ${viewModeText}</title>
-                <style>
-                    @page {
-                        size: A4 landscape;
-                        margin: 5mm;
-                    }
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body {
-                        background: white;
-                        padding: 5mm;
-                    }
-                    .print-header {
-                        text-align: center;
-                        margin-bottom: 3mm;
-                    }
-                    .print-header h1 {
-                        font-size: 14pt;
-                        font-weight: bold;
-                    }
-                    .print-header p {
-                        font-size: 9pt;
-                        color: #666;
-                    }
-                    img {
-                        width: 100%;
-                        height: auto;
-                        display: block;
-                    }
-                    @media print {
-                        body { padding: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="print-header">
-                    <h1>${currentDate.format('YYYY년 M월')} 스케줄</h1>
-                    <p>${viewModeText}</p>
-                </div>
-                <img src="${imgData}" />
-                <script>
-                    window.onload = function() {
-                        window.print();
-                        setTimeout(() => window.close(), 100);
-                    };
-                </script>
-            </body>
-            </html>
-        `);
-
-        printWindow.document.close();
-
-    } catch (error) {
-        console.error('캡쳐 실패:', error);
-        alert('캡쳐에 실패했습니다: ' + error.message);
-    } finally {
-        // 버튼 복구
-        const printBtn = _('#print-schedule-btn');
-        printBtn.disabled = false;
-        printBtn.textContent = '🖨️ 인쇄하기';
-    }
+    printWindow.document.write(`<!DOCTYPE html>
+<html><head>
+<title>${currentDate.format('YYYY년 M월')} 스케줄</title>
+<style>
+@page { size: A4 landscape; margin: 8mm; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Pretendard','맑은 고딕',sans-serif; background:#fff; padding:8mm; }
+h1 { text-align:center; font-size:16pt; margin-bottom:2mm; font-weight:700; }
+.p-sub { text-align:center; font-size:9pt; color:#888; margin-bottom:4mm; }
+.p-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+.p-table th { background:#1a1a1a; color:#fff; font-size:9pt; padding:4px 2px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
+.p-table th.p-sat { background:#1e40af; }
+.p-table td { border:1px solid #ccc; vertical-align:top; padding:2px 3px; font-size:8pt; }
+.p-table tr { page-break-inside:avoid; }
+.p-date { font-weight:700; font-size:10pt; padding:1px 2px 2px; border-bottom:1px solid #e5e5e5; margin-bottom:2px; color:#1a1a1a; }
+.p-other-date { color:#bbb; }
+.p-other { background:#fafafa; }
+.p-sat .p-date { color:#1e40af; }
+.p-holiday { background:#fff5f5; }
+.p-holiday .p-date { color:#dc2626; }
+.p-names { display:grid; grid-template-columns:repeat(${COLS},1fr); gap:1px; }
+.p-name { font-size:8pt; padding:1px 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; display:flex; align-items:center; gap:2px; }
+.p-name i { display:inline-block; width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+.p-leave { color:#b45309; font-style:italic; }
+.p-off { color:#999; text-decoration:line-through; }
+@media print {
+    body { padding:0; }
+    h1 { font-size:14pt; }
+}
+</style>
+</head><body>
+<h1>${currentDate.format('YYYY년 M월')} 스케줄</h1>
+<div class="p-sub">${viewModeText} · 출력일 ${dayjs().format('YYYY.MM.DD')}</div>
+${tableHtml}
+<script>window.onload=function(){window.print();setTimeout(()=>window.close(),500)};<\/script>
+</body></html>`);
+    printWindow.document.close();
 }
 
 // =========================================================================================
