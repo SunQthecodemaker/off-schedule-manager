@@ -2364,11 +2364,13 @@ function initializeSortableAndDraggable() {
                 pull: true,
                 put: true
             },
-            draggable: '.layout-slot',
+            draggable: '.layout-filled, .layout-spacer',
             animation: 150,
             ghostClass: 'layout-ghost',
             sort: true,
             swap: true,
+            delay: 200, // ✅ 200ms 이상 누르면 드래그, 짧은 클릭은 선택으로
+            delayOnTouchOnly: false,
 
             onStart(evt) {
                 isDragging = true;
@@ -2388,6 +2390,9 @@ function initializeSortableAndDraggable() {
             }
         });
         state.schedule.sortableInstances.push(gridSortable);
+
+        // ✅ 마우스 드래그 범위선택 (달력과 동일)
+        layoutGrid.addEventListener('mousedown', handleLayoutDragSelectStart);
     }
 
     // ✅ 우측 직원 목록의 각 부서 행 — 그리드/달력으로 복사 드래그
@@ -2402,7 +2407,7 @@ function initializeSortableAndDraggable() {
             animation: 150,
             ghostClass: 'layout-ghost',
             sort: false,
-            filter: '.layout-dept-label', // 라벨은 드래그 불가
+            filter: '.layout-dept-label',
 
             onStart(evt) {
                 isDragging = true;
@@ -2628,21 +2633,15 @@ async function renderScheduleSidebar() {
         });
     }
 
-    // ═══ 그리드 키보드 단축키 (Ctrl+X/V, Delete) ═══
-    // 전역 키보드 핸들러에서 layout-grid 포커스 시 처리
-    if (!window._layoutKeyHandler) {
-        window._layoutKeyHandler = (e) => handleLayoutGridKeydown(e);
-        document.addEventListener('keydown', window._layoutKeyHandler);
-    }
-
     initializeSortableAndDraggable();
 }
 
-// ═══ 배치 그리드 선택 상태 ═══
+// ═══ 배치 그리드 선택/클립보드 상태 ═══
 let layoutSelectedSlots = new Set(); // Set<position index>
 let layoutLastClickedPos = null;
-let layoutClipboard = []; // [{employeeId, departments, name}, ...]
-let layoutCutMode = false; // 잘라내기 모드 여부
+let layoutClipboard = []; // [{employeeId, name, deptId, offset}]
+let layoutDragState = null; // 마우스 드래그 선택 상태
+let layoutDragSelectJustFinished = false;
 
 function clearLayoutSelection() {
     layoutSelectedSlots.clear();
@@ -2652,17 +2651,28 @@ function clearLayoutSelection() {
 }
 
 function handleLayoutGridClick(e) {
+    // 드래그 선택 직후 클릭 무시
+    if (layoutDragSelectJustFinished) { layoutDragSelectJustFinished = false; return; }
+    if (isDragging) return;
+
     const slot = e.target.closest('.layout-slot');
     if (!slot || !slot.closest('#layout-grid')) return;
     const pos = parseInt(slot.dataset.position, 10);
 
     // Shift+클릭: 범위 선택
     if (e.shiftKey && layoutLastClickedPos != null) {
-        const minPos = Math.min(layoutLastClickedPos, pos);
-        const maxPos = Math.max(layoutLastClickedPos, pos);
+        const COLS = 4;
+        const startRow = Math.floor(layoutLastClickedPos / COLS);
+        const startCol = layoutLastClickedPos % COLS;
+        const endRow = Math.floor(pos / COLS);
+        const endCol = pos % COLS;
+        const minRow = Math.min(startRow, endRow), maxRow = Math.max(startRow, endRow);
+        const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
+
         document.querySelectorAll('#layout-grid .layout-slot').forEach(el => {
             const p = parseInt(el.dataset.position, 10);
-            if (p >= minPos && p <= maxPos) {
+            const r = Math.floor(p / COLS), c = p % COLS;
+            if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
                 layoutSelectedSlots.add(p);
                 el.classList.add('layout-selected');
             }
@@ -2695,14 +2705,91 @@ function handleLayoutGridClick(e) {
     layoutLastClickedPos = pos;
 }
 
-function handleLayoutGridKeydown(e) {
-    // 배치 그리드에 선택이 없으면 무시
-    if (layoutSelectedSlots.size === 0) return;
-    // 다른 입력 필드에 포커스가 있으면 무시
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+// ═══ 배치 그리드 마우스 드래그 범위선택 ═══
+function handleLayoutDragSelectStart(e) {
+    if (e.button !== 0) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (isDragging) return;
+
+    const slot = e.target.closest('.layout-slot');
+    if (!slot) return;
+
+    layoutDragState = {
+        startPos: parseInt(slot.dataset.position, 10),
+        active: false,
+        startX: e.clientX,
+        startY: e.clientY
+    };
+
+    document.addEventListener('mousemove', handleLayoutDragSelectMove);
+    document.addEventListener('mouseup', handleLayoutDragSelectEnd);
+}
+
+function handleLayoutDragSelectMove(e) {
+    if (!layoutDragState) return;
+    if (isDragging) { layoutDragState = null; return; }
+
+    const dx = e.clientX - layoutDragState.startX;
+    const dy = e.clientY - layoutDragState.startY;
+    if (!layoutDragState.active && (Math.abs(dx) < 5 && Math.abs(dy) < 5)) return;
+
+    if (!layoutDragState.active) {
+        layoutDragState.active = true;
+        e.preventDefault();
+        document.body.style.userSelect = 'none';
+    }
+
+    // 마우스 아래의 슬롯 찾기
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
+    const slot = el.closest('.layout-slot');
+    if (!slot || !slot.closest('#layout-grid')) return;
+    const endPos = parseInt(slot.dataset.position, 10);
+
+    // row/col 기반 사각형 선택
+    const COLS = 4;
+    const startRow = Math.floor(layoutDragState.startPos / COLS);
+    const startCol = layoutDragState.startPos % COLS;
+    const endRow = Math.floor(endPos / COLS);
+    const endCol = endPos % COLS;
+    const minRow = Math.min(startRow, endRow), maxRow = Math.max(startRow, endRow);
+    const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
+
+    clearLayoutSelection();
+    document.querySelectorAll('#layout-grid .layout-slot').forEach(sl => {
+        const p = parseInt(sl.dataset.position, 10);
+        const r = Math.floor(p / COLS), c = p % COLS;
+        if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
+            layoutSelectedSlots.add(p);
+            sl.classList.add('layout-selected');
+        }
+    });
+}
+
+function handleLayoutDragSelectEnd(e) {
+    document.removeEventListener('mousemove', handleLayoutDragSelectMove);
+    document.removeEventListener('mouseup', handleLayoutDragSelectEnd);
+
+    if (!layoutDragState) return;
+    const wasActive = layoutDragState.active;
+    layoutDragState = null;
+    document.body.style.userSelect = '';
+
+    if (wasActive) {
+        layoutDragSelectJustFinished = true;
+        setTimeout(() => { layoutDragSelectJustFinished = false; }, 50);
+        layoutLastClickedPos = layoutSelectedSlots.size > 0 ? Math.min(...layoutSelectedSlots) : null;
+        console.log('🔲 Layout drag select done:', layoutSelectedSlots.size);
+    }
+}
+
+// ═══ 배치 그리드 키보드 처리 (handleGlobalKeydown에서 호출) ═══
+function handleLayoutKeyAction(e) {
+    // 배치 그리드에 선택이 없으면 처리 안 함
+    if (layoutSelectedSlots.size === 0) return false;
 
     const grid = _('#layout-grid');
-    if (!grid) return;
+    if (!grid) return false;
 
     // Ctrl+X: 잘라내기
     if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
@@ -2727,17 +2814,14 @@ function handleLayoutGridKeydown(e) {
                     offset: pos - basePos
                 });
             }
-            // 잘라내기: 원래 위치를 비움
+            // 원래 위치를 비움
             slot.className = 'layout-slot layout-empty';
             slot.dataset.employeeId = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-            slot.classList.remove('layout-selected');
         });
-
-        layoutCutMode = true;
-        layoutSelectedSlots.clear();
-        console.log(`✂️ 배치 그리드 잘라내기: ${layoutClipboard.length}개`);
-        return;
+        clearLayoutSelection();
+        console.log(`✂️ 배치 잘라내기: ${layoutClipboard.length}개`);
+        return true;
     }
 
     // Ctrl+C: 복사
@@ -2764,17 +2848,19 @@ function handleLayoutGridKeydown(e) {
                 });
             }
         });
-
-        layoutCutMode = false;
-        console.log(`📋 배치 그리드 복사: ${layoutClipboard.length}개`);
-        return;
+        // 시각적 피드백
+        document.querySelectorAll('#layout-grid .layout-selected').forEach(el => {
+            el.style.opacity = '0.5';
+            setTimeout(() => el.style.opacity = '', 200);
+        });
+        console.log(`📋 배치 복사: ${layoutClipboard.length}개`);
+        return true;
     }
 
     // Ctrl+V: 붙여넣기
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        if (layoutClipboard.length === 0) return;
+        if (layoutClipboard.length === 0) return false;
         e.preventDefault();
-
         const slots = grid.querySelectorAll('.layout-slot');
         const targetPos = layoutLastClickedPos ?? Math.min(...layoutSelectedSlots);
 
@@ -2795,15 +2881,13 @@ function handleLayoutGridKeydown(e) {
                 destSlot.innerHTML = `<span class="layout-dot" style="background-color:${deptColor};"></span><span class="layout-name">${item.name}</span>`;
             }
         });
-
         clearLayoutSelection();
-        console.log(`📌 배치 그리드 붙여넣기: ${layoutClipboard.length}개 → position ${targetPos}`);
-        return;
+        console.log(`📌 배치 붙여넣기: ${layoutClipboard.length}개 → pos ${targetPos}`);
+        return true;
     }
 
-    // Delete: 선택 슬롯 비우기
+    // Delete: 선택 비우기
     if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (e.target.tagName === 'BUTTON') return;
         e.preventDefault();
         const slots = grid.querySelectorAll('.layout-slot');
         layoutSelectedSlots.forEach(pos => {
@@ -2812,12 +2896,13 @@ function handleLayoutGridKeydown(e) {
             slot.className = 'layout-slot layout-empty';
             slot.dataset.employeeId = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-            slot.classList.remove('layout-selected');
         });
-        layoutSelectedSlots.clear();
-        console.log('🗑️ 배치 그리드 삭제');
-        return;
+        clearLayoutSelection();
+        console.log('🗑️ 배치 삭제');
+        return true;
     }
+
+    return false;
 }
 
 // ✨ 임시 직원 삭제 핸들러
@@ -3612,6 +3697,9 @@ function handleDragSelectEnd(e) {
 function handleGlobalKeydown(e) {
     // 입력 필드 등에서는 무시
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // ✅ 배치 그리드에 선택이 있으면 배치 그리드 키보드 처리 우선
+    if (layoutSelectedSlots.size > 0 && handleLayoutKeyAction(e)) return;
 
     // Undo (Ctrl+Z)
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
