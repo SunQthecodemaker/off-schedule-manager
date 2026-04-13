@@ -4363,24 +4363,37 @@ function handlePrintSchedule() {
             const isSaturday = current.day() === 6;
             const isHoliday = holidays.has(dateStr);
 
-            // 이 날짜의 직원 목록 (grid_position 순서)
-            const daySchedules = state.schedule.schedules
-                .filter(s => s.date === dateStr)
-                .sort((a, b) => (a.grid_position || 0) - (b.grid_position || 0));
+            // 이 날짜의 직원을 grid_position 기반 32칸 그리드에 배치 (팀 구분 유지)
+            const daySchedules = state.schedule.schedules.filter(s => s.date === dateStr);
+            const gridSlots = new Array(GRID_SIZE).fill(null);
 
-            let names = [];
-            if (viewMode === 'working' || viewMode === 'all') {
-                daySchedules.filter(s => s.status === '근무' && s.employee_id > 0).forEach(s => {
-                    const emp = allEmployees.find(e => e.id === s.employee_id);
-                    if (emp) names.push({ name: emp.name, color: deptColorMap[emp.id] || '#999', status: 'working' });
-                });
+            daySchedules.forEach(s => {
+                if (s.employee_id <= 0) {
+                    // spacer (빈칸 구분선)
+                    if (s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
+                        gridSlots[s.grid_position] = { name: '', color: 'transparent', status: 'spacer' };
+                    }
+                    return;
+                }
+                const emp = allEmployees.find(e => e.id === s.employee_id);
+                if (!emp) return;
+
+                const pos = (s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
+                if (pos == null) return;
+
+                if (viewMode === 'working' && s.status !== '근무') return;
+                if (viewMode === 'off' && s.status !== '휴무' && s.status !== '연차') return;
+
+                const status = s.status === '연차' ? 'leave' : s.status === '휴무' ? 'off' : 'working';
+                gridSlots[pos] = { name: emp.name, color: deptColorMap[emp.id] || '#999', status };
+            });
+
+            // 끝에서부터 빈 슬롯 제거 (인쇄 공간 절약)
+            let lastFilled = -1;
+            for (let i = GRID_SIZE - 1; i >= 0; i--) {
+                if (gridSlots[i] && gridSlots[i].status !== 'spacer') { lastFilled = i; break; }
             }
-            if (viewMode === 'off' || viewMode === 'all') {
-                daySchedules.filter(s => (s.status === '휴무' || s.status === '연차') && s.employee_id > 0).forEach(s => {
-                    const emp = allEmployees.find(e => e.id === s.employee_id);
-                    if (emp) names.push({ name: emp.name, color: '#999', status: s.status === '연차' ? 'leave' : 'off' });
-                });
-            }
+            const names = gridSlots.slice(0, lastFilled + 1);
 
             week.push({
                 date: current.date(),
@@ -4399,10 +4412,11 @@ function handlePrintSchedule() {
         if (weeks.length >= 6) break;
     }
 
-    // 이름을 4열 그리드로 배치하는 HTML
-    function renderNames(names) {
-        if (names.length === 0) return '';
-        return `<div class="p-names">${names.map(n => {
+    // 이름을 4열 그리드로 배치 (grid_position 기반, 빈 칸 유지)
+    function renderNames(slots) {
+        if (slots.length === 0) return '';
+        return `<div class="p-names">${slots.map(n => {
+            if (!n || n.status === 'spacer') return `<span class="p-name p-empty"></span>`;
             const cls = n.status === 'leave' ? ' p-leave' : n.status === 'off' ? ' p-off' : '';
             return `<span class="p-name${cls}"><i style="background:${n.color}"></i>${n.name}</span>`;
         }).join('')}</div>`;
