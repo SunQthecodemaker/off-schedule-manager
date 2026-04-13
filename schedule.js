@@ -2483,10 +2483,13 @@ async function renderScheduleSidebar() {
     const allEmployees = state.management.employees || [];
     const isTemp = (e) => e.is_temp || (e.email && e.email.startsWith('temp-'));
 
+    const isTest = (e) => isTemp(e) && /^테스트/.test(e.name);
     // 정규 활성 직원 (retired 제외, temp 제외)
     const activeRegular = allEmployees.filter(e => !isTemp(e) && !e.retired);
-    // 임시 직원
-    const tempEmployees = allEmployees.filter(e => isTemp(e));
+    // 임시 직원 (알바용, 테스트 제외)
+    const tempEmployees = allEmployees.filter(e => isTemp(e) && !isTest(e));
+    // 테스트 직원
+    const testEmployees = allEmployees.filter(e => isTest(e));
     // 휴직/퇴사 직원
     const retiredEmployees = allEmployees.filter(e => e.retired && !isTemp(e));
 
@@ -2544,7 +2547,7 @@ async function renderScheduleSidebar() {
         });
     }
 
-    console.log('📋 그리드 배치 편집기: 배치됨', gridSlots.filter(s => s).length, '/ 미배치', unplacedEmployees.length, '/ 임시', tempEmployees.length, '/ 휴직', retiredEmployees.length);
+    console.log('📋 그리드 배치 편집기: 배치됨', gridSlots.filter(s => s).length, '/ 미배치', unplacedEmployees.length, '/ 임시', tempEmployees.length, '/ 테스트', testEmployees.length, '/ 휴직', retiredEmployees.length);
 
     // ═══ 그리드 슬롯 HTML 생성 ═══
     const gridSlotsHtml = gridSlots.map((slot, pos) => {
@@ -2603,7 +2606,7 @@ async function renderScheduleSidebar() {
         </div>`;
     }).join('');
 
-    // 임시 직원
+    // 임시 직원 (알바)
     const tempCards = tempEmployees.map(emp => {
         return `<div class="layout-slot layout-filled layout-temp layout-pool-card" data-employee-id="${emp.id}">
             <span class="layout-dot" style="background-color:#a855f7;"></span>
@@ -2618,6 +2621,15 @@ async function renderScheduleSidebar() {
         return `<div class="layout-slot layout-filled layout-retired layout-pool-card" data-employee-id="${emp.id}">
             <span class="layout-dot" style="background-color:${c};"></span>
             <span class="layout-name">${emp.name}</span>
+        </div>`;
+    }).join('');
+
+    // 테스트 직원
+    const testCards = testEmployees.map(emp => {
+        return `<div class="layout-slot layout-filled layout-temp layout-pool-card" data-employee-id="${emp.id}" style="opacity:0.5;">
+            <span class="layout-dot" style="background-color:#9ca3af;"></span>
+            <span class="layout-name">${emp.name}</span>
+            <button class="delete-temp-btn" data-id="${emp.id}" title="삭제">×</button>
         </div>`;
     }).join('');
 
@@ -2644,6 +2656,9 @@ async function renderScheduleSidebar() {
                     </div>` : ''}
                     ${retiredEmployees.length > 0 ? `<div class="layout-dept-row">
                         <span class="layout-dept-label" style="color:#9ca3af;">휴직</span>${retiredCards}
+                    </div>` : ''}
+                    ${testEmployees.length > 0 ? `<div class="layout-dept-row">
+                        <span class="layout-dept-label" style="color:#9ca3af;">테스트</span>${testCards}
                     </div>` : ''}
                 </div>
             </div>
@@ -2991,21 +3006,16 @@ async function handleAddTempStaff() {
     const name = prompt("임시 직원의 이름을 입력하세요 (예: 알바1, 임시 김의사):");
     if (!name) return;
 
-    // ✨ 진료실(Medical Team) 부서 찾기
-    const medicalDept = state.management.departments.find(d => d.name === '진료실');
-    const medicalDeptId = medicalDept ? medicalDept.id : null;
-
     try {
-        // 임시 직원 insert
-        // 이메일이나 비밀번호는 더미 데이터로 채움
+        // 임시 직원 insert (부서 미지정 — 임시/알바용)
         const dummyId = Date.now();
         const { error } = await db.from('employees').insert({
             name: name,
-            entryDate: dayjs().format('YYYY-MM-DD'),
+            entry_date: dayjs().format('YYYY-MM-DD'),
             email: `temp-${dummyId}@simulation.local`,
             password: 'temp-password',
-            department_id: medicalDeptId, // ✅ 진료실 자동 할당
-            is_temp: true, // ✨ 임시 직원 플래그
+            department_id: null,
+            is_temp: true,
             regular_holiday_rules: []
         });
 
