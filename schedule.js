@@ -2427,25 +2427,62 @@ async function loadAndRenderScheduleData(date) {
     }
 }
 
+// ═══ 배치 그리드 헬퍼 함수 ═══
+
+// 빈 슬롯 HTML 생성
+function createEmptySlotElement(pos) {
+    const el = document.createElement('div');
+    el.className = 'layout-slot layout-empty';
+    el.dataset.position = pos;
+    el.dataset.employeeId = 'empty';
+    el.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+    return el;
+}
+
+// 그리드 전체 position 동기화 (DOM 순서 = position)
+function syncGridPositions() {
+    document.querySelectorAll('#layout-grid .layout-slot').forEach((slot, idx) => {
+        slot.dataset.position = idx;
+        const numEl = slot.querySelector('.slot-number');
+        if (numEl) numEl.textContent = idx + 1;
+    });
+}
+
+// 그리드가 정확히 GRID_SIZE 칸인지 보정
+function enforceGridSize() {
+    const grid = document.getElementById('layout-grid');
+    if (!grid) return;
+    const slots = grid.querySelectorAll('.layout-slot');
+    // 초과분 제거
+    while (grid.children.length > GRID_SIZE) {
+        grid.removeChild(grid.lastChild);
+    }
+    // 부족분 채우기
+    while (grid.children.length < GRID_SIZE) {
+        grid.appendChild(createEmptySlotElement(grid.children.length));
+    }
+    syncGridPositions();
+}
+
 function initializeSortableAndDraggable() {
     state.schedule.sortableInstances.forEach(s => s.destroy());
     state.schedule.sortableInstances = [];
 
-    // ✅ 4×8 그리드 배치 편집기에 Sortable 적용
+    // ═══ 4×8 그리드: 고정 32칸, 드래그=교환(swap)만, 밀림 없음 ═══
     const layoutGrid = document.querySelector('#layout-grid');
     if (layoutGrid) {
         const gridSortable = new Sortable(layoutGrid, {
             group: {
                 name: 'layout-editor',
-                pull: true,
-                put: true
+                pull: false,  // 그리드에서 밖으로 드래그 불가 (제거는 ×/Delete로만)
+                put: true     // 외부(직원 목록)에서 드래그 가능
             },
-            draggable: '.layout-filled, .layout-spacer',
+            draggable: '.layout-slot',  // 빈 슬롯 포함 전체 드래그 가능
             animation: 150,
             ghostClass: 'layout-ghost',
-            sort: true,
-            swap: true,
-            delay: 200, // ✅ 200ms 이상 누르면 드래그, 짧은 클릭은 선택으로
+            sort: true,       // 그리드 내 순서 변경 허용 (교환)
+            swap: false,      // swap 플러그인 끔 (sort로 통일)
+            delay: 200,
             delayOnTouchOnly: false,
 
             onStart(evt) {
@@ -2454,32 +2491,48 @@ function initializeSortableAndDraggable() {
                 document.body.style.userSelect = 'none';
             },
 
-            onRemove(evt) {
-                // 그리드에서 밖으로 드래그된 경우 → 빈 슬롯으로 교체
-                const pos = evt.oldIndex;
-                const emptySlot = document.createElement('div');
-                emptySlot.className = 'layout-slot layout-empty';
-                emptySlot.dataset.position = pos;
-                emptySlot.dataset.employeeId = 'empty';
-                emptySlot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-                // 드래그로 제거된 자리에 빈 슬롯 삽입
+            onAdd(evt) {
+                // 외부(직원 목록)에서 clone이 들어온 경우
+                // Sortable이 삽입한 clone을 제거하고, 드롭 위치의 빈 슬롯을 교체
+                const clonedEl = evt.item;
+                const empId = clonedEl.dataset.employeeId;
+                const emp = (state.management.employees || []).find(e => e.id === parseInt(empId));
+
+                // 삽입된 clone 제거 (Sortable이 DOM에 넣은 것)
+                clonedEl.remove();
+
+                // 드롭 위치 계산: 삽입된 인덱스 기반으로 교체할 슬롯 결정
+                let targetPos = evt.newIndex;
+                if (targetPos >= GRID_SIZE) targetPos = GRID_SIZE - 1;
+
                 const grid = document.getElementById('layout-grid');
-                if (grid.children[pos]) {
-                    grid.insertBefore(emptySlot, grid.children[pos]);
-                } else {
-                    grid.appendChild(emptySlot);
+                const targetSlot = grid.children[targetPos];
+
+                if (targetSlot && emp) {
+                    const deptColor = getDepartmentColor(emp.departments?.id);
+                    const isTemp = emp.is_temp || (emp.email && emp.email.startsWith('temp-'));
+                    const tempClass = isTemp ? ' layout-temp' : '';
+                    const deleteBtn = isTemp ? `<button class="delete-temp-btn" data-id="${emp.id}" title="삭제">×</button>` : '';
+
+                    targetSlot.className = `layout-slot layout-filled${tempClass}`;
+                    targetSlot.dataset.employeeId = emp.id;
+                    targetSlot.innerHTML = `
+                        <span class="layout-dot" style="background-color:${deptColor};"></span>
+                        <span class="layout-name">${emp.name}</span>
+                        ${deleteBtn}
+                    `;
                 }
+
+                // 그리드 크기 보정 + position 동기화
+                enforceGridSize();
+                console.log(`📥 직원 "${emp?.name}" → 배치 그리드 위치 ${targetPos + 1}`);
             },
 
             onEnd(evt) {
                 setTimeout(() => { isDragging = false; }, 100);
                 document.body.style.userSelect = '';
-                // 드래그 후 position 데이터 업데이트
-                document.querySelectorAll('#layout-grid .layout-slot').forEach((slot, idx) => {
-                    slot.dataset.position = idx;
-                    const numEl = slot.querySelector('.slot-number');
-                    if (numEl) numEl.textContent = idx + 1;
-                });
+                // 드래그로 순서 변경 후 position 동기화
+                enforceGridSize();
             }
         });
         state.schedule.sortableInstances.push(gridSortable);
@@ -2488,7 +2541,7 @@ function initializeSortableAndDraggable() {
         layoutGrid.addEventListener('mousedown', handleLayoutDragSelectStart);
     }
 
-    // ✅ 우측 직원 목록의 각 부서 행 — 그리드/달력으로 복사 드래그
+    // ═══ 우측 직원 목록: clone으로 그리드에 복사 ═══
     document.querySelectorAll('.layout-dept-row').forEach(row => {
         const rowSortable = new Sortable(row, {
             group: {
@@ -2530,8 +2583,11 @@ async function handleSidebarDeleteClick(e) {
     if (inGrid) {
         const slot = e.target.closest('.layout-slot');
         if (slot) {
-            const pos = parseInt(slot.dataset.position);
+            // DOM 인덱스 기반으로 position 결정 (NaN 방지)
+            const grid = document.getElementById('layout-grid');
+            const pos = Array.from(grid.children).indexOf(slot);
             slot.className = 'layout-slot layout-empty';
+            slot.dataset.position = pos;
             slot.dataset.employeeId = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
         }
@@ -2943,6 +2999,7 @@ function handleLayoutKeyAction(e) {
             }
             // 원래 위치를 비움
             slot.className = 'layout-slot layout-empty';
+            slot.dataset.position = pos;
             slot.dataset.employeeId = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
         });
@@ -2997,6 +3054,7 @@ function handleLayoutKeyAction(e) {
             const destSlot = slots[destPos];
             if (!destSlot) return;
 
+            destSlot.dataset.position = destPos;
             if (!item.employeeId) {
                 destSlot.className = 'layout-slot layout-empty';
                 destSlot.dataset.employeeId = 'empty';
@@ -3021,6 +3079,7 @@ function handleLayoutKeyAction(e) {
             const slot = slots[pos];
             if (!slot) return;
             slot.className = 'layout-slot layout-empty';
+            slot.dataset.position = pos;
             slot.dataset.employeeId = 'empty';
             slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
         });
