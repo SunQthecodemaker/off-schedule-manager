@@ -72,6 +72,7 @@ function isSubstitutable(rules, dayOfWeek) {
  * @returns {number} 배치된 개수
  */
 function placeCards(items, dateStr, startPos = null) {
+    console.log(`📋 placeCards: ${items.length}개 아이템, date=${dateStr}, startPos=${startPos}`, items.map(i => i.employee_id));
     let placed = 0;
     let nextPos = startPos;
 
@@ -137,8 +138,10 @@ function placeCards(items, dateStr, startPos = null) {
 
         nextPos = assignPos + 1;
         placed++;
+        console.log(`  📌 [${idx}] empId=${empId} → pos=${assignPos} (${target ? 'update' : 'create'})`);
     });
 
+    console.log(`📋 placeCards 결과: ${placed}/${items.length}개 배치 완료`);
     return placed;
 }
 
@@ -3326,7 +3329,8 @@ function handleDragSelectMove(e) {
         if (sid) state.schedule.selectedSchedules.delete(sid);
     });
 
-    // 범위 계산 (날짜 간 + 위치 간)
+    // 범위 계산 (날짜 간 + row/col 기반 사각형 선택)
+    const COLS = 4; // 4열 그리드
     const allDayEls = document.querySelectorAll('.calendar-day');
     const dates = Array.from(allDayEls).map(d => d.dataset.date).filter(Boolean).sort();
     const startIdx = dates.indexOf(dragSelectState.startDate);
@@ -3335,8 +3339,16 @@ function handleDragSelectMove(e) {
 
     const minDateIdx = Math.min(startIdx, endIdx);
     const maxDateIdx = Math.max(startIdx, endIdx);
-    const minPos = Math.min(dragSelectState.startPos, info.position);
-    const maxPos = Math.max(dragSelectState.startPos, info.position);
+
+    // position → row/col 변환으로 사각형 선택
+    const startRow = Math.floor(dragSelectState.startPos / COLS);
+    const startCol = dragSelectState.startPos % COLS;
+    const endRow = Math.floor(info.position / COLS);
+    const endCol = info.position % COLS;
+    const minRow = Math.min(startRow, endRow);
+    const maxRow = Math.max(startRow, endRow);
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
 
     clearSelection();
 
@@ -3345,7 +3357,9 @@ function handleDragSelectMove(e) {
         if (!dayEl) continue;
         dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
             const pos = parseInt(el.dataset.position, 10);
-            if (pos >= minPos && pos <= maxPos) {
+            const row = Math.floor(pos / COLS);
+            const col = pos % COLS;
+            if (row >= minRow && row <= maxRow && col >= minCol && col <= maxCol) {
                 el.classList.add('selected', 'drag-select-highlight');
                 const sid = el.dataset.scheduleId;
                 if (sid) state.schedule.selectedSchedules.add(sid);
@@ -3397,7 +3411,7 @@ function handleGlobalKeydown(e) {
                     });
                 }
             });
-            console.log('Copied to clipboard:', scheduleClipboard);
+            console.log(`📋 Copy: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => c.employee_id));
 
             // 시각적 피드백 (선택된 카드 반짝임)
             document.querySelectorAll('.event-card.selected').forEach(el => {
@@ -3429,10 +3443,10 @@ function handleGlobalKeydown(e) {
                 }
             });
 
+            console.log(`✂️ Cut: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => c.employee_id));
             clearSelection();
             renderCalendar();
             updateSaveButtonState();
-            console.log('Cut to clipboard:', scheduleClipboard);
         }
         return;
     }
@@ -3498,6 +3512,8 @@ function handleGlobalKeydown(e) {
                 targetDate = hoveredDay.dataset.date;
             }
         }
+
+        console.log(`📋 Paste: clipboard=${scheduleClipboard.length}, target=${targetDate}@${targetPosition}`, scheduleClipboard.map(c => c.employee_id));
 
         if (targetDate && scheduleClipboard.length > 0) {
             pushUndoState('Paste Schedules');
