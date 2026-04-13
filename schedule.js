@@ -2428,6 +2428,23 @@ function initializeSortableAndDraggable() {
                 document.body.style.userSelect = 'none';
             },
 
+            onRemove(evt) {
+                // 그리드에서 밖으로 드래그된 경우 → 빈 슬롯으로 교체
+                const pos = evt.oldIndex;
+                const emptySlot = document.createElement('div');
+                emptySlot.className = 'layout-slot layout-empty';
+                emptySlot.dataset.position = pos;
+                emptySlot.dataset.employeeId = 'empty';
+                emptySlot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+                // 드래그로 제거된 자리에 빈 슬롯 삽입
+                const grid = document.getElementById('layout-grid');
+                if (grid.children[pos]) {
+                    grid.insertBefore(emptySlot, grid.children[pos]);
+                } else {
+                    grid.appendChild(emptySlot);
+                }
+            },
+
             onEnd(evt) {
                 setTimeout(() => { isDragging = false; }, 100);
                 document.body.style.userSelect = '';
@@ -2670,10 +2687,24 @@ async function renderScheduleSidebar() {
 
     // 이벤트 위임: 삭제 버튼
     sidebar.addEventListener('click', async (e) => {
-        if (e.target.classList.contains('delete-temp-btn')) {
-            const id = e.target.dataset.id;
-            await handleDeleteTempStaff(id);
+        if (!e.target.classList.contains('delete-temp-btn')) return;
+        const id = e.target.dataset.id;
+
+        // 그리드 안의 × → 배치에서 제거만 (빈 슬롯으로 교체)
+        const inGrid = e.target.closest('#layout-grid');
+        if (inGrid) {
+            const slot = e.target.closest('.layout-slot');
+            if (slot) {
+                const pos = parseInt(slot.dataset.position);
+                slot.className = 'layout-slot layout-empty';
+                slot.dataset.employeeId = 'empty';
+                slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+            }
+            return;
         }
+
+        // 직원 목록의 × → DB에서 삭제
+        await handleDeleteTempStaff(id);
     });
 
     // ═══ 그리드 클릭 선택 (달력과 동일한 조작) ═══
