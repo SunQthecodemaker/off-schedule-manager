@@ -2564,39 +2564,37 @@ async function renderScheduleSidebar() {
 
     const currentMonth = dayjs(state.schedule.currentDate).format('YYYY년 M월');
 
+    // ═══ 미배치 + 임시 + 휴직 통합 (비활성 풀) ═══
+    const hasInactive = unplacedEmployees.length > 0 || tempEmployees.length > 0 || retiredEmployees.length > 0;
+    let inactivePoolHtml = '';
+    if (unplacedEmployees.length > 0) {
+        inactivePoolHtml += `<div class="layout-pool-group"><span class="layout-pool-label">미배치</span><div class="layout-pool" id="layout-unplaced-pool">${unplacedHtml}</div></div>`;
+    }
+    if (tempEmployees.length > 0) {
+        inactivePoolHtml += `<div class="layout-pool-group"><span class="layout-pool-label" style="color:#7c3aed;">임시</span><div class="layout-pool temp-staff-list" id="layout-temp-pool">${tempHtml}</div></div>`;
+    }
+    if (retiredEmployees.length > 0) {
+        inactivePoolHtml += `<div class="layout-pool-group"><span class="layout-pool-label" style="color:#9ca3af;">휴직</span><div class="layout-pool" id="layout-retired-pool">${retiredHtml}</div></div>`;
+    }
+
     sidebar.innerHTML = `
         <div class="layout-editor">
-            <div class="layout-editor-header">
-                <h3 class="layout-editor-title">${currentMonth} 배치</h3>
-                <div class="layout-editor-actions">
-                    <button id="save-employee-order-btn" class="layout-btn layout-btn-primary" title="현재 그리드 배치를 저장">배치 저장</button>
-                    <button id="apply-layout-btn" class="layout-btn layout-btn-success" title="이 배치를 모든 날짜에 적용">전체 적용</button>
-                    <button id="add-temp-staff-btn" class="layout-btn layout-btn-purple" title="임시 직원 추가">+임시</button>
+            <div class="layout-col layout-col-title">
+                <h3 class="layout-editor-title">${currentMonth}<br>배치</h3>
+            </div>
+            <div class="layout-col layout-col-grid">
+                <div class="layout-grid" id="layout-grid">
+                    ${gridSlotsHtml}
                 </div>
             </div>
-            <div class="layout-grid" id="layout-grid">
-                ${gridSlotsHtml}
+            <div class="layout-col layout-col-actions">
+                <button id="save-employee-order-btn" class="layout-btn layout-btn-primary" title="현재 그리드 배치를 저장">배치 저장</button>
+                <button id="apply-layout-btn" class="layout-btn layout-btn-success" title="이 배치를 모든 날짜에 적용">전체 적용</button>
+                <button id="add-temp-staff-btn" class="layout-btn layout-btn-purple" title="임시 직원 추가">+임시</button>
             </div>
-            ${unplacedEmployees.length > 0 ? `
-            <div class="layout-section">
-                <span class="layout-section-label">미배치 (${unplacedEmployees.length})</span>
-                <div class="layout-pool" id="layout-unplaced-pool">
-                    ${unplacedHtml}
-                </div>
-            </div>` : ''}
-            ${tempEmployees.length > 0 ? `
-            <div class="layout-section">
-                <span class="layout-section-label" style="color:#7c3aed;">임시 (${tempEmployees.length})</span>
-                <div class="layout-pool temp-staff-list" id="layout-temp-pool">
-                    ${tempHtml}
-                </div>
-            </div>` : ''}
-            ${retiredEmployees.length > 0 ? `
-            <div class="layout-section">
-                <span class="layout-section-label" style="color:#9ca3af;">휴직/퇴사 (${retiredEmployees.length})</span>
-                <div class="layout-pool" id="layout-retired-pool">
-                    ${retiredHtml}
-                </div>
+            ${hasInactive ? `
+            <div class="layout-col layout-col-inactive">
+                ${inactivePoolHtml}
             </div>` : ''}
         </div>`;
 
