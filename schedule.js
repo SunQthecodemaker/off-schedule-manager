@@ -1853,7 +1853,7 @@ function renderCalendar() {
                 </div>`;
             } else if (schedule.employee_id < 0) {
                 const spacerName = `빈칸${-schedule.employee_id}`;
-                const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                const isSelected = state.schedule.selectedSchedules.has(String(schedule.id)) ? 'selected' : '';
                 return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
                     <span class="event-dot" style="background-color: #f3f4f6;"></span>
                     <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
@@ -1867,7 +1867,7 @@ function renderCalendar() {
                 }
 
                 const deptColor = getDepartmentColor(emp.departments?.id);
-                const isSelected = state.schedule.selectedSchedules.has(schedule.id) ? 'selected' : '';
+                const isSelected = state.schedule.selectedSchedules.has(String(schedule.id)) ? 'selected' : '';
                 const empStatus = schedule._empStatus || getEmployeeStatusOnDate(emp.id, dateStr);
 
                 let cardTypeClass, typeAttr;
