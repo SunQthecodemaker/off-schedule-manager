@@ -75,21 +75,13 @@ function placeCards(items, dateStr, startPos = null) {
     console.log(`📋 placeCards: ${items.length}개 아이템, date=${dateStr}, startPos=${startPos}`, items.map(i => `${i.employee_id}@${i._origPos}`));
     let placed = 0;
 
-    // 상대 위치 보존: _origPos가 있으면 오프셋 계산
-    const hasOrigPos = items.some(i => i._origPos != null);
-    const baseOffset = (hasOrigPos && startPos != null && items[0]._origPos != null)
-        ? (startPos - items[0]._origPos) : 0;
-
     items.forEach((item, idx) => {
         const empId = item.employee_id;
 
-        // 배치할 position 결정
+        // 배치할 position 결정: 지정 위치 → 연속 배치 → 자동 탐색
         let assignPos = -1;
-        if (hasOrigPos && item._origPos != null) {
-            // 상대 위치 보존 모드: 원래 position + 오프셋 (날짜 전체 복사 시 오프셋=0)
-            assignPos = item._origPos + baseOffset;
-        } else if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
-            // _origPos 없음: startPos부터 연속 배치
+        if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
+            // 지정 위치부터 연속 배치 (1명이면 정확히 그 위치)
             assignPos = startPos + idx;
         } else {
             // 자동 빈자리 탐색
