@@ -165,12 +165,22 @@ function placeCards(items, dateStr, startPos = null) {
 function moveCards(empIds, fromDate, toDate, targetPos = null) {
     // 원본 날짜에서 휴무 처리
     empIds.forEach(empId => {
-        const src = state.schedule.schedules.find(
+        let src = state.schedule.schedules.find(
             s => s.date === fromDate && s.employee_id === empId && s.status === '근무'
         );
         if (src) {
             src.status = '휴무';
             unsavedChanges.set(src.id, { type: 'update', data: src });
+        } else {
+            // 레코드 없는 직원 → 휴무 레코드 신규 생성
+            const cardEl = document.querySelector(`.calendar-day[data-date="${fromDate}"] .event-card[data-employee-id="${empId}"]`);
+            const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+            const newSched = {
+                id: `move-${Date.now()}-${empId}`, date: fromDate, employee_id: empId,
+                status: '휴무', grid_position: pos, sort_order: pos
+            };
+            state.schedule.schedules.push(newSched);
+            unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
         }
     });
 
@@ -898,10 +908,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
 
     // ✨ [Group Move Check]
     // 이동하려는 대상이 "선택된 그룹"에 포함되어 있고, 선택된 항목이 2개 이상인 경우 그룹 이동 처리
-    // movedEmployeeId는 직원 ID임. 스케줄 ID를 찾아야 함.
-    const movingSchedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === movedEmployeeId && s.status === '근무');
-
-    if (movingSchedule && state.schedule.selectedSchedules.has(`${dateStr}_${movedEmployeeId}`) && state.schedule.selectedSchedules.size > 1) {
+    if (state.schedule.selectedSchedules.has(`${dateStr}_${movedEmployeeId}`) && state.schedule.selectedSchedules.size > 1) {
         handleGroupSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex);
         return;
     }
@@ -1237,7 +1244,7 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 console.log(`✅ Found nearest empty slot at ${bestPos}. Moving existing employee.`);
 
                 // 기존 직원 이동 처리
-                const occupiedSchedule = state.schedule.schedules.find(
+                let occupiedSchedule = state.schedule.schedules.find(
                     s => s.date === dateStr && s.employee_id === occupiedEmpId && s.status === '근무'
                 );
 
@@ -1245,6 +1252,14 @@ function initializeDayDragDrop(dayEl, dateStr) {
                     occupiedSchedule.grid_position = bestPos;
                     occupiedSchedule.sort_order = bestPos;
                     unsavedChanges.set(occupiedSchedule.id, { type: 'update', data: occupiedSchedule });
+                } else {
+                    // 레코드 없는 직원 → 신규 생성 후 이동
+                    const newSched = {
+                        id: `drop-${Date.now()}-${occupiedEmpId}`, date: dateStr, employee_id: occupiedEmpId,
+                        status: '근무', grid_position: bestPos, sort_order: bestPos
+                    };
+                    state.schedule.schedules.push(newSched);
+                    unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
                 }
             }
 
@@ -3148,9 +3163,25 @@ function handleDateHeaderDblClick(e) {
 
     if (!isHoliday) {
         if (confirm(`${dateStr}을 휴일로 지정하고 모든 근무자를 휴무로 변경하시겠습니까?`)) {
+            // 기존 레코드가 있는 근무자 → 휴무 전환
             workingSchedules.forEach(s => {
                 s.status = '휴무';
                 unsavedChanges.set(s.id, { type: 'update', data: s });
+            });
+            // 레코드 없는 직원도 휴무 레코드 생성 (화면에 보이는 전원)
+            const existingEmpIds = new Set(state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0).map(s => s.employee_id));
+            const activeEmps = (state.management.employees || []).filter(e => !e.is_temp && !e.retired);
+            activeEmps.forEach(emp => {
+                if (!existingEmpIds.has(emp.id)) {
+                    const cardEl = document.querySelector(`.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${emp.id}"]`);
+                    const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+                    const newSched = {
+                        id: `holiday-${Date.now()}-${emp.id}`, date: dateStr, employee_id: emp.id,
+                        status: '휴무', grid_position: pos, sort_order: pos
+                    };
+                    state.schedule.schedules.push(newSched);
+                    unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
+                }
             });
             state.schedule.companyHolidays.add(dateStr);
             unsavedHolidayChanges.toAdd.add(dateStr);
@@ -3521,22 +3552,26 @@ function handleMenuCopyDate() {
     if (!dateStr) return;
 
     scheduleClipboard = [];
-    const schedulesOnDate = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
+    // DOM에서 근무 카드를 직접 읽기 (레코드 유무 무관)
+    const dayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
+    if (dayEl) {
+        dayEl.querySelectorAll('.event-card[data-type="working"]').forEach(card => {
+            const eid = parseInt(card.dataset.employeeId, 10);
+            const pos = parseInt(card.dataset.position, 10);
+            if (eid > 0) {
+                scheduleClipboard.push({
+                    employee_id: eid, status: '근무',
+                    grid_position: pos, _origPos: pos
+                });
+            }
+        });
+    }
 
-    if (schedulesOnDate.length === 0) {
+    if (scheduleClipboard.length === 0) {
         alert('해당 날짜에 복사할 근무자가 없습니다.');
         dateContextMenu.classList.add('hidden');
         return;
     }
-
-    schedulesOnDate.forEach(s => {
-        scheduleClipboard.push({
-            employee_id: s.employee_id,
-            status: s.status,
-            grid_position: s.grid_position, // 원본 위치 기억
-            _origPos: s.grid_position
-        });
-    });
 
     console.log(`Copied ${scheduleClipboard.length} schedules from ${dateStr} to clipboard:`, scheduleClipboard);
     dateContextMenu.classList.add('hidden');
@@ -4027,8 +4062,18 @@ function handleGlobalKeydown(e) {
                     if (sched) {
                         sched.status = '휴무';
                         unsavedChanges.set(sched.id, { type: 'update', data: sched });
-                        deletedCount++;
+                    } else {
+                        // 레코드 없는 직원 → 휴무 레코드 신규 생성
+                        const cardEl = document.querySelector(`.calendar-day[data-date="${date}"] .event-card[data-employee-id="${eid}"]`);
+                        const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+                        const newSched = {
+                            id: `del-${Date.now()}-${eid}`, date, employee_id: eid,
+                            status: '휴무', grid_position: pos, sort_order: pos
+                        };
+                        state.schedule.schedules.push(newSched);
+                        unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
                     }
+                    deletedCount++;
                 });
                 clearSelection();
                 renderCalendar();
