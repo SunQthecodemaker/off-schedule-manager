@@ -191,7 +191,7 @@ let isDragging = false;
 let dragStartTime = 0;
 
 // ✨ 다중 선택 및 클립보드 상태
-state.schedule.selectedSchedules = new Set(); // Set<schedule_id>
+state.schedule.selectedSchedules = new Set(); // Set<"date_employeeId"> — 예: "2026-04-02_36"
 let scheduleClipboard = []; // Array of { employee_id, status }
 let lastSelectedCardInfo = null; // { date, position } — Shift+클릭 범위선택 기준점
 
@@ -901,7 +901,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     // movedEmployeeId는 직원 ID임. 스케줄 ID를 찾아야 함.
     const movingSchedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === movedEmployeeId && s.status === '근무');
 
-    if (movingSchedule && state.schedule.selectedSchedules.has(String(movingSchedule.id)) && state.schedule.selectedSchedules.size > 1) {
+    if (movingSchedule && state.schedule.selectedSchedules.has(`${dateStr}_${movedEmployeeId}`) && state.schedule.selectedSchedules.size > 1) {
         handleGroupSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex);
         return;
     }
@@ -1116,10 +1116,11 @@ function initializeDayDragDrop(dayEl, dateStr) {
                     // 복수 선택된 카드가 있으면 함께 이동 (B4/B5)
                     const empIdsToMove = [draggedEmpId];
                     if (state.schedule.selectedSchedules.size > 0) {
-                        state.schedule.selectedSchedules.forEach(schedId => {
-                            const sched = state.schedule.schedules.find(s => String(s.id) === String(schedId));
-                            if (sched && sched.employee_id !== draggedEmpId && sched.date === fromDate) {
-                                empIdsToMove.push(sched.employee_id);
+                        state.schedule.selectedSchedules.forEach(selKey => {
+                            const [selDate, eidStr] = selKey.split('_');
+                            const eid = parseInt(eidStr, 10);
+                            if (eid !== draggedEmpId && selDate === fromDate) {
+                                empIdsToMove.push(eid);
                             }
                         });
                     }
@@ -1860,7 +1861,8 @@ function renderCalendar() {
                 </div>`;
             } else if (schedule.employee_id < 0) {
                 const spacerName = `빈칸${-schedule.employee_id}`;
-                const isSelected = state.schedule.selectedSchedules.has(String(schedule.id)) ? 'selected' : '';
+                const selKey = `${dateStr}_${schedule.employee_id}`;
+                const isSelected = state.schedule.selectedSchedules.has(selKey) ? 'selected' : '';
                 return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
                     <span class="event-dot" style="background-color: #f3f4f6;"></span>
                     <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
@@ -1874,7 +1876,8 @@ function renderCalendar() {
                 }
 
                 const deptColor = getDepartmentColor(emp.departments?.id);
-                const isSelected = state.schedule.selectedSchedules.has(String(schedule.id)) ? 'selected' : '';
+                const selKey = `${dateStr}_${emp.id}`;
+                const isSelected = state.schedule.selectedSchedules.has(selKey) ? 'selected' : '';
                 const empStatus = schedule._empStatus || getEmployeeStatusOnDate(emp.id, dateStr);
 
                 let cardTypeClass, typeAttr;
@@ -1975,13 +1978,10 @@ function handleEventCardClick(e) {
     const card = e.target.closest('.event-card, .event-slot');
     if (!card) return;
 
-    const scheduleId = card.dataset.scheduleId;
-    console.log(`👆 Card Click: ${scheduleId} (Selected before: ${scheduleId ? state.schedule.selectedSchedules.has(scheduleId) : 'N/A'})`);
-
-    // if (!scheduleId) return; // ❌ 빈 슬롯(ID 없음)도 선택되어야 함
-
     const cardDate = card.closest('.calendar-day')?.dataset.date;
     const cardPos = parseInt(card.dataset.position, 10);
+    const empId = card.dataset.employeeId;
+    const selKey = (cardDate && empId && empId !== 'empty') ? `${cardDate}_${empId}` : null;
 
     // ✨ [A3] Shift+클릭: 범위 선택 (lastSelectedCardInfo ~ 현재 카드)
     if (e.shiftKey && lastSelectedCardInfo) {
@@ -2000,10 +2000,8 @@ function handleEventCardClick(e) {
                 dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
                     const pos = parseInt(el.dataset.position, 10);
                     if (pos >= minPos && pos <= maxPos) {
-                        const sid = el.dataset.scheduleId;
-                        if (sid) {
-                            state.schedule.selectedSchedules.add(sid);
-                        }
+                        const eid = el.dataset.employeeId;
+                        if (eid && eid !== 'empty') state.schedule.selectedSchedules.add(`${cardDate}_${eid}`);
                         el.classList.add('selected');
                     }
                 });
@@ -2027,8 +2025,8 @@ function handleEventCardClick(e) {
                     dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
                         const pos = parseInt(el.dataset.position, 10);
                         if (pos >= minPos && pos <= maxPos) {
-                            const sid = el.dataset.scheduleId;
-                            if (sid) state.schedule.selectedSchedules.add(sid);
+                            const eid = el.dataset.employeeId;
+                            if (eid && eid !== 'empty') state.schedule.selectedSchedules.add(`${dates[di]}_${eid}`);
                             el.classList.add('selected');
                         }
                     });
@@ -2042,16 +2040,15 @@ function handleEventCardClick(e) {
 
     // Ctrl(Cmd) 키 누른 상태: 다중 선택 토글
     if (e.ctrlKey || e.metaKey) {
-        if (scheduleId) {
-            if (state.schedule.selectedSchedules.has(scheduleId)) {
-                state.schedule.selectedSchedules.delete(scheduleId);
+        if (selKey) {
+            if (state.schedule.selectedSchedules.has(selKey)) {
+                state.schedule.selectedSchedules.delete(selKey);
                 card.classList.remove('selected');
             } else {
-                state.schedule.selectedSchedules.add(scheduleId);
+                state.schedule.selectedSchedules.add(selKey);
                 card.classList.add('selected');
             }
         } else {
-            // 빈 슬롯 토글
             card.classList.toggle('selected');
         }
         // Ctrl+클릭도 기준점 업데이트
@@ -2060,24 +2057,20 @@ function handleEventCardClick(e) {
     // 일반 클릭: 기존 선택 해제하고 단일 선택
     else {
         // ✨ [개선] 이미 선택된 항목을 다시 클릭하면 선택 해제 (토글 방식)
-        if (scheduleId && state.schedule.selectedSchedules.has(scheduleId) && state.schedule.selectedSchedules.size === 1) {
+        if (selKey && state.schedule.selectedSchedules.has(selKey) && state.schedule.selectedSchedules.size === 1) {
             clearSelection();
             card.classList.remove('selected');
-            window.selectedEmptySlot = null; // 빈 슬롯 선택도 초기화
+            window.selectedEmptySlot = null;
             return;
         }
 
         clearSelection();
-
-        // ✨ [Fix] 이전에 선택된 빈 슬롯이 있으면 제거
         if (window.selectedEmptySlot) {
             window.selectedEmptySlot.classList.remove('selected');
             window.selectedEmptySlot = null;
         }
 
-        if (scheduleId) {
-            state.schedule.selectedSchedules.add(scheduleId);
-        }
+        if (selKey) state.schedule.selectedSchedules.add(selKey);
         // 다시 렌더링하지 않고 DOM만 업데이트 (성능 최적화)
         document.querySelectorAll('.event-card.selected').forEach(el => el.classList.remove('selected'));
         card.classList.add('selected');
@@ -2119,19 +2112,18 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
     });
 
     // 3. 이동 대상(선택된) 직원 및 피벗 식별
-    // ✨ [Fix] selectedSchedules has string IDs (from dataset), so we must ensure comparison handles types
-    const selectedIds = new Set(Array.from(state.schedule.selectedSchedules).map(id => String(id)));
+    // 선택된 직원 ID 추출 (date_empId 키에서)
+    const selectedEmpIds = new Set();
+    state.schedule.selectedSchedules.forEach(selKey => {
+        const [selDate, eidStr] = selKey.split('_');
+        if (selDate === dateStr) selectedEmpIds.add(parseInt(eidStr, 10));
+    });
     const movingScheduleIds = new Set();
     const movingItems = [];
 
-    // 피벗(드래그 중인 아이템)이 선택 그룹에 포함되어 있지 않다면 강제로 포함 (UX 보정)
-    // 일반적으로 SortableJS는 드래그 아이템을 포함해서 처리하지만, 데이터 일관성을 위해 체크
-    // 하지만 pivotEmpId는 empId이고 selectedIds는 scheduleId임. 조회 필요.
-
     // 이동할 아이템 추출
     allSchedules.forEach(s => {
-        // ✨ [Fix] ID comparison: String(s.id) to match selectedIds
-        if (selectedIds.has(String(s.id)) || s.employee_id === pivotEmpId) {
+        if (selectedEmpIds.has(s.employee_id) || s.employee_id === pivotEmpId) {
             movingScheduleIds.add(s.id);
             movingItems.push({
                 empId: s.employee_id,
@@ -3597,13 +3589,14 @@ function handleMenuSelectAllDate() {
 
     // 토글: 다 선택되었으면 해제, 아니면 전체 선택
     cardsOnDate.forEach(card => {
-        const scheduleId = card.dataset.scheduleId;
-        if (scheduleId) {
+        const eid = card.dataset.employeeId;
+        if (eid && eid !== 'empty') {
+            const selKey = `${dateStr}_${eid}`;
             if (isAllSelected) {
-                state.schedule.selectedSchedules.delete(scheduleId);
+                state.schedule.selectedSchedules.delete(selKey);
                 card.classList.remove('selected');
             } else {
-                state.schedule.selectedSchedules.add(scheduleId);
+                state.schedule.selectedSchedules.add(selKey);
                 card.classList.add('selected');
             }
         }
@@ -3786,8 +3779,9 @@ function handleDragSelectMove(e) {
     // 기존 드래그 선택 표시 제거
     document.querySelectorAll('.drag-select-highlight').forEach(el => {
         el.classList.remove('drag-select-highlight', 'selected');
-        const sid = el.dataset.scheduleId;
-        if (sid) state.schedule.selectedSchedules.delete(sid);
+        const eid = el.dataset.employeeId;
+        const elDate = el.closest('.calendar-day')?.dataset.date;
+        if (eid && eid !== 'empty' && elDate) state.schedule.selectedSchedules.delete(`${elDate}_${eid}`);
     });
 
     // 범위 계산 (날짜 간 + row/col 기반 사각형 선택)
@@ -3822,8 +3816,8 @@ function handleDragSelectMove(e) {
             const col = pos % COLS;
             if (row >= minRow && row <= maxRow && col >= minCol && col <= maxCol) {
                 el.classList.add('selected', 'drag-select-highlight');
-                const sid = el.dataset.scheduleId;
-                if (sid) state.schedule.selectedSchedules.add(sid);
+                const eid = el.dataset.employeeId;
+                if (eid && eid !== 'empty') state.schedule.selectedSchedules.add(`${dates[di]}_${eid}`);
             }
         });
     }
@@ -3866,21 +3860,21 @@ function handleGlobalKeydown(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         if (state.schedule.selectedSchedules.size > 0) {
             scheduleClipboard = [];
-            state.schedule.selectedSchedules.forEach(scheduleId => {
-                const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
-                if (schedule) {
-                    scheduleClipboard.push({
-                        employee_id: schedule.employee_id,
-                        status: '근무',
-                        _origPos: schedule.grid_position  // 상대 위치 보존용
-                    });
-                }
+            state.schedule.selectedSchedules.forEach(selKey => {
+                const [date, eidStr] = selKey.split('_');
+                const eid = parseInt(eidStr, 10);
+                // DOM에서 position 읽기
+                const cardEl = document.querySelector(`.calendar-day[data-date="${date}"] .event-card[data-employee-id="${eid}"]`);
+                const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+                scheduleClipboard.push({
+                    employee_id: eid,
+                    status: '근무',
+                    _origPos: pos
+                });
             });
-            // position 순서로 정렬
             scheduleClipboard.sort((a, b) => (a._origPos ?? 0) - (b._origPos ?? 0));
-            console.log(`📋 Copy: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => `${c.employee_id}@${c._origPos}`));
 
-            // 시각적 피드백 (선택된 카드 반짝임)
+            // 시각적 피드백
             document.querySelectorAll('.event-card.selected').forEach(el => {
                 el.style.opacity = '0.5';
                 setTimeout(() => el.style.opacity = '1', 200);
@@ -3895,21 +3889,32 @@ function handleGlobalKeydown(e) {
             pushUndoState('Cut Schedules'); // Undo 저장
 
             scheduleClipboard = [];
-            state.schedule.selectedSchedules.forEach(scheduleId => {
-                const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
-                if (schedule) {
-                    scheduleClipboard.push({
-                        employee_id: schedule.employee_id,
-                        status: '근무',
-                        _origPos: schedule.grid_position  // 상대 위치 보존용
-                    });
-                    schedule.status = '휴무';
-                    unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+            state.schedule.selectedSchedules.forEach(selKey => {
+                const [date, eidStr] = selKey.split('_');
+                const eid = parseInt(eidStr, 10);
+                const cardEl = document.querySelector(`.calendar-day[data-date="${date}"] .event-card[data-employee-id="${eid}"]`);
+                const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+                scheduleClipboard.push({
+                    employee_id: eid,
+                    status: '근무',
+                    _origPos: pos
+                });
+                // 원본을 휴무 처리 (state에 있으면 업데이트, 없으면 신규 생성)
+                let sched = state.schedule.schedules.find(s => s.date === date && s.employee_id === eid);
+                if (sched) {
+                    sched.status = '휴무';
+                    unsavedChanges.set(sched.id, { type: 'update', data: sched });
+                } else {
+                    const newSched = {
+                        id: `cut-${Date.now()}-${eid}`,
+                        date, employee_id: eid, status: '휴무',
+                        grid_position: pos, sort_order: pos
+                    };
+                    state.schedule.schedules.push(newSched);
+                    unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
                 }
             });
-            // position 순서로 정렬
             scheduleClipboard.sort((a, b) => (a._origPos ?? 0) - (b._origPos ?? 0));
-            console.log(`✂️ Cut: selected=${state.schedule.selectedSchedules.size}, clipboard=${scheduleClipboard.length}`, scheduleClipboard.map(c => `${c.employee_id}@${c._origPos}`));
             clearSelection();
             renderCalendar();
             updateSaveButtonState();
@@ -4015,11 +4020,13 @@ function handleGlobalKeydown(e) {
                 pushUndoState('Delete Schedules'); // Undo 저장
 
                 let deletedCount = 0;
-                state.schedule.selectedSchedules.forEach(scheduleId => {
-                    const schedule = state.schedule.schedules.find(s => String(s.id) === String(scheduleId));
-                    if (schedule) {
-                        schedule.status = '휴무';
-                        unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                state.schedule.selectedSchedules.forEach(selKey => {
+                    const [date, eidStr] = selKey.split('_');
+                    const eid = parseInt(eidStr, 10);
+                    let sched = state.schedule.schedules.find(s => s.date === date && s.employee_id === eid);
+                    if (sched) {
+                        sched.status = '휴무';
+                        unsavedChanges.set(sched.id, { type: 'update', data: sched });
                         deletedCount++;
                     }
                 });
