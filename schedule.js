@@ -106,28 +106,27 @@ function placeCards(items, dateStr, startPos = null) {
             return;
         }
 
-        // R2: 같은 날짜에 같은 직원이 이미 있으면 기존것 제거 (휴무 처리)
-        const existing = state.schedule.schedules.find(
-            s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
-        );
-        if (existing) {
-            existing.status = '휴무';
-            unsavedChanges.set(existing.id, { type: 'update', data: existing });
-        }
+        // R2: 같은 날짜에 같은 직원이 이미 있으면 기존것 모두 휴무 처리
+        state.schedule.schedules.forEach(s => {
+            if (s.date === dateStr && s.employee_id === empId && s.status === '근무') {
+                s.status = '휴무';
+                unsavedChanges.set(s.id, { type: 'update', data: s });
+            }
+        });
 
         // R1: 타겟 위치에 다른 카드 있으면 덮어쓰기 (기존 카드 휴무)
-        const blocking = state.schedule.schedules.find(
-            s => s.date === dateStr && s.status === '근무' && s.grid_position === assignPos && s.employee_id !== empId
-        );
-        if (blocking) {
-            blocking.status = '휴무';
-            unsavedChanges.set(blocking.id, { type: 'update', data: blocking });
-        }
+        state.schedule.schedules.forEach(s => {
+            if (s.date === dateStr && s.status === '근무' && s.grid_position === assignPos && s.employee_id !== empId) {
+                s.status = '휴무';
+                unsavedChanges.set(s.id, { type: 'update', data: s });
+            }
+        });
 
-        // 배치: 기존 스케줄 업데이트 또는 신규 생성
-        let target = state.schedule.schedules.find(
-            s => s.date === dateStr && s.employee_id === empId
-        );
+        // 배치: 기존 스케줄 업데이트 또는 신규 생성 (가장 최근 레코드 사용)
+        let target = null;
+        state.schedule.schedules.forEach(s => {
+            if (s.date === dateStr && s.employee_id === empId) target = s;
+        });
         if (target) {
             target.status = item.status || '근무';
             target.grid_position = assignPos;
@@ -1515,8 +1514,13 @@ function getEmployeeStatusOnDate(empId, dateStr) {
     );
     if (hasLeave) return 'leave';
 
-    // 2. DB 스케줄
-    const sched = state.schedule.schedules.find(s => s.employee_id === empId && s.date === dateStr);
+    // 2. DB 스케줄 (근무 레코드를 우선 — 같은 직원+날짜에 여러 레코드 있을 수 있음)
+    let sched = null;
+    state.schedule.schedules.forEach(s => {
+        if (s.employee_id === empId && s.date === dateStr) {
+            if (!sched || s.status === '근무') sched = s;
+        }
+    });
     if (sched) return sched.status === '휴무' ? 'off' : 'working';
 
     // 3. 데이터 없음 → 평일이면 근무
@@ -1699,10 +1703,13 @@ function renderCalendar() {
             });
         }
 
-        // ✅ 해당 날짜 스케줄 빠른 조회용 맵
+        // ✅ 해당 날짜 스케줄 빠른 조회용 맵 (근무 레코드 우선)
         const dateSchedMap = new Map();
         state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr) dateSchedMap.set(s.employee_id, s);
+            if (s.date === dateStr) {
+                const prev = dateSchedMap.get(s.employee_id);
+                if (!prev || s.status === '근무') dateSchedMap.set(s.employee_id, s);
+            }
         });
 
         // ✅ 위치 결정: schedule.grid_position 우선, 없으면 basePositions fallback
