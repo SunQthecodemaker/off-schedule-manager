@@ -4468,11 +4468,11 @@ body { font-family: 'Pretendard','맑은 고딕',sans-serif; background:#fff; pa
 h1 { text-align:center; font-size:12pt; margin-bottom:0; font-weight:700; line-height:1.2; }
 .p-sub { text-align:center; font-size:7pt; color:#999; margin-bottom:1mm; }
 .p-table { width:100%; border-collapse:collapse; table-layout:fixed; flex:1; }
-.p-table th { background:#1a1a1a; color:#fff; font-size:8pt; padding:1px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
+.p-table th { background:#1a1a1a; color:#fff; font-size:9pt; padding:1px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
 .p-table th.p-sat { background:#1e40af; }
-.p-table td { border:1px solid #bbb; vertical-align:top; padding:1px 2px; font-size:7pt; }
+.p-table td { border:1px solid #bbb; vertical-align:top; padding:1px 2px; font-size:8pt; }
 .p-table tr { page-break-inside:avoid; }
-.p-date { font-weight:700; font-size:8pt; padding:0 2px; border-bottom:1px solid #ddd; margin-bottom:1px; color:#1a1a1a; }
+.p-date { font-weight:700; font-size:9pt; padding:0 2px; border-bottom:1px solid #ddd; margin-bottom:1px; color:#1a1a1a; }
 /* 전월/익월 날짜 — 셀 전체 흐리게 */
 .p-other { background:#f8f8f8; opacity:0.4; }
 .p-other .p-date { color:#aaa; }
@@ -4480,8 +4480,8 @@ h1 { text-align:center; font-size:12pt; margin-bottom:0; font-weight:700; line-h
 .p-holiday { background:#fff5f5; }
 .p-holiday .p-date { color:#dc2626; }
 .p-names { display:grid; grid-template-columns:repeat(${COLS},1fr); gap:0; }
-.p-name { font-size:7pt; padding:0 1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.25; display:flex; align-items:center; gap:1px; }
-.p-name i { display:inline-block; width:4px; height:4px; border-radius:50%; flex-shrink:0; }
+.p-name { font-size:8pt; padding:0 1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; display:flex; align-items:center; gap:1px; }
+.p-name i { display:inline-block; width:5px; height:5px; border-radius:50%; flex-shrink:0; }
 .p-empty { visibility:hidden; }
 /* 원장 이름 강조 — 파란색 볼드 */
 .p-director { color:#1e40af; font-weight:700; }
