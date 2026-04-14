@@ -4269,10 +4269,11 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             const status = getEmployeeStatusOnDate(emp.id, dateStr);
             if (status === 'working') {
                 workCount++;
+            } else if (status === 'leave') {
+                workCount++; // 연차 = 유급휴무 → 근무일수에 포함
+                leaveCount++;
             } else {
-                if (status === 'leave') leaveCount++;
                 const dayIdx = dayjs(dateStr).day();
-                // 고정 휴무일은 표시하지 않음 (예정된 휴무)
                 if (!fixedOffDayNums.includes(dayIdx)) {
                     unexpectedOffNames.push(weekDayNames[dayIdx]);
                 }
