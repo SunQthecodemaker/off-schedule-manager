@@ -4345,17 +4345,14 @@ function handlePrintSchedule() {
     const allEmployees = state.management.employees || [];
     const holidays = state.schedule.companyHolidays || new Set();
     const COLS = 4; // 이름 4열 배치
+    const DIRECTOR_DEPT_ID = 4; // 원장 부서 ID
 
-    // 인쇄 제외 부서 (기공실) — A4 한 장에 맞추기 위해
-    const PRINT_EXCLUDE_DEPT_ID = 2;
-    const excludeEmpIds = new Set(
-        allEmployees.filter(e => e.department_id === PRINT_EXCLUDE_DEPT_ID).map(e => e.id)
-    );
-
-    // 부서 색상 맵
+    // 부서 색상 맵 + 원장 여부 맵
     const deptColorMap = {};
+    const isDirectorMap = {};
     allEmployees.forEach(emp => {
         if (emp.departments?.id) deptColorMap[emp.id] = getDepartmentColor(emp.departments.id);
+        if (emp.department_id === DIRECTOR_DEPT_ID) isDirectorMap[emp.id] = true;
     });
 
     // 주 단위로 날짜 모으기 (월~토)
@@ -4383,7 +4380,6 @@ function handlePrintSchedule() {
                 }
                 const emp = allEmployees.find(e => e.id === s.employee_id);
                 if (!emp) return;
-                if (excludeEmpIds.has(emp.id)) return; // 기공실 제외
 
                 const pos = (s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
                 if (pos == null) return;
@@ -4392,7 +4388,8 @@ function handlePrintSchedule() {
                 if (viewMode === 'off' && s.status !== '휴무' && s.status !== '연차') return;
 
                 const status = s.status === '연차' ? 'leave' : s.status === '휴무' ? 'off' : 'working';
-                gridSlots[pos] = { name: emp.name, color: deptColorMap[emp.id] || '#999', status };
+                const isDirector = !!isDirectorMap[emp.id];
+                gridSlots[pos] = { name: emp.name, color: deptColorMap[emp.id] || '#999', status, isDirector };
             });
 
             // 끝에서부터 빈 슬롯 제거 (인쇄 공간 절약)
@@ -4424,7 +4421,8 @@ function handlePrintSchedule() {
         if (slots.length === 0) return '';
         return `<div class="p-names">${slots.map(n => {
             if (!n || n.status === 'spacer') return `<span class="p-name p-empty"></span>`;
-            const cls = n.status === 'leave' ? ' p-leave' : n.status === 'off' ? ' p-off' : '';
+            let cls = n.status === 'leave' ? ' p-leave' : n.status === 'off' ? ' p-off' : '';
+            if (n.isDirector) cls += ' p-director';
             return `<span class="p-name${cls}"><i style="background:${n.color}"></i>${n.name}</span>`;
         }).join('')}</div>`;
     }
@@ -4443,9 +4441,9 @@ function handlePrintSchedule() {
             let cls = '';
             if (!day.isCurrentMonth) cls += ' p-other';
             if (day.isSaturday) cls += ' p-sat';
-            if (day.isHoliday) cls += ' p-holiday';
+            if (day.isHoliday && day.isCurrentMonth) cls += ' p-holiday';
 
-            const dateLabel = day.isCurrentMonth ? `<div class="p-date">${day.date}</div>` : `<div class="p-date p-other-date">${day.date}</div>`;
+            const dateLabel = `<div class="p-date">${day.date}</div>`;
             tableHtml += `<td class="${cls.trim()}">${dateLabel}${renderNames(day.names)}</td>`;
         });
         tableHtml += '</tr>';
@@ -4463,31 +4461,36 @@ function handlePrintSchedule() {
 <html><head>
 <title>${currentDate.format('YYYY년 M월')} 스케줄</title>
 <style>
-@page { size: A4 landscape; margin: 5mm; }
+@page { size: A4 landscape; margin: 4mm; }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'Pretendard','맑은 고딕',sans-serif; background:#fff; padding:5mm; }
-h1 { text-align:center; font-size:13pt; margin-bottom:1mm; font-weight:700; }
-.p-sub { text-align:center; font-size:8pt; color:#888; margin-bottom:2mm; }
-.p-table { width:100%; border-collapse:collapse; table-layout:fixed; }
-.p-table th { background:#1a1a1a; color:#fff; font-size:8pt; padding:2px 1px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
+html, body { height:100%; }
+body { font-family: 'Pretendard','맑은 고딕',sans-serif; background:#fff; padding:4mm; display:flex; flex-direction:column; }
+h1 { text-align:center; font-size:12pt; margin-bottom:0; font-weight:700; line-height:1.2; }
+.p-sub { text-align:center; font-size:7pt; color:#999; margin-bottom:1mm; }
+.p-table { width:100%; border-collapse:collapse; table-layout:fixed; flex:1; }
+.p-table th { background:#1a1a1a; color:#fff; font-size:8pt; padding:1px; text-align:center; border:1px solid #1a1a1a; font-weight:600; }
 .p-table th.p-sat { background:#1e40af; }
 .p-table td { border:1px solid #bbb; vertical-align:top; padding:1px 2px; font-size:7pt; }
 .p-table tr { page-break-inside:avoid; }
-.p-date { font-weight:700; font-size:9pt; padding:0 2px 1px; border-bottom:1px solid #ddd; margin-bottom:1px; color:#1a1a1a; }
-.p-other-date { color:#bbb; }
-.p-other { background:#fafafa; }
+.p-date { font-weight:700; font-size:8pt; padding:0 2px; border-bottom:1px solid #ddd; margin-bottom:1px; color:#1a1a1a; }
+/* 전월/익월 날짜 — 셀 전체 흐리게 */
+.p-other { background:#f8f8f8; opacity:0.4; }
+.p-other .p-date { color:#aaa; }
 .p-sat .p-date { color:#1e40af; }
 .p-holiday { background:#fff5f5; }
 .p-holiday .p-date { color:#dc2626; }
 .p-names { display:grid; grid-template-columns:repeat(${COLS},1fr); gap:0; }
-.p-name { font-size:7.5pt; padding:0 1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; display:flex; align-items:center; gap:1px; }
+.p-name { font-size:7pt; padding:0 1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.25; display:flex; align-items:center; gap:1px; }
 .p-name i { display:inline-block; width:4px; height:4px; border-radius:50%; flex-shrink:0; }
 .p-empty { visibility:hidden; }
+/* 원장 이름 강조 — 파란색 볼드 */
+.p-director { color:#1e40af; font-weight:700; }
 .p-leave { color:#b45309; font-style:italic; }
 .p-off { color:#999; text-decoration:line-through; }
 @media print {
-    body { padding:0; }
-    h1 { font-size:12pt; }
+    body { padding:0; height:100vh; }
+    h1 { font-size:11pt; }
+    .p-table { flex:1; }
 }
 </style>
 </head><body>
