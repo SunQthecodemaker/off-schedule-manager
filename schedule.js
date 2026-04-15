@@ -1729,134 +1729,54 @@ function renderCalendar() {
             return basePositions.get(empId);
         }
 
-        if (state.schedule.viewMode === 'all') {
-            // ═══════════════════════════════════════════
-            // 통합 보기: 전체 활성 직원을 배치
-            // 근무=뚜렷, 휴무/연차=흐릿
-            // ═══════════════════════════════════════════
-            activeEmps.forEach(emp => {
-                if (excludedIds.has(emp.id)) return;
-                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
+        // ═══════════════════════════════════════════
+        // 배치: 항상 전체 직원 기준으로 gridSlots 구성 (뷰 모드 무관)
+        // 뷰 모드는 렌더링 시 표시/숨김만 결정
+        // ═══════════════════════════════════════════
+        activeEmps.forEach(emp => {
+            if (excludedIds.has(emp.id)) return;
+            if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
 
-                let pos = getEmpPosition(emp.id);
-                if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+            let pos = getEmpPosition(emp.id);
+            if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
 
-                // 충돌 시 다음 빈 자리로 밀기
-                if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
-                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
-                }
+            // 충돌 시 다음 빈 자리로 밀기
+            if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
+                for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+            }
 
-                const status = getEmployeeStatusOnDate(emp.id, dateStr);
-                const sched = dateSchedMap.get(emp.id);
+            const status = getEmployeeStatusOnDate(emp.id, dateStr);
+            const sched = dateSchedMap.get(emp.id);
 
-                gridSlots[pos] = {
-                    id: sched?.id || `auto-${emp.id}-${dateStr}`,
-                    employee_id: emp.id,
-                    date: dateStr,
-                    status: status === 'leave' ? '연차' : status === 'off' ? '휴무' : '근무',
-                    grid_position: pos,
-                    _empStatus: status
-                };
-            });
+            gridSlots[pos] = {
+                id: sched?.id || `auto-${emp.id}-${dateStr}`,
+                employee_id: emp.id,
+                date: dateStr,
+                status: status === 'leave' ? '연차' : status === 'off' ? '휴무' : '근무',
+                grid_position: pos,
+                _empStatus: status
+            };
+        });
 
-            // 임시직원 스케줄 배치 (근무만 존재)
-            state.schedule.schedules.forEach(s => {
-                if (s.date !== dateStr || s.employee_id <= 0) return;
-                const emp = (state.management.employees || []).find(e => e.id === s.employee_id);
-                if (!emp || !emp.is_temp) return;
-                if (s.status !== '근무') return;
-                let pos = (s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
-                if (pos == null) { for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } } }
-                if (pos != null && !gridSlots[pos]) {
-                    gridSlots[pos] = { ...s, _empStatus: 'working' };
-                }
-            });
+        // 임시직원 스케줄 배치 (근무만 존재)
+        state.schedule.schedules.forEach(s => {
+            if (s.date !== dateStr || s.employee_id <= 0) return;
+            const emp = (state.management.employees || []).find(e => e.id === s.employee_id);
+            if (!emp || !emp.is_temp) return;
+            if (s.status !== '근무') return;
+            let pos = (s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
+            if (pos == null) { for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } } }
+            if (pos != null && !gridSlots[pos]) {
+                gridSlots[pos] = { ...s, _empStatus: 'working' };
+            }
+        });
 
-            // 빈칸(spacer) 배치
-            state.schedule.schedules.forEach(s => {
-                if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                    if (!gridSlots[s.grid_position]) gridSlots[s.grid_position] = s;
-                }
-            });
-
-        } else if (state.schedule.viewMode === 'working') {
-            // ═══════════════════════════════════════════
-            // 근무자 보기: 근무 상태인 직원만
-            // ═══════════════════════════════════════════
-            activeEmps.forEach(emp => {
-                if (excludedIds.has(emp.id)) return;
-                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
-
-                const status = getEmployeeStatusOnDate(emp.id, dateStr);
-                if (status !== 'working') return;
-
-                let pos = getEmpPosition(emp.id);
-                if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
-
-                if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
-                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
-                }
-
-                const sched = dateSchedMap.get(emp.id);
-                gridSlots[pos] = {
-                    id: sched?.id || `work-${emp.id}-${dateStr}`,
-                    employee_id: emp.id,
-                    date: dateStr,
-                    status: '근무',
-                    grid_position: pos,
-                    _empStatus: status
-                };
-            });
-
-            // 임시직원 스케줄 배치 (근무만 존재)
-            state.schedule.schedules.forEach(s => {
-                if (s.date !== dateStr || s.employee_id <= 0) return;
-                const emp = (state.management.employees || []).find(e => e.id === s.employee_id);
-                if (!emp || !emp.is_temp) return;
-                if (s.status !== '근무') return;
-                let pos = (s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
-                if (pos == null) { for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } } }
-                if (pos != null && !gridSlots[pos]) {
-                    gridSlots[pos] = { ...s, _empStatus: 'working' };
-                }
-            });
-
-            // 빈칸(spacer) 배치
-            state.schedule.schedules.forEach(s => {
-                if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                    if (!gridSlots[s.grid_position]) gridSlots[s.grid_position] = s;
-                }
-            });
-
-        } else if (state.schedule.viewMode === 'off') {
-            // ═══════════════════════════════════════════
-            // 휴무자 보기: 연차+휴무 직원만
-            // ═══════════════════════════════════════════
-            activeEmps.forEach(emp => {
-                if (excludedIds.has(emp.id)) return;
-                if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
-
-                const status = getEmployeeStatusOnDate(emp.id, dateStr);
-                if (status === 'working') return;
-
-                let pos = getEmpPosition(emp.id);
-                if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
-
-                if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
-                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
-                }
-
-                const sched = dateSchedMap.get(emp.id);
-                gridSlots[pos] = {
-                    id: sched?.id || `off-${emp.id}-${dateStr}`,
-                    employee_id: emp.id,
-                    date: dateStr,
-                    status: status === 'leave' ? '연차' : '휴무',
-                    grid_position: pos,
-                    _empStatus: status
-                };
-            });
-        }
+        // 빈칸(spacer) 배치
+        state.schedule.schedules.forEach(s => {
+            if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
+                if (!gridSlots[s.grid_position]) gridSlots[s.grid_position] = s;
+            }
+        });
 
         // ═══════════════════════════════════════════
         // 그리드 슬롯 → HTML 변환 (공통)
@@ -1882,10 +1802,24 @@ function renderCalendar() {
                     </div>`;
                 }
 
+                const empStatus = schedule._empStatus || getEmployeeStatusOnDate(emp.id, dateStr);
+                const vm = state.schedule.viewMode;
+
+                // 뷰 모드 필터: 해당 뷰에서 보이지 않는 직원은 빈 칸으로 표시
+                if (vm === 'working' && empStatus !== 'working') {
+                    return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
+                        <span class="slot-number">${position + 1}</span>
+                    </div>`;
+                }
+                if (vm === 'off' && empStatus === 'working') {
+                    return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
+                        <span class="slot-number">${position + 1}</span>
+                    </div>`;
+                }
+
                 const deptColor = getDepartmentColor(emp.departments?.id);
                 const selKey = `${dateStr}_${emp.id}`;
                 const isSelected = state.schedule.selectedSchedules.has(selKey) ? 'selected' : '';
-                const empStatus = schedule._empStatus || getEmployeeStatusOnDate(emp.id, dateStr);
 
                 let cardTypeClass, typeAttr;
                 if (empStatus === 'leave') {
@@ -1900,10 +1834,10 @@ function renderCalendar() {
                 }
 
                 // 통합 보기: 휴무/연차는 흐릿하게 표시
-                const offStyle = (state.schedule.viewMode === 'all' && empStatus !== 'working')
+                const offStyle = (vm === 'all' && empStatus !== 'working')
                     ? 'opacity: 0.45;' : '';
                 // 휴무자 보기: 뚜렷하게 표시
-                const offFocusClass = (state.schedule.viewMode === 'off')
+                const offFocusClass = (vm === 'off')
                     ? (empStatus === 'leave' ? 'event-leave-focus' : 'event-off-focus') : '';
 
                 const finalClass = offFocusClass || cardTypeClass;
