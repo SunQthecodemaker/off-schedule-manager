@@ -332,15 +332,13 @@ function updateScheduleSortOrders(dateStr) {
     });
 
 
-    // ✅ 2. State 업데이트
+    // ✅ 2. State 업데이트 (근무/휴무 무관 — 모든 직원 위치 동기화)
     let changeCount = 0;
 
-    // 이 날짜의 근무 스케줄
     state.schedule.schedules.forEach(schedule => {
-        if (schedule.date === dateStr && schedule.status === '근무') {
+        if (schedule.date === dateStr && schedule.employee_id > 0) {
             const newPos = newPositions.get(schedule.employee_id);
             if (newPos !== undefined) {
-                // 화면에 존재 -> 위치 업데이트
                 if (schedule.grid_position !== newPos) {
                     schedule.grid_position = newPos;
                     schedule.sort_order = newPos;
@@ -486,9 +484,7 @@ async function handleSaveSchedules() {
 
     try {
         // ✅ 1. 현재 화면의 배치(Grid Position)를 State에 반영
-        if (state.schedule.viewMode === 'working') {
-            updateAllGridPositions();
-        }
+        updateAllGridPositions();
 
         const startOfMonth = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const endOfMonth = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
@@ -1233,131 +1229,13 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 return;
             }
 
-            // ✅ draggable-employee인 경우 사이드바에서 온 것
+            // ✅ 사이드바/배치패널에서 드롭 — placeCards 통합 함수 사용
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
+            if (isNaN(empId)) { employeeEl.remove(); return; }
 
-            if (isNaN(empId)) {
-                employeeEl.remove();
-                return;
-            }
+            pushUndoState('Drop from sidebar');
+            placeCards([{ employee_id: empId }], dateStr, evt.newIndex);
 
-            // ✅ 중복 체크 (규칙 4-2) -> [수정] 이미 '근무' 중인 경우만 막고, '휴무'인 경우는 '휴무'를 제거
-            const existingWorking = state.schedule.schedules.find(
-                s => s.date === dateStr && s.employee_id === empId && s.status === '근무'
-            );
-
-            if (existingWorking) {
-                employeeEl.remove();
-                alert('이미 해당 날짜에 근무 중인 직원입니다.');
-                return;
-            }
-
-            // [수정] '휴무' 상태가 있다면 제거 (상태 중복 방지)
-            const existingOffIndex = state.schedule.schedules.findIndex(
-                s => s.date === dateStr && s.employee_id === empId && s.status === '휴무'
-            );
-
-            if (existingOffIndex !== -1) {
-                const offSchedule = state.schedule.schedules[existingOffIndex];
-                // state에서 제거
-                state.schedule.schedules.splice(existingOffIndex, 1);
-                // DB 삭제 예약
-                if (!offSchedule.id.toString().startsWith('temp-')) {
-                    unsavedChanges.set(offSchedule.id, { type: 'delete', data: offSchedule });
-                }
-            }
-
-            // ✅ 음수 ID는 빈칸으로 처리
-            let employee = null;
-            let employeeName = '';
-            if (empId < 0) {
-                employeeName = `빈칸${-empId}`;
-            } else {
-                employee = state.management.employees.find(e => e.id === empId);
-                if (!employee) {
-                    employeeEl.remove();
-                    return;
-                }
-                employeeName = employee.name;
-            }
-
-            // [수정] 덮어쓰기 방지: 자리에 누가 있다면 '가장 가까운 빈칸'으로 이동
-            const targetPos = evt.newIndex;
-
-            // 현재 그리드 상태 계산
-            const currentGrid = new Array(GRID_SIZE).fill(null);
-            state.schedule.schedules.forEach(s => {
-                if (s.date === dateStr && s.status === '근무' && s.grid_position != null) {
-                    if (s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                        currentGrid[s.grid_position] = s.employee_id;
-                    }
-                }
-            });
-
-            const occupiedEmpId = currentGrid[targetPos];
-
-            if (occupiedEmpId !== null && occupiedEmpId !== undefined) {
-
-                let bestPos = -1;
-                let minDist = Infinity;
-
-                // 가장 가까운 빈칸 탐색
-                for (let i = 0; i < GRID_SIZE; i++) {
-                    // 빈칸이면서, 현재 드롭하려는 위치가 아닌 곳
-                    if (currentGrid[i] === null && i !== targetPos) {
-                        const dist = Math.abs(i - targetPos);
-                        if (dist < minDist) {
-                            minDist = dist;
-                            bestPos = i;
-                        } else if (dist === minDist) {
-                            // 거리가 같다면 뒤쪽(+)을 우선
-                            if (i > targetPos) bestPos = i;
-                        }
-                    }
-                }
-
-                if (bestPos === -1) {
-                    alert('배치할 빈 공간이 없습니다.');
-                    employeeEl.remove();
-                    // 만약 휴무를 삭제했다면 복구해야 하지만... (생략)
-                    return;
-                }
-
-
-                // 기존 직원 이동 처리
-                let occupiedSchedule = state.schedule.schedules.find(
-                    s => s.date === dateStr && s.employee_id === occupiedEmpId && s.status === '근무'
-                );
-
-                if (occupiedSchedule) {
-                    occupiedSchedule.grid_position = bestPos;
-                    occupiedSchedule.sort_order = bestPos;
-                    unsavedChanges.set(occupiedSchedule.id, { type: 'update', data: occupiedSchedule });
-                } else {
-                    // 레코드 없는 직원 → 신규 생성 후 이동
-                    const newSched = {
-                        id: `drop-${Date.now()}-${occupiedEmpId}`, date: dateStr, employee_id: occupiedEmpId,
-                        status: '근무', grid_position: bestPos, sort_order: bestPos
-                    };
-                    state.schedule.schedules.push(newSched);
-                    unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
-                }
-            }
-
-            // ✅ 새 스케줄 추가
-            const tempId = `temp-${Date.now()}-${empId}`;
-            const newSchedule = {
-                id: tempId,
-                date: dateStr,
-                employee_id: empId,
-                status: '근무',
-                sort_order: targetPos,
-                grid_position: targetPos
-            };
-            state.schedule.schedules.push(newSchedule);
-            unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-
-            // ✅ DOM 정리 및 재렌더링
             employeeEl.remove();
             renderCalendar();
             updateSaveButtonState();
@@ -2109,13 +1987,24 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
     const delta = newIndex - oldIndex;
     if (delta === 0) return;
 
-    // 1. 전체 스케줄 가져오기 (해당 날짜, 근무자)
-    const allSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무' && s.grid_position != null && s.grid_position < GRID_SIZE);
+    // 1. 전체 스케줄 가져오기 (해당 날짜, 근무/휴무 무관)
+    const allSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0 && s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE);
 
-    // 2. 현재 그리드 구성 (배경) - 직원 ID 매핑
+    // 2. 현재 그리드 구성 (배경) - 직원 ID 매핑 (전체 직원 포함)
     const currentGrid = new Array(GRID_SIZE).fill(null);
-    allSchedules.forEach(s => {
-        currentGrid[s.grid_position] = s.employee_id;
+    const basePositions = getEmployeeBasePositions();
+    const activeEmps = (state.management.employees || []).filter(
+        e => !e.is_temp && !(e.email?.startsWith('temp-'))
+    );
+    const dateScheds = new Map();
+    allSchedules.forEach(s => { dateScheds.set(s.employee_id, s); });
+    activeEmps.forEach(emp => {
+        const sched = dateScheds.get(emp.id);
+        const pos = (sched && sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE)
+            ? sched.grid_position : basePositions.get(emp.id);
+        if (pos != null && pos >= 0 && pos < GRID_SIZE && !currentGrid[pos]) {
+            currentGrid[pos] = emp.id;
+        }
     });
 
     // 3. 이동 대상(선택된) 직원 및 피벗 식별
