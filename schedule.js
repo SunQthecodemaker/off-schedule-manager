@@ -2371,11 +2371,6 @@ async function loadAndRenderScheduleData(date) {
         state.schedule.schedules = scheduleRes.data || [];
         state.schedule.companyHolidays = new Set((holidayRes.data || []).map(h => h.date));
 
-            teamLayout: state.schedule.teamLayout,
-            schedulesCount: state.schedule.schedules.length,
-            holidaysCount: state.schedule.companyHolidays.size
-        });
-
         const titleEl = _('#calendar-title');
         if (titleEl) {
             titleEl.textContent = dayjs(date).format('YYYY년 M월');
