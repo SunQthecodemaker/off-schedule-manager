@@ -92,7 +92,7 @@ function getOccupiedPositions(dateStr, excludeEmpId) {
     const occupied = new Set();
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-'))
+        e => !e.is_temp && !(e.email?.startsWith('temp-'))
     );
 
     // 레코드가 있으면 레코드의 grid_position, 없으면 배치 패널 기본 위치
@@ -887,7 +887,7 @@ function applyLayoutToSchedules(positionMap, targetDates) {
     // 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
     if (dateSet) {
         const activeEmps = (state.management.employees || []).filter(
-            e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-'))
+            e => !e.is_temp && !(e.email?.startsWith('temp-'))
         );
         dateSet.forEach(dateStr => {
             const existingEmpIds = new Set(
@@ -1005,7 +1005,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     const currentGrid = new Array(GRID_SIZE).fill(null);
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-'))
+        e => !e.is_temp && !(e.email?.startsWith('temp-'))
     );
     const dateScheds = new Map();
     state.schedule.schedules.forEach(s => {
@@ -1467,7 +1467,7 @@ function getWorkingEmployeesOnDate(dateStr) {
 
     // ✅ 모든 활성 직원 중 근무 상태인 직원 반환 (레코드 유무 무관)
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-')) && !excludedIds.has(e.id)
+        e => !e.is_temp && !(e.email?.startsWith('temp-')) && !excludedIds.has(e.id)
     );
     activeEmps.forEach(emp => {
         const status = getEmployeeStatusOnDate(emp.id, dateStr);
@@ -1567,7 +1567,7 @@ function getEmployeeBasePositions() {
     // layout에 없는 활성 직원 → 빈 자리에 순차 배정
     const usedPositions = new Set(posMap.values());
     const activeIds = (state.management.employees || [])
-        .filter(e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-')))
+        .filter(e => !e.is_temp && !(e.email?.startsWith('temp-')))
         .map(e => e.id);
     activeIds.forEach(id => {
         if (!posMap.has(id)) {
@@ -2369,7 +2369,7 @@ async function loadAndRenderScheduleData(date) {
         }
         // ✅ 활성 직원 중 members에 없는 직원 자동 추가 (신규 입사 등)
         const activeEmployeeIds = (state.management?.employees || [])
-            .filter(e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-')))
+            .filter(e => !e.is_temp && !(e.email?.startsWith('temp-')))
             .map(e => e.id);
         if (employeeOrder.length > 0) {
             const memberSet = new Set(employeeOrder);
@@ -3175,7 +3175,9 @@ function handleDateHeaderDblClick(e) {
             });
 
             // 2. 복귀 대상 직원 처리
-            const allActiveEmployees = state.management.employees.filter(e => !e.resignation_date);
+            const allActiveEmployees = state.management.employees.filter(e =>
+                !e.is_temp && !(e.email?.startsWith('temp-')) && (!e.resignation_date || dateStr < e.resignation_date)
+            );
 
             allActiveEmployees.forEach(emp => {
                 let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
@@ -4749,7 +4751,7 @@ async function handleImportPreviousMonth() {
 
         // 4. 새 스케줄 생성
         const newSchedules = [];
-        const activeEmployees = state.management.employees.filter(e => !e.resignation_date); // 퇴사자 제외
+        const allEmployees = state.management.employees.filter(e => !e.is_temp && !(e.email?.startsWith('temp-')));
 
         // 모든 날짜 순회
         let iter = currentStart.clone();
@@ -4767,7 +4769,7 @@ async function handleImportPreviousMonth() {
                 // 직원 ID가 유효한지 확인하며 복사 (퇴사자 등 체크)
                 sourceSchedules.forEach(src => {
                     // 현재 존재하는 직원인지 확인
-                    if (activeEmployees.some(e => e.id === src.employee_id)) {
+                    if (allEmployees.some(e => e.id === src.employee_id && (!e.resignation_date || targetDateStr < e.resignation_date))) {
                         schedulesForDay.push({
                             date: targetDateStr,
                             employee_id: src.employee_id,
@@ -4790,7 +4792,7 @@ async function handleImportPreviousMonth() {
                 // 단, 정기 휴무 규칙 적용
                 let positionCounter = 0;
 
-                activeEmployees.forEach(emp => {
+                allEmployees.filter(emp => !emp.resignation_date || targetDateStr < emp.resignation_date).forEach(emp => {
                     // 정기 휴무 요일이면 제외 (주차별 규칙 반영)
                     if (!isFixedOffDay(emp.regular_holiday_rules, dayOfWeek, targetDateStr)) {
                         schedulesForDay.push({
