@@ -1469,7 +1469,13 @@ function renderLeaveMgmtRow(emp) {
         </td>
         <td class="p-2 text-sm text-center">${leaveData.legal}</td>
         <td class="p-2"><input type="number" id="leave-carried-${emp.id}" value="${periodAdj.carried}" step="0.5" class="table-input text-center text-xs w-14"></td>
-        <td class="p-2"><input type="number" id="leave-adj-${emp.id}" value="${periodAdj.adjustment}" step="0.5" class="table-input text-center text-xs w-14"></td>
+        <td class="p-2">
+            <div class="flex items-center gap-1">
+                <span class="text-sm font-bold ${periodAdj.adjustment > 0 ? 'text-green-600' : periodAdj.adjustment < 0 ? 'text-red-600' : 'text-gray-500'}">${periodAdj.adjustment > 0 ? '+' : ''}${periodAdj.adjustment || 0}</span>
+                <button onclick="window.openAdjustmentModal(${emp.id},'${periodStartStr}')" class="text-xs border rounded px-1 py-0.5 hover:bg-gray-100" title="조정 내역">📋</button>
+            </div>
+            <input type="hidden" id="leave-adj-${emp.id}" value="${periodAdj.adjustment}">
+        </td>
         <td class="p-2 text-sm text-center font-bold">${finalLeaves}</td>
         <td class="p-2 text-sm text-center">${used}</td>
         <td class="p-2 text-sm text-center font-bold ${remaining < 0 ? 'text-red-600' : ''}">${remaining}</td>
@@ -1712,6 +1718,145 @@ window.closeSettlementModal = function () {
 };
 
 _('#close-settlement-modal-btn')?.addEventListener('click', window.closeSettlementModal);
+
+// =========================================================================================
+// 연차 조정 내역 모달
+// =========================================================================================
+window.openAdjustmentModal = function (empId, periodStartStr) {
+    const emp = state.management.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const adjs = emp.adjustments || {};
+    const periodData = adjs[periodStartStr] || {};
+    const details = periodData.details || [];
+
+    // 기존 모달 제거
+    document.getElementById('adjustment-detail-modal')?.remove();
+
+    const detailRows = details.map((d, i) => `
+        <tr class="border-b">
+            <td class="p-2 text-center text-sm font-bold ${d.amount > 0 ? 'text-green-600' : 'text-red-600'}">${d.amount > 0 ? '+' : ''}${d.amount}</td>
+            <td class="p-2 text-sm">${d.reason || '-'}</td>
+            <td class="p-2 text-xs text-gray-500">${d.date || '-'}</td>
+            <td class="p-2 text-center"><button onclick="window.removeAdjustmentDetail(${empId},'${periodStartStr}',${i})" class="text-red-400 hover:text-red-600">×</button></td>
+        </tr>
+    `).join('');
+
+    const total = details.reduce((sum, d) => sum + (d.amount || 0), 0);
+
+    const html = `
+    <div id="adjustment-detail-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width:450px;">
+            <h3 class="text-lg font-bold mb-3">${emp.name} — 연차 조정 내역</h3>
+            <table class="w-full text-sm mb-3">
+                <thead class="bg-gray-100"><tr>
+                    <th class="p-2 w-16">일수</th>
+                    <th class="p-2 text-left">사유</th>
+                    <th class="p-2 w-20">등록일</th>
+                    <th class="p-2 w-10"></th>
+                </tr></thead>
+                <tbody id="adj-detail-tbody">${detailRows || '<tr><td colspan="4" class="p-3 text-center text-gray-400">내역 없음</td></tr>'}</tbody>
+            </table>
+            <div class="text-right text-sm font-bold mb-4">합계: <span class="${total > 0 ? 'text-green-600' : total < 0 ? 'text-red-600' : ''}">${total > 0 ? '+' : ''}${total}일</span></div>
+
+            <div class="border-t pt-3">
+                <div class="flex gap-2 items-end">
+                    <div class="w-16">
+                        <label class="text-xs text-gray-500">일수</label>
+                        <input type="number" id="adj-new-amount" step="0.5" value="1" class="table-input text-center text-sm w-full">
+                    </div>
+                    <div class="flex-1">
+                        <label class="text-xs text-gray-500">사유</label>
+                        <input type="text" id="adj-new-reason" placeholder="포상, 추가근무 보존 등" class="table-input text-sm w-full">
+                    </div>
+                    <button onclick="window.addAdjustmentDetail(${empId},'${periodStartStr}')" class="text-xs bg-green-500 text-white px-3 py-2 rounded hover:bg-green-600">추가</button>
+                </div>
+            </div>
+
+            <div class="flex justify-end mt-4">
+                <button onclick="document.getElementById('adjustment-detail-modal').remove()" class="px-4 py-2 border rounded hover:bg-gray-100">닫기</button>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+    const overlay = document.getElementById('adjustment-detail-modal');
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+};
+
+window.addAdjustmentDetail = async function (empId, periodStartStr) {
+    const amount = parseFloat(document.getElementById('adj-new-amount').value);
+    const reason = document.getElementById('adj-new-reason').value.trim();
+    if (!amount || !reason) { alert('일수와 사유를 입력해주세요.'); return; }
+
+    const emp = state.management.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const adjustments = { ...(emp.adjustments || {}) };
+    const periodData = { ...(adjustments[periodStartStr] || {}) };
+    const details = [...(periodData.details || [])];
+
+    details.push({ amount, reason, date: dayjs().format('YYYY-MM-DD') });
+    const total = details.reduce((sum, d) => sum + (d.amount || 0), 0);
+
+    periodData.details = details;
+    periodData.adjustment = total;
+    adjustments[periodStartStr] = periodData;
+
+    const updateData = { adjustments };
+    // 현재 주기면 leave_adjustment도 업데이트
+    const leaveMgmtOffset = window.leaveMgmtOffsets?.[empId] || 0;
+    if (leaveMgmtOffset === 0) updateData.leave_adjustment = total;
+
+    const { error } = await db.from('employees').update(updateData).eq('id', empId);
+    if (error) { alert('저장 실패: ' + error.message); return; }
+
+    // state 업데이트
+    emp.adjustments = adjustments;
+    if (leaveMgmtOffset === 0) emp.leave_adjustment = total;
+
+    // hidden input 업데이트
+    const hiddenInput = document.getElementById(`leave-adj-${empId}`);
+    if (hiddenInput) hiddenInput.value = total;
+
+    // 모달 새로고침
+    document.getElementById('adjustment-detail-modal')?.remove();
+    window.openAdjustmentModal(empId, periodStartStr);
+    // 연차 관리 목록 갱신
+    await window.loadAndRenderManagement();
+};
+
+window.removeAdjustmentDetail = async function (empId, periodStartStr, index) {
+    const emp = state.management.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const adjustments = { ...(emp.adjustments || {}) };
+    const periodData = { ...(adjustments[periodStartStr] || {}) };
+    const details = [...(periodData.details || [])];
+
+    if (index < 0 || index >= details.length) return;
+    const removed = details.splice(index, 1)[0];
+    if (!confirm(`"${removed.reason}" (${removed.amount > 0 ? '+' : ''}${removed.amount}일) 항목을 삭제하시겠습니까?`)) return;
+
+    const total = details.reduce((sum, d) => sum + (d.amount || 0), 0);
+    periodData.details = details;
+    periodData.adjustment = total;
+    adjustments[periodStartStr] = periodData;
+
+    const updateData = { adjustments };
+    const leaveMgmtOffset = window.leaveMgmtOffsets?.[empId] || 0;
+    if (leaveMgmtOffset === 0) updateData.leave_adjustment = total;
+
+    const { error } = await db.from('employees').update(updateData).eq('id', empId);
+    if (error) { alert('삭제 실패: ' + error.message); return; }
+
+    emp.adjustments = adjustments;
+    if (leaveMgmtOffset === 0) emp.leave_adjustment = total;
+
+    document.getElementById('adjustment-detail-modal')?.remove();
+    window.openAdjustmentModal(empId, periodStartStr);
+    await window.loadAndRenderManagement();
+};
 
 // =========================================================================================
 // 연차 현황 기능
@@ -1970,6 +2115,17 @@ export function getLeaveStatusHTML() {
                 color: #1e40af;
             }
 
+            /* 조정 연차 스타일 (초록) */
+            .leave-box.type-adjustment {
+                border-color: #86efac; /* green-300 */
+                color: #16a34a; /* green-600 */
+                background-color: #f0fdf4; /* green-50 */
+            }
+            .leave-box.type-adjustment.used {
+                background-color: #86efac;
+                color: #14532d;
+            }
+
             /* 당겨쓰기/초과 연차 스타일 (빨강) */
             .leave-box.type-borrowed {
                 border-color: #fca5a5; /* red-300 */
@@ -2039,6 +2195,7 @@ export function getLeaveStatusHTML() {
                                 <div class="flex gap-2 text-xs font-normal">
                                     <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월</span>
                                     <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 border border-blue-400 rounded"></span>금년</span>
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 border rounded" style="background-color:#f0fdf4;border-color:#86efac;"></span>조정(포상/보존)</span>
                                     <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>올해 초과(당겨쓰기)</span>
                                 </div>
                             </div>
@@ -2063,6 +2220,8 @@ function getLeaveStatusRow(emp) {
     // 확정 연차 개수 (이월/조정 등이 적용된 실제 잔여 한도)
     const finalLeaves = emp.leaveDetails.final;
     const carriedCnt = emp.leaveDetails.carriedOverCnt || 0; // 이월된 개수
+    const adjustmentCnt = Math.max(0, emp.leaveDetails.adjustment || 0); // 조정 추가분 (양수만)
+    const legalCnt = emp.leaveDetails.legal || 0; // 법정 연차
     const usedCnt = emp.usedDays; // 올해 실제 총 사용 개수
 
     // 그리드 총 칸 수 = Max(확정 연차, 실제 사용량)
@@ -2087,16 +2246,22 @@ function getLeaveStatusRow(emp) {
         const isUsed = i < usedCnt; // 앞에서부터 순차적으로 채움
         const boxIndex = i + 1;
 
-        // 연차 소진 순서 로직: 이월 -> 금년 -> 당겨쓰기 
-        // 1. 이월 연차 구간
+        // 연차 소진 순서 로직: 이월 -> 금년 -> 조정 -> 당겨쓰기
         let boxType = 'regular'; // default
         let boxLabel = boxIndex;
+        const regularEnd = carriedCnt + legalCnt; // 이월 + 법정 끝나는 지점
+        const adjustEnd = regularEnd + adjustmentCnt; // 조정 끝나는 지점
 
         if (i < carriedCnt) {
             boxType = 'carried';
-            boxLabel = `이${boxIndex}`; // 이1, 이2 ...
+            boxLabel = `이${i + 1}`; // 이1, 이2 ...
+        } else if (i < regularEnd) {
+            boxType = 'regular';
+        } else if (i < adjustEnd) {
+            boxType = 'adjustment';
+            boxLabel = `조${i - regularEnd + 1}`; // 조1, 조2 ...
         } else if (i < finalLeaves) {
-            // 금년 연차 구간
+            // 혹시 남는 구간 (음수 조정 등)
             boxType = 'regular';
         } else {
             // 이번년도의 초과(당겨쓰기) 구간
