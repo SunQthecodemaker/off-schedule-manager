@@ -121,6 +121,8 @@ async function handleUpdateEmployee(id) {
     const department_id = parseInt(_(`#dept-${id}`).value, 10);
     const managerCheckbox = _(`#manager-${id}`);
     const isManager = managerCheckbox ? managerCheckbox.checked : false;
+    const resignInput = _(`#resign-${id}`);
+    const resignation_date = resignInput ? (resignInput.value || null) : null;
 
 
     const { data, error } = await db.from('employees').update({
@@ -128,7 +130,8 @@ async function handleUpdateEmployee(id) {
         entryDate,
         email,
         department_id,
-        isManager
+        isManager,
+        resignation_date
     }).eq('id', id).select();
 
 
@@ -437,14 +440,15 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-2" style="width:100px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-2 text-left" style="width:250px">이름</th>
-        <th class="p-2 text-left" style="width:250px">부서</th>
-        <th class="p-2 text-left" style="width:300px">입사일</th>
+        <th class="p-2" style="width:80px"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-2 text-left" style="width:200px">이름</th>
+        <th class="p-2 text-left" style="width:200px">부서</th>
+        <th class="p-2 text-left" style="width:200px">입사일</th>
         <th class="p-2 text-left">이메일</th>
-        <th class="p-2 text-center" style="width:100px">매니저</th>
-        <th class="p-2 text-center" style="width:250px">근무 규칙</th>
-        <th class="p-2 text-center" style="width:180px">관리</th>
+        <th class="p-2 text-center" style="width:80px">매니저</th>
+        <th class="p-2 text-center" style="width:220px">근무 규칙</th>
+        <th class="p-2 text-left" style="width:200px">퇴사일</th>
+        <th class="p-2 text-center" style="width:150px">관리</th>
     `;
 
     const rows = filteredEmployees.map(emp => {
@@ -455,7 +459,6 @@ export function getManagementHTML() {
         if (filter === 'active') {
             actions = `
                 <button onclick="handleUpdateEmployee(${emp.id})" class="text-xs bg-blue-500 text-white px-2 py-1 rounded">저장</button>
-                <button onclick="handleRetireEmployee(${emp.id})" class="text-xs bg-gray-500 text-white px-2 py-1 rounded ml-1">퇴사</button>
                 <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-1">PW</button>
                 <button onclick="handleDeleteEmployee(${emp.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1">삭제</button>
              `;
@@ -494,6 +497,7 @@ export function getManagementHTML() {
                         })()}
                     </button>
                 </td>
+                <td class="p-2"><input type="date" id="resign-${emp.id}" class="table-input emp-date-input" value="${emp.resignation_date || ''}"></td>
                 <td class="p-2 text-center" style="white-space:nowrap;">${actions}</td>
             </tr>
         `;

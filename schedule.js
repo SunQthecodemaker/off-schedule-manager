@@ -25,6 +25,13 @@ const DEFAULT_TEAM_MEMBERS = [
 // ✅ 그리드 크기 상수 (모든 곳에서 이 값만 사용)
 const GRID_SIZE = 32;
 
+/** 직원이 특정 날짜에 재직 중인지 판별 (퇴사일 이전이면 재직) */
+function isActiveOnDate(emp, dateStr) {
+    if (emp.is_temp || emp.retired || emp.email?.startsWith('temp-')) return false;
+    if (!emp.resignation_date) return true;
+    return dateStr < emp.resignation_date;
+}
+
 // ═══════════════════════════════════════════════════════
 // ✅ 고정 휴무 규칙 헬퍼
 // DB 형식: [{day:2, sub:true}, {day:4, sub:false}] (신규)
@@ -85,7 +92,7 @@ function getOccupiedPositions(dateStr, excludeEmpId) {
     const occupied = new Set();
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-'))
     );
 
     // 레코드가 있으면 레코드의 grid_position, 없으면 배치 패널 기본 위치
@@ -880,7 +887,7 @@ function applyLayoutToSchedules(positionMap, targetDates) {
     // 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
     if (dateSet) {
         const activeEmps = (state.management.employees || []).filter(
-            e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+            e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-'))
         );
         dateSet.forEach(dateStr => {
             const existingEmpIds = new Set(
@@ -998,7 +1005,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     const currentGrid = new Array(GRID_SIZE).fill(null);
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-'))
     );
     const dateScheds = new Map();
     state.schedule.schedules.forEach(s => {
@@ -1460,7 +1467,7 @@ function getWorkingEmployeesOnDate(dateStr) {
 
     // ✅ 모든 활성 직원 중 근무 상태인 직원 반환 (레코드 유무 무관)
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')) && !excludedIds.has(e.id)
+        e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-')) && !excludedIds.has(e.id)
     );
     activeEmps.forEach(emp => {
         const status = getEmployeeStatusOnDate(emp.id, dateStr);
@@ -1560,7 +1567,7 @@ function getEmployeeBasePositions() {
     // layout에 없는 활성 직원 → 빈 자리에 순차 배정
     const usedPositions = new Set(posMap.values());
     const activeIds = (state.management.employees || [])
-        .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+        .filter(e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-')))
         .map(e => e.id);
     activeIds.forEach(id => {
         if (!posMap.has(id)) {
@@ -1733,7 +1740,8 @@ function renderCalendar() {
     const basePositions = getEmployeeBasePositions();
     const excludedIds = getExcludedEmployeeIds();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => !e.is_temp && !(e.email?.startsWith('temp-'))
+        // resignation_date는 루프 안에서 날짜별로 체크 (월 중 퇴사 가능)
     );
 
     let currentLoop = startDate.clone();
@@ -1798,6 +1806,8 @@ function renderCalendar() {
         activeEmps.forEach(emp => {
             if (excludedIds.has(emp.id)) return;
             if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
+            // 퇴사일 이후는 미표시
+            if (emp.resignation_date && dateStr >= emp.resignation_date) return;
 
             let pos = getEmpPosition(emp.id);
             if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
@@ -2359,7 +2369,7 @@ async function loadAndRenderScheduleData(date) {
         }
         // ✅ 활성 직원 중 members에 없는 직원 자동 추가 (신규 입사 등)
         const activeEmployeeIds = (state.management?.employees || [])
-            .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+            .filter(e => !e.is_temp && !e.resignation_date && !(e.email?.startsWith('temp-')))
             .map(e => e.id);
         if (employeeOrder.length > 0) {
             const memberSet = new Set(employeeOrder);
