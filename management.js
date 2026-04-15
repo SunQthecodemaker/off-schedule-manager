@@ -434,8 +434,10 @@ export function getManagementHTML() {
         // ✨ 임시직원(is_temp 또는 temp- 이메일)은 관리 목록에서 제외
         if (emp.is_temp || (emp.email && emp.email.startsWith('temp-'))) return false;
 
-        if (filter === 'active') return !emp.resignation_date;
-        if (filter === 'retired') return emp.resignation_date;
+        const today = dayjs().format('YYYY-MM-DD');
+        const isResigned = emp.resignation_date && emp.resignation_date <= today;
+        if (filter === 'active') return !isResigned;
+        if (filter === 'retired') return isResigned;
         return true;
     });
 
