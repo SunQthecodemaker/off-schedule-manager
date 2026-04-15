@@ -1450,27 +1450,27 @@ function renderLeaveMgmtRow(emp) {
     const workDaysValue = emp.weekly_work_days || 5;
 
     return `<tr class="border-t" id="leave-mgmt-row-${emp.id}" data-period-start="${periodStartStr}">
-        <td class="p-2 text-sm font-semibold">${emp.name}</td>
-        <td class="p-2 text-xs">${entryDateValue}</td>
-        <td class="p-2">
+        <td class="p-2 text-sm text-center font-semibold">${emp.name}</td>
+        <td class="p-2 text-xs text-center">${entryDateValue}</td>
+        <td class="p-2 text-center">
             ${isCurrentPeriod ? `<select id="leave-workdays-${emp.id}" class="table-input text-center text-xs w-14">
                 ${[1,2,3,4,5,6,7].map(n => `<option value="${n}" ${workDaysValue===n?'selected':''}>주${n}일</option>`).join('')}
             </select>` : `<span class="text-xs text-gray-500">주${workDaysValue}일</span>`}
         </td>
-        <td class="p-2">
+        <td class="p-2 text-center">
             ${isCurrentPeriod ? `<input type="text" id="leave-renewal-${emp.id}" value="${renewalDateValue}" placeholder="MM-DD" maxlength="5" class="table-input text-center text-xs w-14">` : `<span class="text-xs">${renewalDateValue || '-'}</span>`}
         </td>
-        <td class="p-2">
-            <div class="flex items-center gap-1">
+        <td class="p-2 text-center">
+            <div class="flex items-center justify-center gap-1">
                 <button onclick="window.changeLeaveMgmtEmpPeriod(${emp.id},-1)" class="text-gray-400 hover:text-gray-700 text-xs">◀</button>
                 <span class="text-[10px] px-1 py-0.5 border rounded ${isCurrentPeriod ? 'bg-gray-100 text-gray-600' : 'bg-blue-50 text-blue-700 font-bold'}">${periodLabel}</span>
                 <button onclick="window.changeLeaveMgmtEmpPeriod(${emp.id},1)" class="text-gray-400 hover:text-gray-700 text-xs">▶</button>
             </div>
         </td>
         <td class="p-2 text-sm text-center">${leaveData.legal}</td>
-        <td class="p-2"><input type="number" id="leave-carried-${emp.id}" value="${periodAdj.carried}" step="0.5" class="table-input text-center text-xs w-14"></td>
-        <td class="p-2">
-            <div class="flex items-center gap-1">
+        <td class="p-2 text-center"><input type="number" id="leave-carried-${emp.id}" value="${periodAdj.carried}" step="0.5" class="table-input text-center text-xs w-14"></td>
+        <td class="p-2 text-center">
+            <div class="flex items-center justify-center gap-1">
                 <span class="text-sm font-bold ${periodAdj.adjustment > 0 ? 'text-green-600' : periodAdj.adjustment < 0 ? 'text-red-600' : 'text-gray-500'}">${periodAdj.adjustment > 0 ? '+' : ''}${periodAdj.adjustment || 0}</span>
                 <button onclick="window.openAdjustmentModal(${emp.id},'${periodStartStr}')" class="text-xs border rounded px-1 py-0.5 hover:bg-gray-100" title="조정 내역">📋</button>
             </div>
