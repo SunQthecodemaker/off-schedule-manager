@@ -172,14 +172,23 @@ export class ScheduleGenerator {
             if (emp.regular_holiday_rules && Array.isArray(emp.regular_holiday_rules)) {
                 const dayIdx = date.day();
                 const rules = emp.regular_holiday_rules;
-                const weekNum = Math.ceil(date.date() / 7);
+                // 달력 주 행 번호 계산 (1일 기준)
+                const firstOfMonth = date.startOf('month');
+                const firstDow = firstOfMonth.day();
+                const firstMonday = firstDow <= 1
+                    ? firstOfMonth.subtract(firstDow === 0 ? 6 : 0, 'day')
+                    : firstOfMonth.subtract(firstDow - 1, 'day');
+                const dow = date.day();
+                const thisMonday = dow === 0 ? date.subtract(6, 'day') : date.subtract(dow - 1, 'day');
+                const weekRow = Math.floor(thisMonday.diff(firstMonday, 'day') / 7) + 1;
+
                 if (rules.length > 0 && typeof rules[0] === 'number') {
                     if (rules.includes(dayIdx)) return false;
                 } else {
                     const matched = rules.some(r => {
                         if (r.day !== dayIdx) return false;
-                        if (!r.weeks) return true; // weeks 없으면 매주
-                        return r.weeks.includes(weekNum);
+                        if (!r.weeks) return true;
+                        return r.weeks.includes(weekRow);
                     });
                     if (matched) return false;
                 }

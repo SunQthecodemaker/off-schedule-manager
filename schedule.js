@@ -52,6 +52,25 @@ function getFixedOffDays(rules) {
 }
 
 /**
+ * 달력 주 행 번호 계산 (그 달의 달력에서 몇 번째 주 행인지)
+ * 1일이 속한 주 = 1주, 다음 주 = 2주, ...
+ */
+function getCalendarWeekRow(dateStr) {
+    const d = dayjs(dateStr);
+    const firstOfMonth = d.startOf('month');
+    // 1일이 속한 주의 월요일 (달력 시작점)
+    const firstDow = firstOfMonth.day(); // 0=일, 1=월, ...
+    const firstMonday = firstDow <= 1
+        ? firstOfMonth.subtract(firstDow === 0 ? 6 : 0, 'day')
+        : firstOfMonth.subtract(firstDow - 1, 'day');
+    // 해당 날짜가 속한 주의 월요일
+    const dow = d.day();
+    const thisMonday = dow === 0 ? d.subtract(6, 'day') : d.subtract(dow - 1, 'day');
+    // 주 차이 + 1
+    return Math.floor(thisMonday.diff(firstMonday, 'day') / 7) + 1;
+}
+
+/**
  * 특정 날짜가 고정 휴무인지 (주차별 규칙 포함)
  * @param {Array} rules - regular_holiday_rules
  * @param {number} dayOfWeek - 요일 번호 (0=일, 1=월, ..., 6=토)
@@ -62,8 +81,8 @@ function isFixedOffDay(rules, dayOfWeek, dateStr) {
     return parsed.some(r => {
         if (r.day !== dayOfWeek) return false;
         if (!r.weeks || !dateStr) return true; // weeks 없으면 매주 적용
-        const weekNum = Math.ceil(dayjs(dateStr).date() / 7);
-        return r.weeks.includes(weekNum);
+        const weekRow = getCalendarWeekRow(dateStr);
+        return r.weeks.includes(weekRow);
     });
 }
 
