@@ -39,21 +39,37 @@ function parseHolidayRules(rules) {
     return rules;
 }
 
-/** 고정 휴무 요일 번호 배열 반환 (기존 코드 호환) */
+/** 고정 휴무 요일 번호 배열 반환 (기존 코드 호환 — weeks 무시, 모든 휴무 요일) */
 function getFixedOffDays(rules) {
     return parseHolidayRules(rules).map(r => r.day);
 }
 
-/** 특정 요일이 고정 휴무인지 */
-function isFixedOffDay(rules, dayOfWeek) {
-    return getFixedOffDays(rules).includes(dayOfWeek);
+/**
+ * 특정 날짜가 고정 휴무인지 (주차별 규칙 포함)
+ * @param {Array} rules - regular_holiday_rules
+ * @param {number} dayOfWeek - 요일 번호 (0=일, 1=월, ..., 6=토)
+ * @param {string} [dateStr] - 날짜 문자열 (YYYY-MM-DD), 주차 판정용. 없으면 weeks 무시.
+ */
+function isFixedOffDay(rules, dayOfWeek, dateStr) {
+    const parsed = parseHolidayRules(rules);
+    return parsed.some(r => {
+        if (r.day !== dayOfWeek) return false;
+        if (!r.weeks || !dateStr) return true; // weeks 없으면 매주 적용
+        const weekNum = Math.ceil(dayjs(dateStr).date() / 7);
+        return r.weeks.includes(weekNum);
+    });
 }
 
 /** 특정 요일의 대체근무 가능 여부 */
-function isSubstitutable(rules, dayOfWeek) {
+function isSubstitutable(rules, dayOfWeek, dateStr) {
     const parsed = parseHolidayRules(rules);
-    const rule = parsed.find(r => r.day === dayOfWeek);
-    return rule ? rule.sub !== false : false; // 고정 휴무 아니면 false
+    const rule = parsed.find(r => {
+        if (r.day !== dayOfWeek) return false;
+        if (!r.weeks || !dateStr) return true;
+        const weekNum = Math.ceil(dayjs(dateStr).date() / 7);
+        return r.weeks.includes(weekNum);
+    });
+    return rule ? rule.sub !== false : false;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4233,12 +4249,17 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
     // 직원별 검수
     const rows = targetEmployees.map(emp => {
-        const empWorkDays = emp.weekly_work_days || 5;
-        const parsedRules = parseHolidayRules(emp.regular_holiday_rules);
-        const fixedOffDayNums = parsedRules.map(r => r.day);
+        const rules = emp.regular_holiday_rules;
+        const parsedRules = parseHolidayRules(rules);
 
-        // 의무 근무일 = min(주근무일수, 영업일수)
-        const expected = Math.min(empWorkDays, businessDayCount);
+        // 의무 근무일 = 영업일 중 고정 휴무가 아닌 날 수 (주차별 규칙 반영)
+        let expected = 0;
+        businessDays.forEach(dateStr => {
+            const dayIdx = dayjs(dateStr).day();
+            if (!isFixedOffDay(rules, dayIdx, dateStr)) {
+                expected++;
+            }
+        });
 
         // 실제 근무일 카운트 + 비정상 휴무 수집
         let workCount = 0;
@@ -4253,7 +4274,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
                 leaveCount++;
             } else {
                 const dayIdx = dayjs(dateStr).day();
-                if (!fixedOffDayNums.includes(dayIdx)) {
+                if (!isFixedOffDay(rules, dayIdx, dateStr)) {
                     unexpectedOffNames.push(weekDayNames[dayIdx]);
                 }
             }
@@ -4262,11 +4283,10 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         // 공휴일이 근무일에 겹칠 때 대체가능 고정 휴무일 확인
         const holidayOnWorkDay = businessDays.filter(dateStr => {
             const dayIdx = dayjs(dateStr).day();
-            return holidays.has(dateStr) && !fixedOffDayNums.includes(dayIdx);
+            return holidays.has(dateStr) && !isFixedOffDay(rules, dayIdx, dateStr);
         });
         let subAvailable = false;
         if (holidayOnWorkDay.length > 0) {
-            // 이번 주에 대�� 가능한 고정 휴무일이 있는지
             subAvailable = parsedRules.some(r => r.sub !== false);
         }
 
@@ -4757,8 +4777,8 @@ async function handleImportPreviousMonth() {
                 let positionCounter = 0;
 
                 activeEmployees.forEach(emp => {
-                    // 정기 휴무 요일이면 제외
-                    if (!isFixedOffDay(emp.regular_holiday_rules, dayOfWeek)) {
+                    // 정기 휴무 요일이면 제외 (주차별 규칙 반영)
+                    if (!isFixedOffDay(emp.regular_holiday_rules, dayOfWeek, targetDateStr)) {
                         schedulesForDay.push({
                             date: targetDateStr,
                             employee_id: emp.id,

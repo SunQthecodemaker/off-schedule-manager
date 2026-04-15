@@ -487,7 +487,8 @@ export function getManagementHTML() {
                             const parsed = (typeof rules[0] === 'number') ? rules.map(d => ({day:d, sub:true})) : rules;
                             const dayLabels = parsed.map(r => {
                                 const name = dayNames[r.day];
-                                return r.sub !== false ? `<span style="color:#059669">${name}</span>` : `<span style="color:#dc2626">${name}</span>`;
+                                const weekLabel = r.weeks ? `(${r.weeks.join(',')}주)` : '';
+                                return r.sub !== false ? `<span style="color:#059669">${name}${weekLabel}</span>` : `<span style="color:#dc2626">${name}${weekLabel}</span>`;
                             }).join('');
                             return ` ${dayLabels}휴무`;
                         })()}
@@ -2635,23 +2636,55 @@ function openRegularHolidayModal(employeeId, employeeName) {
     const existing = document.getElementById('regular-holiday-modal');
     if (existing) existing.remove();
 
+    // 주차별 규칙: 같은 요일에 여러 규칙 가능 (매주 vs 특정 주차)
+    const rulesForDay = (dayIdx) => parsedRules.filter(r => r.day === dayIdx);
+
     const checkBoxesHtml = days.map((day, index) => {
         if (!day) return '';
-        const rule = parsedRules.find(r => r.day === index);
-        const isChecked = rule ? 'checked' : '';
-        const subChecked = rule ? (rule.sub !== false ? 'checked' : '') : 'checked';
+        const dayRules = rulesForDay(index);
+        const isChecked = dayRules.length > 0 ? 'checked' : '';
+        const subChecked = dayRules.length > 0 ? (dayRules.some(r => r.sub !== false) ? 'checked' : '') : 'checked';
+        // 주차 설정: weeks 배열이 있으면 해당 주차만, 없으면 매주
+        const hasWeeks = dayRules.some(r => r.weeks && r.weeks.length > 0);
+        const selectedWeeks = hasWeeks ? dayRules.flatMap(r => r.weeks || []) : [];
+        const weekChecks = [1,2,3,4,5].map(w =>
+            `<label class="flex items-center space-x-1 cursor-pointer">
+                <input type="checkbox" class="week-checkbox week-cb-${index} w-3 h-3" value="${w}" data-day="${index}" ${selectedWeeks.includes(w) ? 'checked' : ''}>
+                <span class="text-xs text-gray-500">${w}주</span>
+            </label>`
+        ).join('');
+
         return `
-            <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                <label class="flex items-center space-x-2 cursor-pointer">
-                    <input type="checkbox" class="regular-rule-checkbox w-4 h-4 text-blue-600 rounded" value="${index}" ${isChecked}
-                        onchange="document.getElementById('sub-toggle-${index}').style.display = this.checked ? 'flex' : 'none'">
-                    <span class="text-gray-700">${day}요일</span>
-                </label>
-                <div id="sub-toggle-${index}" class="flex items-center gap-1" style="display:${rule ? 'flex' : 'none'}">
-                    <label class="flex items-center space-x-1 cursor-pointer text-xs">
-                        <input type="checkbox" class="sub-checkbox w-3 h-3 text-green-600 rounded" value="${index}" ${subChecked}>
-                        <span class="text-gray-500">대체○</span>
+            <div class="p-2 hover:bg-gray-50 rounded border-b border-gray-100">
+                <div class="flex items-center justify-between">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" class="regular-rule-checkbox w-4 h-4 text-blue-600 rounded" value="${index}" ${isChecked}
+                            onchange="document.getElementById('detail-${index}').style.display = this.checked ? 'block' : 'none'">
+                        <span class="text-gray-700">${day}요일</span>
                     </label>
+                    <div class="flex items-center gap-2">
+                        <label class="flex items-center space-x-1 cursor-pointer text-xs">
+                            <input type="checkbox" class="sub-checkbox w-3 h-3 text-green-600 rounded" value="${index}" ${subChecked}>
+                            <span class="text-gray-500">대체○</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="detail-${index}" style="display:${dayRules.length > 0 ? 'block' : 'none'}" class="mt-1 ml-6">
+                    <div class="flex items-center gap-1 flex-wrap">
+                        <label class="flex items-center space-x-1 cursor-pointer">
+                            <input type="radio" name="week-mode-${index}" class="week-mode-radio" value="every" data-day="${index}" ${!hasWeeks ? 'checked' : ''}
+                                onchange="document.getElementById('week-picks-${index}').style.display='none'">
+                            <span class="text-xs text-gray-600">매주</span>
+                        </label>
+                        <label class="flex items-center space-x-1 cursor-pointer">
+                            <input type="radio" name="week-mode-${index}" class="week-mode-radio" value="specific" data-day="${index}" ${hasWeeks ? 'checked' : ''}
+                                onchange="document.getElementById('week-picks-${index}').style.display='flex'">
+                            <span class="text-xs text-gray-600">특정 주차</span>
+                        </label>
+                    </div>
+                    <div id="week-picks-${index}" class="flex gap-1 mt-1" style="display:${hasWeeks ? 'flex' : 'none'}">
+                        ${weekChecks}
+                    </div>
                 </div>
             </div>
         `;
@@ -2715,10 +2748,18 @@ window.handleSaveRegularHoliday = async function (employeeId) {
     const subMap = {};
     subCheckboxes.forEach(cb => { subMap[cb.value] = cb.checked; });
 
-    // 새 형식: [{day, sub}]
+    // 새 형식: [{day, sub, weeks?}] — weeks는 특정 주차 모드일 때만
     const selectedRules = Array.from(checkboxes).map(cb => {
         const dayVal = parseInt(cb.value);
-        return { day: dayVal, sub: subMap[String(dayVal)] !== false };
+        const rule = { day: dayVal, sub: subMap[String(dayVal)] !== false };
+        // 주차 모드 확인
+        const modeRadio = document.querySelector(`input[name="week-mode-${dayVal}"]:checked`);
+        if (modeRadio && modeRadio.value === 'specific') {
+            const weekCbs = document.querySelectorAll(`.week-cb-${dayVal}:checked`);
+            const weeks = Array.from(weekCbs).map(w => parseInt(w.value));
+            if (weeks.length > 0) rule.weeks = weeks;
+        }
+        return rule;
     });
     selectedRules.sort((a, b) => a.day - b.day);
 
