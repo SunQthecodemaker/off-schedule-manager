@@ -493,7 +493,7 @@ async function handleSaveSchedules() {
                     if (insertError) throw insertError;
                 }
             } catch (insertErr) {
-                console.error('⚠️ 삽입 실패, 백업 데이터 복원 시도...', insertErr);
+                console.error('삽입 실패, 백업 데이터 복원 시도...', insertErr);
                 if (backupData && backupData.length > 0) {
                     const restoreRows = backupData.map(({ id, created_at, ...rest }) => rest);
                     for (let i = 0; i < restoreRows.length; i += BATCH_SIZE) {
@@ -2371,6 +2371,7 @@ async function loadAndRenderScheduleData(date) {
         state.schedule.schedules = scheduleRes.data || [];
         state.schedule.companyHolidays = new Set((holidayRes.data || []).map(h => h.date));
 
+
         const titleEl = _('#calendar-title');
         if (titleEl) {
             titleEl.textContent = dayjs(date).format('YYYY년 M월');
@@ -3632,6 +3633,7 @@ function handleCalendarGridDblClick(e) {
 function initializeCalendarEvents() {
     const calendarGrid = document.querySelector('#pure-calendar');
     if (calendarGrid) {
+        // ✨ Remove anonymous listeners is impossible, so we use named handler now.
         // ✨ Named handler로 중복 방지: remove 후 add
         calendarGrid.removeEventListener('dblclick', handleCalendarGridDblClick, { capture: true });
         calendarGrid.addEventListener('dblclick', handleCalendarGridDblClick, { capture: true });

@@ -122,13 +122,6 @@ async function handleUpdateEmployee(id) {
     const managerCheckbox = _(`#manager-${id}`);
     const isManager = managerCheckbox ? managerCheckbox.checked : false;
 
-        id,
-        name,
-        entryDate,
-        email,
-        department_id,
-        isManager
-    });
 
     const { data, error } = await db.from('employees').update({
         name,
@@ -192,14 +185,6 @@ window.handleRegisterNewEmployee = async function (btnElement) {
 
     const department_id_val = _('#newDepartment').value;
 
-        name,
-        entryDate,
-        email,
-        passwordLength: password.length,
-        foundInput: !!passwordInput,
-        department_id_val,
-        btn: btnElement
-    });
 
     if (!name || !entryDate || !password || !department_id_val) {
         alert(`입력 정보가 부족합니다.\n\n확인된 정보:\n이름: ${name}\n입사일: ${entryDate}\n비밀번호: ${password ? '입력됨 (' + password.length + '자)' : '미입력 (시스템이 값을 읽지 못함)'}\n부서ID: ${department_id_val}`);
