@@ -4226,7 +4226,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
 
-        // 색상: 부족+대체가능=노란, 부족=빨간, 연차사용주간=파란, 정상=없음
+        // 색상: 부족+대체가능=노란, 부족=빨간, 초과근무=초록, 연차사용주간=파란, 정상=없음
         let bgColor = 'transparent';
         let diffColor = '#6b7280';
         if (diff < 0) {
@@ -4235,8 +4235,11 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             } else {
                 bgColor = '#fee2e2'; diffColor = '#dc2626';
             }
+        } else if (diff > 0) {
+            // 초과 근무 (의무 근무일보다 더 일함)
+            bgColor = '#f0fdf4'; diffColor = '#16a34a';
         } else if (hasLeave) {
-            // 연차가 근무로 카운트되어 diff>=0이지만 연차 사용 주간 표시
+            // 연차가 근무로 카운트되어 diff=0이지만 연차 사용 주간 표시
             bgColor = '#dbeafe'; diffColor = '#2563eb';
         }
 
