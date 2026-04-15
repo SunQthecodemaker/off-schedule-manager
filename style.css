@@ -632,11 +632,14 @@ body {
 }
 
 .layout-dept-label {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 700;
     white-space: nowrap;
-    min-width: 32px;
+    min-width: 28px;
     flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 45px;
 }
 
 .layout-pool-card {
