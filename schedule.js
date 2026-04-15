@@ -4273,17 +4273,18 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
 
-        // 색상: -N+연차=파란, -N+연차없음+대체가능=노란, -N+연차없음=빨간, 0=없음
+        // 색상: 부족+대체가능=노란, 부족=빨간, 연차사용주간=파란, 정상=없음
         let bgColor = 'transparent';
         let diffColor = '#6b7280';
         if (diff < 0) {
-            if (hasLeave) {
-                bgColor = '#dbeafe'; diffColor = '#2563eb';
-            } else if (subAvailable) {
+            if (subAvailable) {
                 bgColor = '#fef3c7'; diffColor = '#d97706';
             } else {
                 bgColor = '#fee2e2'; diffColor = '#dc2626';
             }
+        } else if (hasLeave) {
+            // 연차가 근무로 카운트되어 diff>=0이지만 연차 사용 주간 표시
+            bgColor = '#dbeafe'; diffColor = '#2563eb';
         }
 
         return { emp, workCount, expected, diff, hasLeave, subAvailable, bgColor, diffColor, unexpectedOffNames };
@@ -4308,7 +4309,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         </div>`;
     }).join('');
 
-    const errorCount = rows.filter(r => r.diff < 0 && !r.hasLeave).length;
+    const errorCount = rows.filter(r => r.diff < 0).length;
     const crossBadge = isCrossMonth ? '<span style="font-size:9px; color:#6366f1; margin-left:2px;">+익월</span>' : '';
     const errorBadge = errorCount > 0 ? `<span style="background:#fee2e2; font-size:9px; padding:0 2px; border-radius:3px; color:#dc2626;">${errorCount}명확인</span>` : '';
 
