@@ -122,7 +122,6 @@ async function handleUpdateEmployee(id) {
     const managerCheckbox = _(`#manager-${id}`);
     const isManager = managerCheckbox ? managerCheckbox.checked : false;
 
-    console.log('💾 업데이트 데이터:', {
         id,
         name,
         entryDate,
@@ -139,7 +138,6 @@ async function handleUpdateEmployee(id) {
         isManager
     }).eq('id', id).select();
 
-    console.log('✅ DB 응답:', { data, error });
 
     if (error) {
         alert('직원 정보 업데이트 실패: ' + error.message);
@@ -194,7 +192,6 @@ window.handleRegisterNewEmployee = async function (btnElement) {
 
     const department_id_val = _('#newDepartment').value;
 
-    console.log('📝 [하단 신규등록] 입력값 확인:', {
         name,
         entryDate,
         email,
@@ -1050,7 +1047,7 @@ window.renderLeaveCalendar = function (containerSelector) {
     let filteredRequests = [...leaveRequests];
 
     if (currentCalendarFilter !== 'all') {
-        filteredRequests = filteredRequests.filter(req => req.status === currentCalendarFilter);
+        filteredRequests = filteredRequests.filter(req => (req.final_manager_status || req.status) === currentCalendarFilter);
     }
 
     if (currentCalendarEmployee !== 'all') {
@@ -1061,8 +1058,9 @@ window.renderLeaveCalendar = function (containerSelector) {
     const events = [];
     filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
-        const color = req.status === 'approved' ? '#10b981' : req.status === 'pending' ? '#fbbf24' : '#ef4444';
-        const borderColor = req.status === 'approved' ? '#059669' : req.status === 'pending' ? '#f59e0b' : '#dc2626';
+        const st = req.final_manager_status || req.status;
+        const color = st === 'approved' ? '#10b981' : st === 'pending' ? '#fbbf24' : '#ef4444';
+        const borderColor = st === 'approved' ? '#059669' : st === 'pending' ? '#f59e0b' : '#dc2626';
 
         req.dates?.forEach(date => {
             events.push({
@@ -1253,7 +1251,6 @@ async function syncLeaveToSchedules(requestId) {
                     .eq('date', date);
             }
         }
-        console.log(`✅ 연차 승인 → schedules 동기화 완료 (request ${requestId})`);
     } catch (e) {
         console.warn('schedules 동기화 실패 (비치명적):', e);
     }
@@ -1756,11 +1753,9 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
         updateData.weekly_work_days = weekly_work_days;
     }
 
-    console.log('💾 연차 업데이트:', { id, periodStartStr, updateData });
 
     let { data, error } = await db.from('employees').update(updateData).eq('id', id).select();
 
-    console.log('✅ DB 응답:', { data, error });
 
     if (error) {
         alert('연차 정보 업데이트 실패: ' + error.message);
@@ -2272,11 +2267,11 @@ window.viewLeaveApplication = function (requestId) {
 
     // 서명 이미지 처리
     const signatureHtml = request.signature
-        ? `< img src = "${request.signature}" alt = "서명" style = "max-width: 150px; max-height: 80px;" > `
-        : `< span class="text-gray-400 italic text-sm" > (서명 없음)</span > `;
+        ? `<img src="${request.signature}" alt="서명" style="max-width: 150px; max-height: 80px;">`
+        : `<span class="text-gray-400 italic text-sm">(서명 없음)</span>`;
 
     const modalHTML = `
-    < div id = "view-leave-app-modal" class="modal-overlay" >
+    <div id="view-leave-app-modal" class="modal-overlay">
         <div class="modal-content" style="max-width: 700px;">
             <div class="flex justify-end no-print">
                 <button id="close-leave-app-modal" class="text-3xl text-gray-500 hover:text-gray-800">&times;</button>
@@ -2342,17 +2337,17 @@ window.viewLeaveApplication = function (requestId) {
                 <button id="ok-leave-app-btn" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">확인</button>
             </div>
         </div>
-        </div >
+        </div>
 
     <style>
         @media print {
             body * {
                 visibility: hidden;
             }
-                .print - area, .print - area * {
+                .print-area, .print-area * {
                     visibility: visible;
                 }
-                    .print - area {
+                    .print-area {
             position: absolute;
         left: 0;
         top: 0;
@@ -2517,7 +2512,6 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
             // dataset에서 온 employeeId는 문자열일 수 있으므로 정수 변환
             const targetEmpId = parseInt(employeeId, 10);
 
-            console.log(`🔎 스케줄 업데이트 시도: Date=${inputDate}, EmpId=${targetEmpId}`);
 
             // 해당 날짜에 이미 스케줄이 있는지 확인
             const { data: existingSchedules, error: scheduleError } = await db.from('schedules')
@@ -2528,7 +2522,6 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
             if (scheduleError) {
                 console.error("❌ 스케줄 조회 실패:", scheduleError);
             } else {
-                console.log(`✅ 조회된 스케줄:`, existingSchedules);
 
                 if (existingSchedules && existingSchedules.length > 0) {
                     // 기존 스케줄이 있으면 '휴무'로 업데이트
@@ -2541,7 +2534,6 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
                     else console.log("✅ 스케줄 상태 '휴무'로 변경 완료");
                 } else {
                     // 스케줄이 없으면 새로 '휴무' 스케줄 생성
-                    console.log("ℹ️ 기존 스케줄 없음, 신규 휴무 스케줄 생성");
                     await db.from('schedules').insert({
                         date: inputDate,
                         employee_id: targetEmpId,

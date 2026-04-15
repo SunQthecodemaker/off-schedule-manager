@@ -180,13 +180,7 @@ export async function renderEmployeePortal() {
 
     await loadEmployeeData();
 
-    // 로그인 시 미제출 서류 팝업 알림
-    const pendingDocs = (state.employee.documentRequests || []).filter(req => req.status === 'pending');
-    if (pendingDocs.length > 0) {
-        setTimeout(() => {
-            alert(`📋 미제출 서류가 ${pendingDocs.length}건 있습니다.\n\n서류를 제출하지 않으면 연차 신청이 제한됩니다.\n"서류 제출" 탭에서 확인해주세요.`);
-        }, 500);
-    }
+    // 미제출 서류 알림은 loadEmployeeData() 내에서 한 번만 표시
 }
 
 async function handleChangePassword() {
@@ -270,7 +264,6 @@ async function renderEmployeeScheduleView() {
 
     const isPC = window.innerWidth >= 1024;
 
-    console.log('📋 renderEmployeeScheduleView: innerWidth =', window.innerWidth, 'isPC =', isPC);
 
     if (isPC) {
         try {
@@ -284,7 +277,6 @@ async function renderEmployeeScheduleView() {
             state.management.departments = deptRes.data || [];
             state.management.employees = (empRes.data || []).map(e => ({ ...e, entryDate: e.entryDate || e.entry_date }));
             state.management.leaveRequests = leaveRes.data || [];
-            console.log('📋 직원 스케줄 뷰: departments', state.management.departments.length, 'employees', state.management.employees.length, 'leaveRequests', state.management.leaveRequests.length);
             container.style.height = 'auto';
             await renderScheduleManagement(container, true);
         } catch (err) {
@@ -316,6 +308,7 @@ function getDepartmentColor(departmentId) {
 async function renderEmployeeMobileScheduleList() {
     const container = _('#employee-work-schedule-tab');
     if (!container) return;
+    window._retryScheduleList = renderEmployeeMobileScheduleList;
 
     // 로딩 인디케이터
     if (!container.innerHTML.includes('animate-spin')) {
@@ -555,7 +548,7 @@ async function renderEmployeeMobileScheduleList() {
         container.innerHTML = `<div class="p-4 text-red-600 text-center">
             <p class="font-bold">스케줄을 불러오지 못했습니다.</p>
             <p class="text-sm mt-2">${error.message}</p>
-            <button onclick="renderEmployeeMobileScheduleList()" class="mt-4 px-4 py-2 bg-gray-200 rounded text-sm">다시 시도</button>
+            <button onclick="window._retryScheduleList && window._retryScheduleList()" class="mt-4 px-4 py-2 bg-gray-200 rounded text-sm">다시 시도</button>
         </div>`;
     }
 }
@@ -959,7 +952,6 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
         try {
             employeeCalendarInstance.destroy();
         } catch (e) {
-            console.log('기존 달력 제거 중 에러:', e);
         }
         employeeCalendarInstance = null;
     }
@@ -1480,6 +1472,7 @@ async function handleDocumentSubmit() {
 
             if (file.size > 10 * 1024 * 1024) {
                 alert('파일 크기는 10MB 이하여야 합니다.');
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '제출하기'; }
                 return;
             }
 
@@ -1491,6 +1484,7 @@ async function handleDocumentSubmit() {
             if (uploadError) {
                 console.error('파일 업로드 실패:', uploadError);
                 alert('파일 업로드에 실패했습니다. 다시 시도해주세요.');
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '제출하기'; }
                 return;
             }
 

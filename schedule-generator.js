@@ -168,8 +168,16 @@ export class ScheduleGenerator {
             // 주간 근무 한도 (5일) 체크
             if ((weeklyCounts[emp.id] || 0) >= this.SETTINGS.workLimit) return false;
 
-            // 고정 휴무일 체크
-            if (emp.regular_holiday_rules && emp.regular_holiday_rules.includes(dayName)) return false;
+            // 고정 휴무일 체크 (규칙은 숫자 배열 [0=일,1=월,...] 또는 객체 배열 [{day:0,sub:true},...])
+            if (emp.regular_holiday_rules && Array.isArray(emp.regular_holiday_rules)) {
+                const dayIdx = date.day();
+                const rules = emp.regular_holiday_rules;
+                if (rules.length > 0 && typeof rules[0] === 'number') {
+                    if (rules.includes(dayIdx)) return false;
+                } else {
+                    if (rules.some(r => r.day === dayIdx)) return false;
+                }
+            }
 
             return true;
         });
