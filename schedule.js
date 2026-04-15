@@ -3098,9 +3098,13 @@ function handleDateHeaderDblClick(e) {
                         }
                     }
                 } else {
-                    // 스케줄 없음 -> 신규 생성
-                    let newPos = 0;
-                    while (occupiedPositions.has(newPos) && newPos < GRID_SIZE) newPos++;
+                    // 스케줄 없음 -> 배치 패널 위치 기준으로 복귀
+                    const basePositions = getEmployeeBasePositions();
+                    let newPos = basePositions.get(emp.id) ?? 0;
+                    if (occupiedPositions.has(newPos)) {
+                        newPos = 0;
+                        while (occupiedPositions.has(newPos) && newPos < GRID_SIZE) newPos++;
+                    }
 
                     if (newPos < GRID_SIZE) {
                         const tempId = `temp-${Date.now()}-${emp.id}-${newPos}`;
