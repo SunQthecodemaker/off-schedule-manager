@@ -565,7 +565,7 @@ async function handleSaveSchedules() {
 
             if (holidaysToAdd.length > 0) {
                 const { error: holidayAddError } = await db.from('company_holidays')
-                    .insert(holidaysToAdd.map(date => ({ date })));
+                    .upsert(holidaysToAdd.map(date => ({ date })), { onConflict: 'date' });
                 if (holidayAddError) throw holidayAddError;
             }
 
@@ -576,8 +576,8 @@ async function handleSaveSchedules() {
                 if (holidayRemoveError) throw holidayRemoveError;
             }
         } catch (holidayError) {
-            console.error('❌ 휴무일 저장 실패 (권한 문제 예상):', holidayError);
-            alert('⚠️ 주의: 직원 스케줄은 저장되었으나, 휴일 설정 저장 권한이 없습니다.\n(관리자에게 company_holidays 테이블 권한 설정을 요청하세요)');
+            console.error('❌ 휴무일 저장 실패:', holidayError);
+            alert('⚠️ 주의: 직원 스케줄은 저장되었으나, 휴일 설정 저장에 실패했습니다.\n(' + (holidayError.message || holidayError) + ')');
             // 에러를 throw하지 않고 진행하여 화면 리로드(Step 6)가 실행되도록 함
         }
 
