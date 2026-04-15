@@ -1124,9 +1124,9 @@ function initializeDayDragDrop(dayEl, dateStr) {
         group: {
             name: 'calendar-group',
             pull: true,
-            put: ['sidebar-employees', 'calendar-group'] // ✅ 그룹명 변경
+            put: ['calendar-group', 'layout-pool'] // ✅ 달력 간 이동 + 배치 패널에서 드롭
         },
-        draggable: '.event-card, .draggable-employee, .list-spacer, .event-slot',  // ✅ 빈 슬롯도 드래그 가능
+        draggable: '.event-card, .draggable-employee, .list-spacer, .event-slot, .layout-pool-card',
         animation: 150,
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
