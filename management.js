@@ -127,7 +127,7 @@ async function handleUpdateEmployee(id) {
 
     const { data, error } = await db.from('employees').update({
         name,
-        entryDate,
+        entry_date: entryDate,
         email,
         department_id,
         isManager,
@@ -203,7 +203,7 @@ window.handleRegisterNewEmployee = async function (btnElement) {
     // Insert with explicit default for regular_holiday_rules
     const { error } = await db.from('employees').insert([{
         name,
-        entryDate,
+        entry_date: entryDate,
         email,
         password,
         department_id,
@@ -1305,7 +1305,7 @@ export async function handleBulkRegister() {
             return;
         }
 
-        employeesToInsert.push({ name, entryDate, email, password, department_id });
+        employeesToInsert.push({ name, entry_date: entryDate, email, password, department_id });
     });
 
     if (employeesToInsert.length > 0) {
