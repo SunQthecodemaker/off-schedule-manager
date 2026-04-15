@@ -571,12 +571,7 @@ function updateLivePreview() {
         .replace(/{{(.*?)}}/g, '<span class="template-variable">{{$1}}</span>')
         .replace(/\n/g, '<br>');
     
-    previewEl.innerHTML = `
-        <div class="text-center mb-4">
-            <h2 class="text-xl font-bold">${name}</h2>
-        </div>
-        ${preview}
-    `;
+    previewEl.innerHTML = preview;
 }
 
 async function renderTemplatesList() {
@@ -629,8 +624,6 @@ async function handleSaveTemplate(e) {
     const content = _('#templateContent').value.trim();
     const requires_attachment = _('#requiresAttachment').checked;
     
-    console.log('서식 저장 시도:', { templateId, name, description, content, requires_attachment });
-    
     if (!name || !content) {
         alert('서식 이름과 본문은 필수입니다.');
         return;
@@ -645,8 +638,6 @@ async function handleSaveTemplate(e) {
             },
             requires_attachment: requires_attachment
         };
-        
-        console.log('저장할 데이터:', data);
         
         let result;
         
@@ -730,9 +721,6 @@ window.previewTemplate = function(templateId) {
                 
                 <div class="a4-document mx-auto">
                     <div class="a4-content">
-                        <div class="text-center mb-4">
-                            <h2 class="text-xl font-bold">${templateName}</h2>
-                        </div>
                         ${previewContent}
                     </div>
                 </div>
