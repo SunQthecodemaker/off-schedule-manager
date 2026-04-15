@@ -75,13 +75,35 @@ function isSubstitutable(rules, dayOfWeek, dateStr) {
 // ═══════════════════════════════════════════════════════
 // ✅ 통합 네임카드 조작 헬퍼 (모든 이동/붙여넣기가 이 함수를 사용)
 // 공통 규칙:
-//   R1: 덮어쓰기 — 타겟 위치에 기존 카드 있으면 휴무 처리
-//   R2: 이름 중복 방지 — 같은 날짜에 같은 직원 2개 시 기존것 제거
+//   R1: 밀어내기 — 타겟 위치에 기존 카드 있으면 (근무/휴무 무관) 빈 자리로 이동
+//   R2: 이름 중복 방지 — 같은 날짜에 같은 직원이 이동한 거니까 기존것 제거
 //   R4: 복수 조작 = 배열 단위 — 1개든 10개든 동일 경로
 // ═══════════════════════════════════════════════════════
 
+/** 해당 날짜에서 특정 직원 이외의 모든 점유 위치 Set 반환 (근무/휴무 무관) */
+function getOccupiedPositions(dateStr, excludeEmpId) {
+    const occupied = new Set();
+    state.schedule.schedules.forEach(s => {
+        if (s.date === dateStr && s.employee_id > 0 && s.employee_id !== excludeEmpId && s.grid_position != null) {
+            occupied.add(s.grid_position);
+        }
+    });
+    return occupied;
+}
+
+/** 해당 날짜에서 가장 가까운 빈 자리 찾기 (근무/휴무 무관) */
+function findNearestEmpty(dateStr, fromPos, excludeEmpId) {
+    const occupied = getOccupiedPositions(dateStr, excludeEmpId);
+    // fromPos 근처에서 양방향 탐색
+    for (let dist = 1; dist < GRID_SIZE; dist++) {
+        if (fromPos + dist < GRID_SIZE && !occupied.has(fromPos + dist)) return fromPos + dist;
+        if (fromPos - dist >= 0 && !occupied.has(fromPos - dist)) return fromPos - dist;
+    }
+    return -1;
+}
+
 /**
- * 카드를 특정 날짜의 특정 위치에 배치 (덮어쓰기 방식)
+ * 카드를 특정 날짜의 특정 위치에 배치
  * @param {Array} items - [{employee_id, status?}] 배치할 직원 목록
  * @param {string} dateStr - 대상 날짜 (YYYY-MM-DD)
  * @param {number|null} startPos - 시작 위치 (null이면 자동 탐색)
@@ -101,18 +123,14 @@ function placeCards(items, dateStr, startPos = null) {
         // 배치할 position 결정
         let assignPos = -1;
         if (hasOrigPos && item._origPos != null) {
-            // 상대 위치 보존 모드: 원래 배치 형태 유지 + 오프셋
             assignPos = item._origPos + baseOffset;
         } else if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
-            // _origPos 없음: startPos부터 연속 배치
             assignPos = startPos + idx;
         } else {
-            // 자동 빈자리 탐색
+            // 자동 빈자리 탐색 (근무/휴무 무관하게 점유 판단)
+            const occupied = getOccupiedPositions(dateStr, empId);
             for (let i = 0; i < GRID_SIZE; i++) {
-                const occupied = state.schedule.schedules.some(
-                    s => s.date === dateStr && s.status === '근무' && s.grid_position === i && s.employee_id !== empId
-                );
-                if (!occupied) { assignPos = i; break; }
+                if (!occupied.has(i)) { assignPos = i; break; }
             }
         }
 
@@ -120,23 +138,28 @@ function placeCards(items, dateStr, startPos = null) {
             return;
         }
 
-        // R2: 같은 날짜에 같은 직원이 이미 있으면 기존것 모두 휴무 처리
+        // R2: 같은 날짜에 같은 직원의 기존 레코드 제거 (이동이니까)
         state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr && s.employee_id === empId && s.status === '근무') {
+            if (s.date === dateStr && s.employee_id === empId) {
                 s.status = '휴무';
+                s.grid_position = -1; // 위치 해제
                 unsavedChanges.set(s.id, { type: 'update', data: s });
             }
         });
 
-        // R1: 타겟 위치에 다른 카드 있으면 덮어쓰기 (기존 카드 휴무)
+        // R1: 타겟 위치에 다른 카드 있으면 (근무/휴무 무관) 빈 자리로 밀어내기
         state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr && s.status === '근무' && s.grid_position === assignPos && s.employee_id !== empId) {
-                s.status = '휴무';
-                unsavedChanges.set(s.id, { type: 'update', data: s });
+            if (s.date === dateStr && s.grid_position === assignPos && s.employee_id !== empId && s.employee_id > 0) {
+                const newPos = findNearestEmpty(dateStr, assignPos, empId);
+                if (newPos >= 0) {
+                    s.grid_position = newPos;
+                    s.sort_order = newPos;
+                    unsavedChanges.set(s.id, { type: 'update', data: s });
+                }
             }
         });
 
-        // 배치: 기존 스케줄 업데이트 또는 신규 생성 (가장 최근 레코드 사용)
+        // 배치: 기존 스케줄 업데이트 또는 신규 생성
         let target = null;
         state.schedule.schedules.forEach(s => {
             if (s.date === dateStr && s.employee_id === empId) target = s;
