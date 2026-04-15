@@ -1361,20 +1361,20 @@ export function getLeaveManagementHTML() {
     const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
 
     const headers = [
-        { name: '이름', width: '7%' },
+        { name: '이름', width: '8%' },
         { name: '입사일', width: '7%' },
         { name: '근무', width: '5%' },
         { name: '기준일', width: '6%' },
-        { name: '주기', width: '14%' },
+        { name: '주기', width: '10%' },
         { name: '법정', width: '4%' },
         { name: '이월', width: '6%' },
-        { name: '조정', width: '6%' },
-        { name: '확정', width: '4%' },
-        { name: '사용', width: '4%' },
-        { name: '잔여', width: '4%' },
-        { name: '', width: '8%' }
+        { name: '조정', width: '8%' },
+        { name: '확정', width: '5%' },
+        { name: '사용', width: '5%' },
+        { name: '잔여', width: '5%' },
+        { name: '', width: '10%' }
     ];
-    const headerHtml = headers.map(h => `<th class="p-2 text-left text-xs font-semibold" style="width:${h.width};">${h.name}</th>`).join('');
+    const headerHtml = headers.map(h => `<th class="p-2 text-center text-xs font-semibold" style="width:${h.width};">${h.name}</th>`).join('');
 
     const rows = validEmployees.map(emp => renderLeaveMgmtRow(emp)).join('');
 
