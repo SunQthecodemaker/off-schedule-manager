@@ -4253,13 +4253,21 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         const parsedRules = parseHolidayRules(rules);
 
         // 의무 근무일 = 영업일 중 고정 휴무가 아닌 날 수 (주차별 규칙 반영)
-        let expected = 0;
-        businessDays.forEach(dateStr => {
-            const dayIdx = dayjs(dateStr).day();
-            if (!isFixedOffDay(rules, dayIdx, dateStr)) {
-                expected++;
-            }
-        });
+        const empWorkDays = emp.weekly_work_days || 5;
+        let expected;
+        if (parsedRules.length > 0) {
+            // 고정 휴무 규칙 있음 → 영업일에서 고정 휴무일 제외
+            expected = 0;
+            businessDays.forEach(dateStr => {
+                const dayIdx = dayjs(dateStr).day();
+                if (!isFixedOffDay(rules, dayIdx, dateStr)) {
+                    expected++;
+                }
+            });
+        } else {
+            // 규칙 없음 → 기존 방식: min(주근무일수, 영업일수)
+            expected = Math.min(empWorkDays, businessDayCount);
+        }
 
         // 실제 근무일 카운트 + 비정상 휴무 수집
         let workCount = 0;
