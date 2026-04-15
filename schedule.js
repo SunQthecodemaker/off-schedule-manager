@@ -80,14 +80,29 @@ function isSubstitutable(rules, dayOfWeek, dateStr) {
 //   R4: 복수 조작 = 배열 단위 — 1개든 10개든 동일 경로
 // ═══════════════════════════════════════════════════════
 
-/** 해당 날짜에서 특정 직원 이외의 모든 점유 위치 Set 반환 (근무/휴무 무관) */
+/** 해당 날짜에서 특정 직원 이외의 모든 점유 위치 Set 반환 (레코드 유무 무관) */
 function getOccupiedPositions(dateStr, excludeEmpId) {
     const occupied = new Set();
+    const basePositions = getEmployeeBasePositions();
+    const activeEmps = (state.management.employees || []).filter(
+        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+    );
+
+    // 레코드가 있으면 레코드의 grid_position, 없으면 배치 패널 기본 위치
+    const dateScheds = new Map();
     state.schedule.schedules.forEach(s => {
-        if (s.date === dateStr && s.employee_id > 0 && s.employee_id !== excludeEmpId && s.grid_position != null) {
-            occupied.add(s.grid_position);
-        }
+        if (s.date === dateStr && s.employee_id > 0) dateScheds.set(s.employee_id, s);
     });
+
+    activeEmps.forEach(emp => {
+        if (emp.id === excludeEmpId) return;
+        const sched = dateScheds.get(emp.id);
+        const pos = (sched && sched.grid_position != null && sched.grid_position >= 0)
+            ? sched.grid_position
+            : basePositions.get(emp.id);
+        if (pos != null && pos >= 0) occupied.add(pos);
+    });
+
     return occupied;
 }
 
@@ -843,10 +858,12 @@ function getLayoutPositionMap() {
 }
 
 // 지정된 날짜들의 스케줄에 배치(grid_position)만 적용 (상태는 건드리지 않음)
+// 레코드 없는 직원도 신규 레코드 생성하여 배치 적용
 function applyLayoutToSchedules(positionMap, targetDates) {
     const dateSet = targetDates ? new Set(targetDates) : null;
     let updateCount = 0;
 
+    // 기존 레코드 업데이트
     state.schedule.schedules.forEach(s => {
         if (s.employee_id <= 0) return;
         if (dateSet && !dateSet.has(s.date)) return;
@@ -859,6 +876,34 @@ function applyLayoutToSchedules(positionMap, targetDates) {
             updateCount++;
         }
     });
+
+    // 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
+    if (dateSet) {
+        const activeEmps = (state.management.employees || []).filter(
+            e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        );
+        dateSet.forEach(dateStr => {
+            const existingEmpIds = new Set(
+                state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0).map(s => s.employee_id)
+            );
+            activeEmps.forEach(emp => {
+                if (existingEmpIds.has(emp.id) || !positionMap.has(emp.id)) return;
+                const newPos = positionMap.get(emp.id);
+                const newSched = {
+                    id: `layout-${Date.now()}-${emp.id}-${dateStr}`,
+                    date: dateStr,
+                    employee_id: emp.id,
+                    status: '근무',
+                    grid_position: newPos,
+                    sort_order: newPos,
+                    created_at: new Date().toISOString()
+                };
+                state.schedule.schedules.push(newSched);
+                unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
+                updateCount++;
+            });
+        });
+    }
 
     return updateCount;
 }
@@ -949,15 +994,26 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     }
 
 
-    // 1. 현재 24칸 상태 구성
+    // 1. 현재 32칸 상태 구성 (레코드 유무 무관, 전체 직원 포함)
     const currentGrid = new Array(GRID_SIZE).fill(null);
-
-    state.schedule.schedules.forEach(schedule => {
-        if (schedule.date === dateStr && schedule.status === '근무' && schedule.grid_position != null) {
-            const pos = schedule.grid_position;
-            if (pos >= 0 && pos < GRID_SIZE) {
-                currentGrid[pos] = schedule.employee_id;
-            }
+    const basePositions = getEmployeeBasePositions();
+    const activeEmps = (state.management.employees || []).filter(
+        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+    );
+    const dateScheds = new Map();
+    state.schedule.schedules.forEach(s => {
+        if (s.date === dateStr && s.employee_id > 0) {
+            const prev = dateScheds.get(s.employee_id);
+            if (!prev || s.status === '근무') dateScheds.set(s.employee_id, s);
+        }
+    });
+    activeEmps.forEach(emp => {
+        const sched = dateScheds.get(emp.id);
+        const pos = (sched && sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE)
+            ? sched.grid_position
+            : basePositions.get(emp.id);
+        if (pos != null && pos >= 0 && pos < GRID_SIZE && !currentGrid[pos]) {
+            currentGrid[pos] = emp.id;
         }
     });
 
@@ -1399,24 +1455,29 @@ function handleAppSheetSettings() {
 
 function getWorkingEmployeesOnDate(dateStr) {
     const workingEmps = [];
+    const basePositions = getEmployeeBasePositions();
+    const excludedIds = getExcludedEmployeeIds();
 
-    // ✅ DB에 명시적으로 '근무' 상태로 저장된 직원만 표시
-    state.schedule.schedules.forEach(schedule => {
-        if (schedule.date === dateStr && schedule.status === '근무') {
-            const emp = state.management.employees.find(e => e.id === schedule.employee_id);
-            if (emp) {
-                workingEmps.push(emp);
-            }
-        }
+    // ✅ 모든 활성 직원 중 근무 상태인 직원 반환 (레코드 유무 무관)
+    const activeEmps = (state.management.employees || []).filter(
+        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')) && !excludedIds.has(e.id)
+    );
+    activeEmps.forEach(emp => {
+        const status = getEmployeeStatusOnDate(emp.id, dateStr);
+        if (status === 'working') workingEmps.push(emp);
     });
 
-    // ✅ grid_position 기준 정렬
+    // ✅ grid_position 기준 정렬 (레코드 있으면 레코드 위치, 없으면 배치 패널 위치)
+    const dateScheds = new Map();
+    state.schedule.schedules.forEach(s => {
+        if (s.date === dateStr && s.employee_id > 0) dateScheds.set(s.employee_id, s);
+    });
     workingEmps.sort((a, b) => {
-        const scheduleA = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === a.id);
-        const scheduleB = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === b.id);
+        const scheduleA = dateScheds.get(a.id);
+        const scheduleB = dateScheds.get(b.id);
 
-        const posA = scheduleA?.grid_position;
-        const posB = scheduleB?.grid_position;
+        const posA = scheduleA?.grid_position ?? basePositions.get(a.id);
+        const posB = scheduleB?.grid_position ?? basePositions.get(b.id);
 
         if (posA != null && posB != null) return posA - posB;
         if (posA != null) return -1;
@@ -1484,53 +1545,31 @@ function getOffEmployeesOnDate(dateStr) {
     return offEmps;
 }
 
-// ✅ 직원 기본 그리드 위치 (수동 이동 전까지 고정, 자동 이동 금지)
+// ✅ 직원 기본 그리드 위치 — 배치 패널(teamLayout) 순서가 곧 기본 위치
+// 레코드 유무와 무관. 배치 패널의 members 배열 인덱스 = grid_position.
 function getEmployeeBasePositions() {
     const posMap = new Map();
-
-    // 1. 현재 월 스케줄에서 각 직원의 최빈 grid_position
-    const posCount = new Map();
-    state.schedule.schedules.forEach(s => {
-        if (s.employee_id <= 0 || s.grid_position == null) return;
-        if (!posCount.has(s.employee_id)) posCount.set(s.employee_id, new Map());
-        const counts = posCount.get(s.employee_id);
-        counts.set(s.grid_position, (counts.get(s.grid_position) || 0) + 1);
-    });
-    posCount.forEach((counts, empId) => {
-        let bestPos = 0, bestCount = 0;
-        counts.forEach((count, pos) => {
-            if (count > bestCount) { bestCount = count; bestPos = pos; }
-        });
-        posMap.set(empId, bestPos);
-    });
-
-    // 2. 스케줄에 없는 직원 → team_layout 기반 빈 position 배정
-    const usedPositions = new Set(posMap.values());
     const layout = state.schedule.teamLayout?.data?.[0]?.members;
+
     if (layout) {
-        const activeIds = new Set(
-            (state.management.employees || [])
-                .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
-                .map(e => e.id)
-        );
-        layout.forEach(id => {
-            if (id > 0 && activeIds.has(id) && !posMap.has(id)) {
-                let pos = 0;
-                while (usedPositions.has(pos)) pos++;
-                posMap.set(id, pos);
-                usedPositions.add(pos);
-            }
-        });
-        // layout에도 없는 활성 직원
-        activeIds.forEach(id => {
-            if (!posMap.has(id)) {
-                let pos = 0;
-                while (usedPositions.has(pos)) pos++;
-                posMap.set(id, pos);
-                usedPositions.add(pos);
-            }
+        layout.forEach((id, idx) => {
+            if (id > 0) posMap.set(id, idx);
         });
     }
+
+    // layout에 없는 활성 직원 → 빈 자리에 순차 배정
+    const usedPositions = new Set(posMap.values());
+    const activeIds = (state.management.employees || [])
+        .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+        .map(e => e.id);
+    activeIds.forEach(id => {
+        if (!posMap.has(id)) {
+            let pos = 0;
+            while (usedPositions.has(pos)) pos++;
+            posMap.set(id, pos);
+            usedPositions.add(pos);
+        }
+    });
 
     return posMap;
 }
