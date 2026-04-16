@@ -2292,7 +2292,7 @@ function getLeaveStatusRow(emp) {
             <td class="p-2 text-center font-semibold">
                 ${emp.name}
             </td>
-            <td class="p-2 text-center text-gray-600">${deptName}</td>
+            <td class="p-2 text-center text-gray-600" style="white-space:nowrap">${deptName}</td>
             <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
             <td class="p-2 text-center font-bold">${emp.leaveDetails.final}</td>
             <td class="p-2 text-center text-blue-600">${emp.usedDays}</td>
