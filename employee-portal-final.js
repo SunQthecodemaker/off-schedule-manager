@@ -65,7 +65,7 @@ export async function renderEmployeePortal() {
     portal.innerHTML = `
         <div class="max-w-full mx-auto">
             <div class="flex justify-between items-center mb-6">
-                <h1 class="text-3xl font-bold">${user.isManager ? '매니저 포털' : '직원 포털'}</h1>
+                <h1 class="text-xl sm:text-3xl font-bold">${user.isManager ? '매니저 포털' : '직원 포털'}</h1>
                 <div class="text-right">
                     <p class="text-gray-700 text-sm font-semibold">${user.name}님 (${departmentName})</p>
                     <div class="mt-1 flex gap-2 justify-end">
