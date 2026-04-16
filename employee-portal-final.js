@@ -78,19 +78,19 @@ export async function renderEmployeePortal() {
             <div class="grid grid-cols-4 gap-2 sm:gap-4 mb-6">
                 <div class="dash-card p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm whitespace-nowrap">확정 연차</p>
-                    <p class="text-xl sm:text-2xl font-bold" id="final-leaves">${leaveDetails.final}일</p>
+                    <p class="text-base sm:text-2xl font-bold" id="final-leaves">${leaveDetails.final}일</p>
                 </div>
                 <div class="dash-card p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm whitespace-nowrap">사용 연차</p>
-                    <p class="text-xl sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
+                    <p class="text-base sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
                 </div>
                 <div class="dash-card dash-card-accent p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm whitespace-nowrap">잔여 연차</p>
-                    <p class="text-xl sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
+                    <p class="text-base sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
                 </div>
                 <div class="dash-card dash-card-dark p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-sm font-semibold whitespace-nowrap">갱신일</p>
-                    <p class="text-xl sm:text-2xl font-medium whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
+                    <p class="text-sm sm:text-2xl font-medium whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
             </div>
 
@@ -1558,12 +1558,17 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
     let gridHTML = `
         <style>
             .leave-grid-container {
-                display: flex;
-                flex-wrap: wrap;
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
                 gap: 4px;
             }
+            @media (min-width: 640px) {
+                .leave-grid-container {
+                    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+                }
+            }
             .leave-box {
-                flex: 0 0 42px; width: 42px; height: 32px;
+                height: 30px;
                 border: 1px solid #e5e7eb; border-radius: 4px;
                 display: flex; align-items: center; justify-content: center;
                 font-size: 11px; background-color: #ffffff; color: #9ca3af;
@@ -1581,12 +1586,12 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
             }
             .leave-box:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
         </style>
-        <div class="flex items-center gap-1">
-            <button onclick="window.changeMyLeavePeriod(-1)" class="p-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
-                ◀
-            </button>
-            <div class="text-[10px] w-auto px-1 shrink-0 text-center border rounded py-1 whitespace-nowrap ${labelColor}" title="해당 주기 기준일">${periodLabel}</div>
-            <div class="leave-grid-container flex-1 mx-2">
+        <div class="flex items-center justify-center gap-2 mb-2">
+            <button onclick="window.changeMyLeavePeriod(-1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">◀</button>
+            <div class="text-xs px-2 py-1 border rounded whitespace-nowrap ${labelColor}" title="해당 주기 기준일">${periodLabel}</div>
+            <button onclick="window.changeMyLeavePeriod(1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="다음 주기">▶</button>
+        </div>
+        <div class="leave-grid-container">
     `;
 
     let boxHTML = '';
@@ -1635,10 +1640,6 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
     }
 
     gridHTML += boxHTML + `
-            </div>
-            <button onclick="window.changeMyLeavePeriod(1)" class="p-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="다음 주기">
-                ▶
-            </button>
         </div>
         <div class="flex flex-wrap gap-3 mt-2 text-xs text-gray-500 justify-end">
             <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월 연차</span>
