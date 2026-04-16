@@ -639,7 +639,7 @@ body {
     flex-shrink: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 45px;
+    max-width: 60px;
 }
 
 .layout-pool-card {

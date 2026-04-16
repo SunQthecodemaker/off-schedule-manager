@@ -1963,7 +1963,7 @@ export function getLeaveStatusHTML() {
         const lastYearEnd = pEnd.subtract(1, 'year');
 
         // 직전 주기 기준 할당량 계산
-        const lastYearRawDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, lastYearStart.add(1, 'day').toDate());
+        const lastYearRawDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, lastYearEnd.toDate());
         // 직전 주기의 adjustments도 반영
         const lastYearKey = lastYearStart.format('YYYY-MM-DD');
         const lastYearAdjs = (emp.adjustments || {})[lastYearKey];
