@@ -1408,26 +1408,15 @@ function renderLeaveMgmtRow(emp) {
     const offset = leaveMgmtOffsets[emp.id] || 0;
     const isCurrentPeriod = offset === 0;
 
-    // 주기 계산
-    const baseDate = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date) : dayjs(emp.entryDate || emp.entry_date);
-    const today = dayjs();
-    let renewalThisYear = dayjs(`${today.year()}-${baseDate.format('MM-DD')}`);
-    let pStart, pEnd;
-    if (!today.isBefore(renewalThisYear)) {
-        pStart = renewalThisYear;
-        pEnd = renewalThisYear.add(1, 'year').subtract(1, 'day');
-    } else {
-        pStart = renewalThisYear.subtract(1, 'year');
-        pEnd = renewalThisYear.subtract(1, 'day');
-    }
-    pStart = pStart.add(offset, 'year');
-    pEnd = pEnd.add(offset, 'year');
+    // 주기 계산: getLeaveDetails에 위임 (주기 종료일 기준)
+    const basePeriod = getLeaveDetails(emp);
+    const targetRefDate = offset === 0 ? null : dayjs(basePeriod.periodEnd).add(offset, 'year').toDate();
+    const leaveData = offset === 0 ? basePeriod : getLeaveDetails(emp, targetRefDate);
 
+    const pStart = dayjs(leaveData.periodStart);
+    const pEnd = dayjs(leaveData.periodEnd);
     const periodStartStr = pStart.format('YYYY-MM-DD');
     const periodLabel = `${pStart.format('YY.MM.DD')} ~`;
-
-    // 법정 연차
-    const leaveData = getLeaveDetails(emp, pStart.add(1, 'day').toDate());
 
     // 주기별 조정값
     const periodAdj = getPeriodAdjustment(emp, periodStartStr, offset);
@@ -1484,34 +1473,6 @@ function renderLeaveMgmtRow(emp) {
             ${isCurrentPeriod ? `<button class="text-xs bg-purple-500 text-white px-2 py-1 rounded ml-1" onclick="window.openSettlementModal(${emp.id})">정산</button>` : ''}
         </td>
     </tr>`;
-
-    return `
-        <div class="mb-3" >
-            <h2 class="text-lg font-semibold">연차 관리</h2>
-            <div class="flex justify-between items-end">
-                <p class="text-sm text-gray-600 mt-1">직원별 연차 기준일과 조정값을 관리합니다. [정산] 버튼을 통해 이월 또는 수당 정산을 처리할 수 있습니다.</p>
-            </div>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="fixed-table whitespace-nowrap text-sm mb-6">
-                <thead class="bg-gray-100"><tr>${headerHtml}</tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-        
-        <!-- 연차 정산 모달 -->
-        <div id="settlement-modal" class="modal-overlay hidden">
-            <div class="modal-content">
-                <div class="flex justify-between items-center border-b pb-3 mb-4">
-                    <h2 class="text-xl font-bold">연차 정산 및 갱신</h2>
-                    <button id="close-settlement-modal-btn" class="text-3xl">&times;</button>
-                </div>
-                <div id="settlement-modal-body" class="space-y-4">
-                    <!-- 동적 콘텐츠 -->
-                </div>
-            </div>
-        </div>
-    `;
 }
 
 // 정산 모달 열기
@@ -2989,10 +2950,8 @@ window.openLeaveHistoryModal = function (employeeId) {
     const requests = state.management.leaveRequests.filter(req => req.employee_id === emp.id && req.status === 'approved');
 
     periods.forEach((period, index) => {
-        // 해당 주기 시작일 + 1일 시점 기준으로 부여될 연차 한도 계산 시뮬레이션
-        const simDate = period.start.add(1, 'day').toDate();
-        // 과거이월 분을 0으로 만들어 순수 해당 주기에 발생한 기본한도+조정 한도만 산출
-        const periodDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, simDate);
+        // 주기 종료일 기준으로 법정 연차 계산 (첫 주기 월차가 최종값으로 나오도록)
+        const periodDetails = getLeaveDetails({ ...emp, carried_over_leave: 0 }, period.end.toDate());
         let periodLimit = periodDetails.final;
 
         // 해당 주기에 사용된 연차 추출 (모든 날짜 평탄화 후 필터링)
