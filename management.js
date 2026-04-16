@@ -1940,7 +1940,7 @@ export function getLeaveStatusHTML() {
         const baseCurrentDetails = getLeaveDetails(emp);
 
         // offset 만큼 이동한 기준일(simDate) 생성
-        const simDate = dayjs(baseCurrentDetails.periodStart).add(offset, 'year').add(1, 'day').toDate();
+        const simDate = dayjs(baseCurrentDetails.periodEnd).add(offset, 'year').toDate();
 
         // 타겟 주기 계산 (offset !== 0 인 과거/미래 주기는 수동 이월분을 미반영하여 순수 발생량만 계측)
         const targetEmp = { ...emp, carried_over_leave: offset === 0 ? emp.carried_over_leave : 0 };
