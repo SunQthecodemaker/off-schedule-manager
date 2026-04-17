@@ -510,7 +510,7 @@ async function renderEmployeeMobileScheduleList() {
             }
 
             html += `
-                <div class="flex gap-3 p-1 rounded-lg border ${isToday ? 'bg-blue-50/50 border-blue-100' : 'border-transparent'}">
+                <div class="flex gap-3 rounded-lg ${isToday ? 'bg-blue-50/50' : ''}">
                     <!-- 날짜 컬럼 -->
                     <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
                         <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel.toUpperCase()}</span>
