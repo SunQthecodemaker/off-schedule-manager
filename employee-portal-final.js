@@ -109,19 +109,19 @@ export async function renderEmployeePortal() {
             </div>
 
             <!-- 탭 버튼 -->
-            <div class="flex border-b mb-4 overflow-x-auto whitespace-nowrap">
-                <button id="tab-leave-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-blue-600 text-blue-600">연차 신청</button>
-                <button id="tab-docs-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 relative">
+            <div class="flex border-b mb-4 overflow-x-auto" style="white-space:nowrap;">
+                <button id="tab-leave-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-blue-600 text-blue-600 flex-shrink-0">연차 신청</button>
+                <button id="tab-docs-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 relative flex-shrink-0">
                     서류 제출
                     <span id="doc-tab-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">0</span>
                 </button>
-                <button id="tab-work-schedule-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+                <button id="tab-work-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
                     📅 근무 스케줄
                 </button>
                 ${user.isManager ? `
-                    <button id="tab-leave-list-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">연차 신청 목록 (매니저)</button>
-                    <button id="tab-leave-status-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">연차 현황</button>
-                    <button id="tab-schedule-btn" class="employee-tab-btn px-6 py-3 font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700">스케줄 관리 (매니저)</button>
+                    <button id="tab-leave-list-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 신청 목록</button>
+                    <button id="tab-leave-status-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 현황</button>
+                    <button id="tab-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">스케줄 관리</button>
                 ` : ''}
             </div>
 
@@ -286,7 +286,7 @@ async function renderEmployeeScheduleView() {
         }
     } else {
         // 모바일/태블릿: 주간 리스트 뷰
-        container.style.height = '840px';
+        container.style.height = 'auto';
         await renderEmployeeMobileScheduleList();
     }
 }
@@ -395,17 +395,10 @@ async function renderEmployeeMobileScheduleList() {
             <div class="flex flex-col gap-4 mb-4">
                 <!-- 날짜 및 이동 버튼 (Flex Row) -->
                 <!-- 날짜 및 이동 버튼 (Grid Layout for Robustness) -->
-                <div class="flex items-center justify-between bg-white p-2 rounded-lg shadow-sm border">
-                    <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 flex-shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-                    </button>
-                    <div class="text-center whitespace-nowrap">
-                        <span class="text-sm font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
-                        <span class="text-xs text-gray-400 ml-1">${startOfWeek.format('YYYY년')}</span>
-                    </div>
-                    <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 flex-shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                    </button>
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;" class="bg-white p-2 rounded-lg shadow-sm border">
+                    <button id="prev-week-btn" style="flex-shrink:0;" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">‹</button>
+                    <span style="white-space:nowrap;font-size:14px;font-weight:700;">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')} <span style="font-size:12px;color:#9ca3af;font-weight:400;">${startOfWeek.format('YYYY년')}</span></span>
+                    <button id="next-week-btn" style="flex-shrink:0;" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">›</button>
                 </div>
 
                 <!-- 보기 모드 & 부서 필터 -->
