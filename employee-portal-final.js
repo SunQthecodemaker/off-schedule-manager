@@ -399,8 +399,8 @@ async function renderEmployeeMobileScheduleList() {
                     <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
                     </button>
-                    <div class="text-center">
-                        <span class="text-base font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
+                    <div class="text-center whitespace-nowrap">
+                        <span class="text-sm font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
                         <span class="text-xs text-gray-400 ml-1">${startOfWeek.format('YYYY년')}</span>
                     </div>
                     <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 flex-shrink-0">
@@ -472,21 +472,15 @@ async function renderEmployeeMobileScheduleList() {
                 return { ...sch, empName: emp.name, deptId: emp.department_id, isSystem: false };
             });
 
-            // 3) 근무/휴무 필터링
-            if (state.employee.scheduleViewMode === 'working') {
-                employeesList = employeesList.filter(item => item.status === '근무' || item.isSystem); // 근무자 + 구분선 등
-            } else {
-                employeesList = employeesList.filter(item => item.status === '휴무'); // 휴무자만
-            }
-
-            // 4) 부서 필터링 (구분선/스페이서는 부서 필터 시 숨길지 여부 결정 필요, 여기서는 단순화하여 직원만 필터링)
+            // 3) 부서 필터링
             if (state.employee.scheduleDeptFilter !== 'all') {
                 const targetDeptId = parseInt(state.employee.scheduleDeptFilter);
                 employeesList = employeesList.filter(item => {
-                    if (item.isSystem) return false; // 부서 필터링 시 시스템 요소(구분선 등)는 숨김 (원하는대로 조정 가능)
+                    if (item.isSystem) return false;
                     return item.deptId === targetDeptId;
                 });
             }
+            // 근무/휴무 필터는 렌더링 시 빈칸 처리 (PC 달력과 동일하게 배치 유지)
 
             // 내용 생성
             let content = '';
@@ -494,20 +488,24 @@ async function renderEmployeeMobileScheduleList() {
             if (employeesList.length === 0) {
                 content = `<div class="text-xs text-gray-400 py-2 pl-2">일정 없음</div>`;
             } else {
-                // 그리드 컨테이너 시작
+                // PC 달력과 동일: sort_order 기반 배치 유지, 빈칸/스페이서는 건너뜀
+                const viewMode = state.employee.scheduleViewMode;
                 content = `<div class="grid grid-cols-4 gap-1">`;
 
                 employeesList.forEach(item => {
-                    if (item.isSystem) {
-                        // 모바일 뷰에서는 Spacer/Separator는 무시하거나 다르게 표현할 수 있음
-                        // 여기서는 단순함을 위해 스킵하거나 희미한 선으로 표시 가능
-                        // 사용자 요청사항: "4열 배열"이 중요하므로 직원 카드에 집중
+                    if (item.isSystem) return;
+
+                    // 뷰 모드 필터: 해당 모드가 아니면 빈칸 표시 (PC와 동일하게 위치 유지)
+                    if (viewMode === 'working' && item.status !== '근무') {
+                        content += `<div class="h-6 rounded bg-gray-50"></div>`;
+                        return;
+                    }
+                    if (viewMode === 'off' && item.status === '근무') {
+                        content += `<div class="h-6 rounded bg-gray-50"></div>`;
                         return;
                     }
 
                     const deptColor = getDepartmentColor(item.deptId);
-
-                    // 직관적인 카드 디자인: [색상점] [이름]
                     content += `
                         <div class="flex items-center bg-gray-50 border rounded px-1 py-1 min-w-0">
                             <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
@@ -516,7 +514,7 @@ async function renderEmployeeMobileScheduleList() {
                     `;
                 });
 
-                content += `</div>`; // 그리드 닫기
+                content += `</div>`;
             }
 
             html += `
