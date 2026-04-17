@@ -281,7 +281,7 @@ async function renderEmployeeScheduleView() {
             await renderScheduleManagement(container, true);
         } catch (err) {
             console.error('❌ PC 달력 렌더링 실패, 주간뷰로 대체:', err);
-            container.style.height = '840px';
+            container.style.height = 'auto';
             await renderEmployeeMobileScheduleList();
         }
     } else {
