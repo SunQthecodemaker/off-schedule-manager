@@ -77,20 +77,20 @@ export async function renderEmployeePortal() {
 
             <div class="grid grid-cols-4 gap-2 sm:gap-4 mb-6">
                 <div class="dash-card p-2 sm:p-4 flex flex-col items-center justify-center text-center">
-                    <p class="text-[10px] sm:text-sm whitespace-nowrap">확정 연차</p>
-                    <p class="text-base sm:text-2xl font-bold" id="final-leaves">${leaveDetails.final}일</p>
+                    <p class="text-[10px] sm:text-xs whitespace-nowrap">확정 연차</p>
+                    <p class="text-lg sm:text-2xl font-bold" id="final-leaves">${leaveDetails.final}일</p>
                 </div>
                 <div class="dash-card p-2 sm:p-4 flex flex-col items-center justify-center text-center">
-                    <p class="text-[10px] sm:text-sm whitespace-nowrap">사용 연차</p>
-                    <p class="text-base sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
+                    <p class="text-[10px] sm:text-xs whitespace-nowrap">사용 연차</p>
+                    <p class="text-lg sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
                 </div>
                 <div class="dash-card dash-card-accent p-2 sm:p-4 flex flex-col items-center justify-center text-center">
-                    <p class="text-[10px] sm:text-sm whitespace-nowrap">잔여 연차</p>
-                    <p class="text-base sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
+                    <p class="text-[10px] sm:text-xs whitespace-nowrap">잔여 연차</p>
+                    <p class="text-lg sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
                 </div>
                 <div class="dash-card dash-card-dark p-2 sm:p-4 flex flex-col items-center justify-center text-center">
-                    <p class="text-[10px] sm:text-sm font-semibold whitespace-nowrap">갱신일</p>
-                    <p class="text-sm sm:text-2xl font-medium whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
+                    <p class="text-[10px] sm:text-xs font-semibold whitespace-nowrap">갱신일</p>
+                    <p class="text-xs sm:text-xl font-medium whitespace-nowrap">${renewalDateShort || renewalDateText}</p>
                 </div>
             </div>
 
