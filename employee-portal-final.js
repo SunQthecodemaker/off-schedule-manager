@@ -319,7 +319,7 @@ async function renderEmployeeMobileScheduleList() {
         // 초기화
         if (!state.employee.scheduleViewDate) state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
         if (!state.employee.scheduleViewMode) state.employee.scheduleViewMode = 'working'; // working | off
-        if (!state.employee.scheduleDeptFilter) state.employee.scheduleDeptFilter = 'all'; // all | dept_id
+        if (!state.employee.scheduleDeptFilter) state.employee.scheduleDeptFilter = new Set(); // 빈 Set = 전체
 
         const currentDate = dayjs(state.employee.scheduleViewDate);
 
@@ -420,13 +420,13 @@ async function renderEmployeeMobileScheduleList() {
                         </button>
                     </div>
 
-                    <!-- 부서 필터 (가로 스크롤) -->
+                    <!-- 부서 필터 (가로 스크롤, 중복 선택 가능) -->
                     <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                        <button data-dept="all" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}">
+                        <button data-dept="all" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.size === 0 ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}">
                             전체
                         </button>
                         ${allDepartments.map(dept => `
-                            <button data-dept="${dept.id}" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter == dept.id ? 'bg-blue-100 text-blue-700 border-blue-200 font-bold' : 'bg-white text-gray-600 border-gray-200'}">
+                            <button data-dept="${dept.id}" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.has(dept.id) ? 'bg-blue-100 text-blue-700 border-blue-200 font-bold' : 'bg-white text-gray-600 border-gray-200'}">
                                 ${dept.name}
                             </button>
                         `).join('')}
@@ -472,12 +472,11 @@ async function renderEmployeeMobileScheduleList() {
                 return { ...sch, empName: emp.name, deptId: emp.department_id, isSystem: false };
             });
 
-            // 3) 부서 필터링
-            if (state.employee.scheduleDeptFilter !== 'all') {
-                const targetDeptId = parseInt(state.employee.scheduleDeptFilter);
+            // 3) 부서 필터링 (Set 기반, 빈 Set = 전체)
+            if (state.employee.scheduleDeptFilter.size > 0) {
                 employeesList = employeesList.filter(item => {
                     if (item.isSystem) return false;
-                    return item.deptId === targetDeptId;
+                    return state.employee.scheduleDeptFilter.has(item.deptId);
                 });
             }
             // 근무/휴무 필터는 렌더링 시 빈칸 처리 (PC 달력과 동일하게 배치 유지)
@@ -577,10 +576,20 @@ function attachNavListeners(container, currentDate = dayjs()) {
         renderEmployeeMobileScheduleList();
     });
 
-    // 부서 필터 버튼
+    // 부서 필터 버튼 (토글 방식, 중복 선택 가능)
     container.querySelectorAll('.dept-filter-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            state.employee.scheduleDeptFilter = btn.dataset.dept;
+            const dept = btn.dataset.dept;
+            if (dept === 'all') {
+                state.employee.scheduleDeptFilter = new Set();
+            } else {
+                const deptId = parseInt(dept);
+                if (state.employee.scheduleDeptFilter.has(deptId)) {
+                    state.employee.scheduleDeptFilter.delete(deptId);
+                } else {
+                    state.employee.scheduleDeptFilter.add(deptId);
+                }
+            }
             renderEmployeeMobileScheduleList();
         });
     });
