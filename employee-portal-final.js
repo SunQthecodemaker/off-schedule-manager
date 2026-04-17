@@ -579,8 +579,16 @@ function attachNavListeners(container, currentDate = dayjs()) {
         renderEmployeeMobileScheduleList();
     });
 
+    // 부서 필터 버튼
+    container.querySelectorAll('.dept-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.employee.scheduleDeptFilter = btn.dataset.dept;
+            renderEmployeeMobileScheduleList();
+        });
+    });
+
     requestAnimationFrame(() => {
-        const todayEl = container.querySelector('.bg-blue-50'); // 오늘 날짜 element
+        const todayEl = container.querySelector('.bg-blue-50');
         if (todayEl) {
             todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
