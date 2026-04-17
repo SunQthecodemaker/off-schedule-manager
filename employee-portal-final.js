@@ -78,15 +78,15 @@ export async function renderEmployeePortal() {
             <div class="grid grid-cols-4 gap-2 sm:gap-4 mb-6">
                 <div class="dash-card p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-xs whitespace-nowrap">확정 연차</p>
-                    <p class="text-lg sm:text-2xl font-bold" id="final-leaves">${leaveDetails.final}일</p>
+                    <p class="text-lg sm:text-2xl font-bold whitespace-nowrap" id="final-leaves">${leaveDetails.final}일</p>
                 </div>
                 <div class="dash-card p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-xs whitespace-nowrap">사용 연차</p>
-                    <p class="text-lg sm:text-2xl font-bold" id="used-leaves">계산 중...</p>
+                    <p class="text-lg sm:text-2xl font-bold whitespace-nowrap" id="used-leaves">계산 중...</p>
                 </div>
                 <div class="dash-card dash-card-accent p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-xs whitespace-nowrap">잔여 연차</p>
-                    <p class="text-lg sm:text-2xl font-bold" id="remaining-leaves">계산 중...</p>
+                    <p class="text-lg sm:text-2xl font-bold whitespace-nowrap" id="remaining-leaves">계산 중...</p>
                 </div>
                 <div class="dash-card dash-card-dark p-2 sm:p-4 flex flex-col items-center justify-center text-center">
                     <p class="text-[10px] sm:text-xs font-semibold whitespace-nowrap">갱신일</p>
@@ -510,7 +510,7 @@ async function renderEmployeeMobileScheduleList() {
             }
 
             html += `
-                <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1 border border-blue-100' : ''}">
+                <div class="flex gap-3 p-1 rounded-lg border ${isToday ? 'bg-blue-50/50 border-blue-100' : 'border-transparent'}">
                     <!-- 날짜 컬럼 -->
                     <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
                         <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel.toUpperCase()}</span>
@@ -1004,9 +1004,13 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
         selectable: false,
         editable: false,
         events: function (info, successCallback) {
+            const isMobile = window.innerWidth < 640;
+            const approvedTitle = isMobile ? '✓ 승인' : '연차 (승인됨)';
+            const pendingTitle = isMobile ? '⏳ 대기' : '승인 대기중';
+            const selectedTitle = isMobile ? '● 선택' : '선택됨';
             const events = [
                 ...approvedDates.map(date => ({
-                    title: '연차 (승인됨)',
+                    title: approvedTitle,
                     start: date,
                     allDay: true,
                     color: '#10b981',
@@ -1014,7 +1018,7 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                     classNames: ['approved-leave']
                 })),
                 ...pendingDates.map(date => ({
-                    title: '승인 대기중',
+                    title: pendingTitle,
                     start: date,
                     allDay: true,
                     color: '#f59e0b',
@@ -1022,7 +1026,7 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                     classNames: ['pending-leave']
                 })),
                 ...selectedDatesForLeave.map(date => ({
-                    title: '선택됨',
+                    title: selectedTitle,
                     start: date,
                     allDay: true,
                     color: '#3b82f6',
