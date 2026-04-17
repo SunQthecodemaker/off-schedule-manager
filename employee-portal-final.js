@@ -395,15 +395,15 @@ async function renderEmployeeMobileScheduleList() {
             <div class="flex flex-col gap-4 mb-4">
                 <!-- 날짜 및 이동 버튼 (Flex Row) -->
                 <!-- 날짜 및 이동 버튼 (Grid Layout for Robustness) -->
-                <div class="grid grid-cols-[auto_1fr_auto] items-center bg-white p-3 rounded-lg shadow-sm border gap-4">
-                    <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 justify-self-start">
+                <div class="flex items-center justify-between bg-white p-2 rounded-lg shadow-sm border">
+                    <button id="prev-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
                     </button>
-                    <div class="flex items-center justify-center gap-2 whitespace-nowrap overflow-hidden">
-                        <span class="text-lg font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
-                        <span class="text-sm text-gray-400 font-normal mt-0.5">${startOfWeek.format('YYYY년')}</span>
+                    <div class="text-center">
+                        <span class="text-base font-bold text-gray-800">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
+                        <span class="text-xs text-gray-400 ml-1">${startOfWeek.format('YYYY년')}</span>
                     </div>
-                    <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 justify-self-end">
+                    <button id="next-week-btn" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                     </button>
                 </div>
@@ -495,7 +495,7 @@ async function renderEmployeeMobileScheduleList() {
                 content = `<div class="text-xs text-gray-400 py-2 pl-2">일정 없음</div>`;
             } else {
                 // 그리드 컨테이너 시작
-                content = `<div class="grid grid-cols-4 gap-2">`;
+                content = `<div class="grid grid-cols-4 gap-1">`;
 
                 employeesList.forEach(item => {
                     if (item.isSystem) {
@@ -509,9 +509,9 @@ async function renderEmployeeMobileScheduleList() {
 
                     // 직관적인 카드 디자인: [색상점] [이름]
                     content += `
-                        <div class="flex items-center bg-gray-50 border rounded px-2 py-1.5 min-w-0">
-                            <span class="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0" style="background-color: ${deptColor};"></span>
-                            <span class="text-xs font-medium truncate text-gray-700">${item.empName}</span>
+                        <div class="flex items-center bg-gray-50 border rounded px-1 py-1 min-w-0">
+                            <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
+                            <span class="text-[11px] font-medium truncate text-gray-700">${item.empName}</span>
                         </div>
                     `;
                 });
@@ -522,10 +522,10 @@ async function renderEmployeeMobileScheduleList() {
             html += `
                 <div class="flex gap-3 ${isToday ? 'bg-blue-50/50 rounded-lg p-1 border border-blue-100' : ''}">
                     <!-- 날짜 컬럼 -->
-                    <div class="flex flex-col items-center justify-start pt-1 w-10 flex-shrink-0">
-                        <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel}</span>
-                        <span class="text-lg font-bold ${dayColorClass} ${isToday ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center rounded-full mt-1' : 'mt-1 leading-none'}">${dayLabel}</span>
-                         ${isHoliday ? '<span class="text-[9px] text-red-500 mt-0.5">휴</span>' : ''}
+                    <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
+                        <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel.toUpperCase()}</span>
+                        <span class="text-base font-bold ${dayColorClass} ${isToday ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center rounded-full' : 'leading-none'}">${dayLabel}</span>
+                        ${isHoliday ? '<span class="text-[9px] text-red-500 mt-0.5">휴</span>' : ''}
                     </div>
                     
                     <!-- 내용 컬럼 -->
