@@ -196,13 +196,39 @@ function placeCards(items, dateStr, startPos = null) {
 
         // R1: 타겟 위치의 다른 카드 → 빈자리로 (휴무 처리, 주변 밀어내기 없음)
         //     단, 선택된 카드 본인들끼리는 서로 빈자리 처리하지 않음 (복수 드래그 시)
+        //     (a) explicit schedule 레코드
+        const displacedEmpIds = new Set();
         state.schedule.schedules.forEach(s => {
             if (s.date === dateStr && s.grid_position === assignPos && s.employee_id !== empId && s.employee_id > 0) {
                 if (selectedEmpIds.has(s.employee_id)) return; // 선택된 카드는 다음 순번에서 자기 위치로 이동됨
                 s.status = '휴무';
                 s.grid_position = -1;
                 unsavedChanges.set(s.id, { type: 'update', data: s });
+                displacedEmpIds.add(s.employee_id);
             }
+        });
+        //     (b) basePositions으로만 점유하던 직원 (explicit 레코드 없음) → 신규 휴무 레코드 생성
+        //         렌더링 시 basePositions fallback으로 타겟에 돌아오는 것 방지
+        const basePositionsMap = getEmployeeBasePositions();
+        (state.management.employees || []).forEach(emp => {
+            if (!emp || emp.id === empId || emp.is_temp || emp.retired) return;
+            if (emp.email?.startsWith('temp-')) return;
+            if (selectedEmpIds.has(emp.id)) return;
+            if (displacedEmpIds.has(emp.id)) return;
+            if (basePositionsMap.get(emp.id) !== assignPos) return;
+            // 해당 날짜에 이 직원의 explicit 레코드가 없으면 → 신규 휴무 레코드 생성
+            const hasExplicit = state.schedule.schedules.some(s => s.date === dateStr && s.employee_id === emp.id);
+            if (hasExplicit) return;
+            const newSched = {
+                id: `displace-${Date.now()}-${emp.id}-${Math.random()}`,
+                date: dateStr,
+                employee_id: emp.id,
+                status: '휴무',
+                grid_position: -1,
+                sort_order: -1
+            };
+            state.schedule.schedules.push(newSched);
+            unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
         });
 
         // 배치: 기존 스케줄 업데이트 또는 신규 생성
@@ -1795,10 +1821,17 @@ function renderCalendar() {
         });
 
         // ✅ 위치 결정: schedule.grid_position 우선, 없으면 basePositions fallback
+        //    단, grid_position이 명시적으로 음수면 "off-grid"(빈자리로 처리된 카드) → 렌더링 제외
         function getEmpPosition(empId) {
             const sched = dateSchedMap.get(empId);
-            if (sched && sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE) {
-                return sched.grid_position;
+            if (sched) {
+                if (sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE) {
+                    return sched.grid_position;
+                }
+                // 명시적 off-grid (예: 드래그드롭/붙여넣기로 밀려난 카드) → null 반환, basePositions fallback 금지
+                if (sched.grid_position != null && sched.grid_position < 0) {
+                    return null;
+                }
             }
             return basePositions.get(empId);
         }
