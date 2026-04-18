@@ -2071,8 +2071,8 @@ function handleEventCardClick(e) {
     }
     // 일반 클릭: 기존 선택 해제하고 단일 선택
     else {
-        // ✨ [개선] 이미 선택된 항목을 다시 클릭하면 선택 해제 (토글 방식)
-        if (selKey && state.schedule.selectedSchedules.has(selKey) && state.schedule.selectedSchedules.size === 1) {
+        // 🔒 이미 선택된 카드를 클릭만 하면(드래그 X) 전체 선택 해제 — 단수/복수 무관
+        if (selKey && state.schedule.selectedSchedules.has(selKey)) {
             clearSelection();
             card.classList.remove('selected');
             window.selectedEmptySlot = null;
@@ -3753,6 +3753,14 @@ function handleDragSelectStart(e) {
     // Sortable 드래그와 충돌 방지: 이미 드래그 중이면 무시
     if (isDragging) return;
 
+    // 🔒 이미 선택된 카드에서 시작하는 mousedown은 drag-select를 양보 — Sortable 그룹 드래그 경로로
+    const cardDate = card.closest('.calendar-day')?.dataset.date;
+    const cardEmpId = card.dataset.employeeId;
+    const selKey = (cardDate && cardEmpId && cardEmpId !== 'empty') ? `${cardDate}_${cardEmpId}` : null;
+    if (selKey && state.schedule.selectedSchedules.has(selKey)) {
+        return;
+    }
+
     const dayEl = card.closest('.calendar-day');
     if (!dayEl) return;
 
@@ -3769,10 +3777,10 @@ function handleDragSelectMove(e) {
     if (!dragSelectState) return;
     if (isDragging) { dragSelectState = null; return; }
 
-    // 최소 이동 거리 (5px) 초과 시 드래그 선택 활성화
+    // 최소 이동 거리 (12px) 초과 시 드래그 선택 활성화 — 살짝 클릭+흔들림으로 오발동 방지
     const dx = e.clientX - dragSelectState.startX;
     const dy = e.clientY - dragSelectState.startY;
-    if (!dragSelectState.active && (Math.abs(dx) < 5 && Math.abs(dy) < 5)) return;
+    if (!dragSelectState.active && (Math.abs(dx) < 12 && Math.abs(dy) < 12)) return;
 
     if (!dragSelectState.active) {
         dragSelectState.active = true;
