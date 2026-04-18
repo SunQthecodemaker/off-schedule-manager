@@ -158,6 +158,9 @@ function placeCards(items, dateStr, startPos = null) {
     const baseOffset = (hasOrigPos && startPos != null && items[0]._origPos != null)
         ? (startPos - items[0]._origPos) : 0;
 
+    // 복수 배치 시 선택된 카드끼리는 서로 빈자리 처리하지 않음 (CLAUDE.md 네임카드 규칙)
+    const selectedEmpIds = new Set(items.map(i => i.employee_id));
+
     items.forEach((item, idx) => {
         const empId = item.employee_id;
 
@@ -188,15 +191,14 @@ function placeCards(items, dateStr, startPos = null) {
             }
         });
 
-        // R1: 타겟 위치에 다른 카드 있으면 (근무/휴무 무관) 빈 자리로 밀어내기
+        // R1: 타겟 위치의 다른 카드 → 빈자리로 (휴무 처리, 주변 밀어내기 없음)
+        //     단, 선택된 카드 본인들끼리는 서로 빈자리 처리하지 않음 (복수 드래그 시)
         state.schedule.schedules.forEach(s => {
             if (s.date === dateStr && s.grid_position === assignPos && s.employee_id !== empId && s.employee_id > 0) {
-                const newPos = findNearestEmpty(dateStr, assignPos, empId);
-                if (newPos >= 0) {
-                    s.grid_position = newPos;
-                    s.sort_order = newPos;
-                    unsavedChanges.set(s.id, { type: 'update', data: s });
-                }
+                if (selectedEmpIds.has(s.employee_id)) return; // 선택된 카드는 다음 순번에서 자기 위치로 이동됨
+                s.status = '휴무';
+                s.grid_position = -1;
+                unsavedChanges.set(s.id, { type: 'update', data: s });
             }
         });
 
@@ -531,9 +533,14 @@ async function handleSaveSchedules() {
             }));
 
         // ✅ 2-1. grid_position 중복 제거 (같은 날짜+위치에 2명 → 나중 것 유지)
+        //        단, grid_position < 0 (그리드 밖 휴무 카드)는 dedup 대상 제외 — 데이터 손실 방지
         const positionMap = new Map();
         const deduped = [];
         for (const s of schedulesToSave) {
+            if (s.grid_position < 0) {
+                deduped.push(s);
+                continue;
+            }
             const key = `${s.date}_${s.grid_position}`;
             if (positionMap.has(key)) {
                 console.warn(`⚠️ 중복 위치 제거: ${key}`, positionMap.get(key).employee_id, '→', s.employee_id);
@@ -1201,16 +1208,61 @@ function initializeDayDragDrop(dayEl, dateStr) {
         },
 
         onUpdate(evt) {
-            // ✅ 같은 날짜 내 이동 처리
-            const oldIndex = evt.oldIndex;
-            const newIndex = evt.newIndex;
+            // ✅ 같은 날짜 내 이동 처리 — placeCards 경유로 R1/R2 규칙 적용
+            const draggedEl = evt.item;
+            const empIdStr = draggedEl.dataset.employeeId;
+            const draggedEmpId = (empIdStr === 'empty' || empIdStr === 'spacer') ? null : parseInt(empIdStr, 10);
+            const fromPos = dragSourceInfo?.oldIndex;
 
+            // DOM 재계산: 드래그 후의 실제 드롭 위치 (event-slot 기준)
+            const eventContainer = evt.to;
+            const allSlots = Array.from(eventContainer.querySelectorAll('.event-card, .event-slot'));
+            const targetPos = allSlots.indexOf(draggedEl);
 
-            if (oldIndex !== newIndex) {
-                // ✨ [Sync] 단순히 현재 화면 순서를 그대로 저장 (Swap이든 Insert든 최종 결과만 반영)
+            // 빈 슬롯을 드래그하거나 위치 변화 없으면 스킵
+            if (draggedEmpId == null || isNaN(draggedEmpId) || targetPos < 0 || targetPos === fromPos) {
+                // 화면 순서만 동기화 (기존 fallback)
                 updateScheduleSortOrders(dateStr);
                 updateSaveButtonState();
+                return;
             }
+
+            // DOM 원복 — placeCards가 state를 업데이트 후 renderCalendar로 재렌더링
+            draggedEl.remove();
+
+            pushUndoState('Drag Reorder');
+
+            // 복수 선택 처리: 선택된 같은 날짜 카드들을 상대 위치와 함께 items에 포함
+            const items = [{ employee_id: draggedEmpId, _origPos: fromPos }];
+            if (state.schedule.selectedSchedules.size > 0) {
+                state.schedule.selectedSchedules.forEach(selKey => {
+                    const [selDate, eidStr] = selKey.split('_');
+                    const eid = parseInt(eidStr, 10);
+                    if (selDate !== dateStr || eid === draggedEmpId || isNaN(eid)) return;
+                    const selCard = document.querySelector(
+                        `.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${eid}"]`
+                    );
+                    const origPos = selCard ? parseInt(selCard.dataset.position, 10) : null;
+                    if (origPos != null && !isNaN(origPos)) {
+                        items.push({ employee_id: eid, _origPos: origPos });
+                    }
+                });
+                // _origPos 오름차순 정렬: placeCards의 baseOffset이 items[0]._origPos 기준이라 필요
+                items.sort((a, b) => (a._origPos ?? 0) - (b._origPos ?? 0));
+                // 기준 원본 위치가 바뀌었으니 드래그한 카드의 targetPos도 baseOffset 계산용으로 재매핑
+                // placeCards는 items[0]._origPos를 기준으로 오프셋을 계산 → 드래그 오프셋을 그대로 유지하려면
+                // startPos = items[0]._origPos + (targetPos - fromPos)
+                const dragOffset = targetPos - fromPos;
+                const anchorOrigPos = items[0]._origPos;
+                const anchorStartPos = anchorOrigPos + dragOffset;
+                placeCards(items, dateStr, anchorStartPos);
+            } else {
+                placeCards(items, dateStr, targetPos);
+            }
+
+            clearSelection();
+            renderCalendar();
+            updateSaveButtonState();
         },
 
         onAdd(evt) {
@@ -3379,24 +3431,12 @@ function handleContextMenu(e) {
     }
 }
 
-// ✨ 빈 슬롯 우클릭을 통한 직원 할당 로직
+// ✨ 빈 슬롯 우클릭을 통한 직원 할당 로직 — placeCards 경유로 R1/R2 규칙 적용
 function handleEmployeeAssignment(employeeId, dateStr, position) {
     if (!employeeId || !dateStr || position === undefined) return;
 
-    // 신규 생성
     pushUndoState('Add Schedule via Context Menu');
-    const tempId = `temp-${Date.now()}-${employeeId}`;
-    const newSchedule = {
-        id: tempId,
-        date: dateStr,
-        employee_id: employeeId,
-        status: '근무',
-        sort_order: position,
-        grid_position: position
-    };
-
-    state.schedule.schedules.push(newSchedule);
-    unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+    placeCards([{ employee_id: employeeId, status: '근무' }], dateStr, position);
 
     clearSelection();
     renderCalendar();
