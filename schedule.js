@@ -166,7 +166,10 @@ function placeCards(items, dateStr, startPos = null) {
 
         // 배치할 position 결정
         let assignPos = -1;
-        if (hasOrigPos && item._origPos != null) {
+        if (item._targetPos != null && item._targetPos >= 0 && item._targetPos < GRID_SIZE) {
+            // 호출자가 각 카드의 타겟 위치를 직접 지정 (row/col 델타 기반 배치 등)
+            assignPos = item._targetPos;
+        } else if (hasOrigPos && item._origPos != null) {
             assignPos = item._origPos + baseOffset;
         } else if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
             assignPos = startPos + idx;
@@ -1208,58 +1211,93 @@ function initializeDayDragDrop(dayEl, dateStr) {
         },
 
         onUpdate(evt) {
-            // ✅ 같은 날짜 내 이동 처리 — placeCards 경유로 R1/R2 규칙 적용
+            // ✅ 같은 날짜 내 드래그 — 규칙: 선택 선행 필수 + row/col 델타 기반 배치 유지
             const draggedEl = evt.item;
             const empIdStr = draggedEl.dataset.employeeId;
             const draggedEmpId = (empIdStr === 'empty' || empIdStr === 'spacer') ? null : parseInt(empIdStr, 10);
-            const fromPos = dragSourceInfo?.oldIndex;
 
-            // DOM 재계산: 드래그 후의 실제 드롭 위치 (event-slot 기준)
+            // 드래그 후 현재 DOM 위치 추출 (SortableJS swap 후 상태)
             const eventContainer = evt.to;
             const allSlots = Array.from(eventContainer.querySelectorAll('.event-card, .event-slot'));
             const targetPos = allSlots.indexOf(draggedEl);
+            const fromPos = parseInt(draggedEl.dataset.position, 10); // dataset은 DOM 이동에도 유지됨
 
-            // 빈 슬롯을 드래그하거나 위치 변화 없으면 스킵
-            if (draggedEmpId == null || isNaN(draggedEmpId) || targetPos < 0 || targetPos === fromPos) {
-                // 화면 순서만 동기화 (기존 fallback)
-                updateScheduleSortOrders(dateStr);
-                updateSaveButtonState();
+            // 기본 검증 실패 → DOM 원복
+            if (draggedEmpId == null || isNaN(draggedEmpId) || isNaN(fromPos) || targetPos < 0) {
+                renderCalendar();
                 return;
             }
 
-            // DOM 원복 — placeCards가 state를 업데이트 후 renderCalendar로 재렌더링
+            // 🔒 규칙 1: 선택 선행 필수
+            //   - 선택이 없는 상태에서 드래그 → 아무 일도 안 일어남
+            //   - 선택에 포함되지 않은 카드를 드래그 → 선택 풀고 아무 일도 안 일어남
+            const draggedKey = `${dateStr}_${draggedEmpId}`;
+            if (state.schedule.selectedSchedules.size === 0) {
+                renderCalendar();
+                return;
+            }
+            if (!state.schedule.selectedSchedules.has(draggedKey)) {
+                clearSelection();
+                renderCalendar();
+                return;
+            }
+
+            // 같은 위치로 드롭 → no-op
+            if (targetPos === fromPos) {
+                renderCalendar();
+                return;
+            }
+
+            // 🎯 규칙 2: row/col 델타 기반 배치 유지 (4열 그리드)
+            const COLS = 4;
+            const rowDelta = Math.floor(targetPos / COLS) - Math.floor(fromPos / COLS);
+            const colDelta = (targetPos % COLS) - (fromPos % COLS);
+
+            // 선택된 카드들의 새 위치 계산
+            const items = [];
+            let outOfBounds = false;
+
+            state.schedule.selectedSchedules.forEach(selKey => {
+                const [selDate, eidStr] = selKey.split('_');
+                const eid = parseInt(eidStr, 10);
+                if (selDate !== dateStr || isNaN(eid)) return;
+
+                const selCard = document.querySelector(
+                    `.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${eid}"]`
+                );
+                const origPos = selCard ? parseInt(selCard.dataset.position, 10) : null;
+                if (origPos == null || isNaN(origPos)) return;
+
+                const origRow = Math.floor(origPos / COLS);
+                const origCol = origPos % COLS;
+                const newRow = origRow + rowDelta;
+                const newCol = origCol + colDelta;
+
+                // 그리드 경계 체크: 하나라도 밖이면 배치 관계 유지 불가 → 전체 취소
+                if (newCol < 0 || newCol >= COLS || newRow < 0) {
+                    outOfBounds = true;
+                    return;
+                }
+                const newPos = newRow * COLS + newCol;
+                if (newPos < 0 || newPos >= GRID_SIZE) {
+                    outOfBounds = true;
+                    return;
+                }
+
+                items.push({ employee_id: eid, _targetPos: newPos, _origPos: origPos });
+            });
+
+            // 🔒 규칙 3: 배치 관계 유지 불가능 → 전체 이동 취소
+            if (outOfBounds || items.length === 0) {
+                renderCalendar();
+                return;
+            }
+
+            // DOM 원복 후 state 기준 재렌더링
             draggedEl.remove();
 
             pushUndoState('Drag Reorder');
-
-            // 복수 선택 처리: 선택된 같은 날짜 카드들을 상대 위치와 함께 items에 포함
-            const items = [{ employee_id: draggedEmpId, _origPos: fromPos }];
-            if (state.schedule.selectedSchedules.size > 0) {
-                state.schedule.selectedSchedules.forEach(selKey => {
-                    const [selDate, eidStr] = selKey.split('_');
-                    const eid = parseInt(eidStr, 10);
-                    if (selDate !== dateStr || eid === draggedEmpId || isNaN(eid)) return;
-                    const selCard = document.querySelector(
-                        `.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${eid}"]`
-                    );
-                    const origPos = selCard ? parseInt(selCard.dataset.position, 10) : null;
-                    if (origPos != null && !isNaN(origPos)) {
-                        items.push({ employee_id: eid, _origPos: origPos });
-                    }
-                });
-                // _origPos 오름차순 정렬: placeCards의 baseOffset이 items[0]._origPos 기준이라 필요
-                items.sort((a, b) => (a._origPos ?? 0) - (b._origPos ?? 0));
-                // 기준 원본 위치가 바뀌었으니 드래그한 카드의 targetPos도 baseOffset 계산용으로 재매핑
-                // placeCards는 items[0]._origPos를 기준으로 오프셋을 계산 → 드래그 오프셋을 그대로 유지하려면
-                // startPos = items[0]._origPos + (targetPos - fromPos)
-                const dragOffset = targetPos - fromPos;
-                const anchorOrigPos = items[0]._origPos;
-                const anchorStartPos = anchorOrigPos + dragOffset;
-                placeCards(items, dateStr, anchorStartPos);
-            } else {
-                placeCards(items, dateStr, targetPos);
-            }
-
+            placeCards(items, dateStr, null);
             clearSelection();
             renderCalendar();
             updateSaveButtonState();
@@ -1275,19 +1313,31 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 const targetPos = evt.newIndex;
 
                 if (fromDate && fromDate !== dateStr && !isNaN(draggedEmpId)) {
+                    // 🔒 규칙: 선택 선행 필수 (cross-date 드래그도 동일)
+                    const draggedKey = `${fromDate}_${draggedEmpId}`;
+                    if (state.schedule.selectedSchedules.size === 0) {
+                        employeeEl.remove();
+                        renderCalendar();
+                        return;
+                    }
+                    if (!state.schedule.selectedSchedules.has(draggedKey)) {
+                        clearSelection();
+                        employeeEl.remove();
+                        renderCalendar();
+                        return;
+                    }
+
                     pushUndoState('Drag Move');
 
-                    // 복수 선택된 카드가 있으면 함께 이동 (B4/B5)
-                    const empIdsToMove = [draggedEmpId];
-                    if (state.schedule.selectedSchedules.size > 0) {
-                        state.schedule.selectedSchedules.forEach(selKey => {
-                            const [selDate, eidStr] = selKey.split('_');
-                            const eid = parseInt(eidStr, 10);
-                            if (eid !== draggedEmpId && selDate === fromDate) {
-                                empIdsToMove.push(eid);
-                            }
-                        });
-                    }
+                    // 선택된 모든 카드를 함께 이동 (같은 fromDate만)
+                    const empIdsToMove = [];
+                    state.schedule.selectedSchedules.forEach(selKey => {
+                        const [selDate, eidStr] = selKey.split('_');
+                        const eid = parseInt(eidStr, 10);
+                        if (selDate === fromDate && !isNaN(eid)) {
+                            empIdsToMove.push(eid);
+                        }
+                    });
 
                     moveCards(empIdsToMove, fromDate, dateStr, targetPos);
                     clearSelection();
