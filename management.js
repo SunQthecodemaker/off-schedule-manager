@@ -123,6 +123,12 @@ async function handleUpdateEmployee(id) {
     const isManager = managerCheckbox ? managerCheckbox.checked : false;
     const resignInput = _(`#resign-${id}`);
     const resignation_date = resignInput ? (resignInput.value || null) : null;
+    const visibleCheckbox = _(`#visible-${id}`);
+    const schedule_visible = visibleCheckbox ? visibleCheckbox.checked : true;
+    const leaveStartInput = _(`#leave-start-${id}`);
+    const leave_start_date = leaveStartInput ? (leaveStartInput.value || null) : null;
+    const returnInput = _(`#return-${id}`);
+    const return_date = returnInput ? (returnInput.value || null) : null;
 
 
     const { data, error } = await db.from('employees').update({
@@ -131,7 +137,10 @@ async function handleUpdateEmployee(id) {
         email,
         department_id,
         isManager,
-        resignation_date
+        resignation_date,
+        schedule_visible,
+        leave_start_date,
+        return_date
     }).eq('id', id).select();
 
 
@@ -442,14 +451,17 @@ export function getManagementHTML() {
     });
 
     const headerHtml = `
-        <th class="p-2" style="width:80px"><input type="checkbox" id="selectAllCheckbox"></th>
-        <th class="p-2 text-left" style="width:200px">이름</th>
-        <th class="p-2 text-left" style="width:200px">부서</th>
-        <th class="p-2 text-left" style="width:200px">입사일</th>
+        <th class="p-2" style="width:40px"><input type="checkbox" id="selectAllCheckbox"></th>
+        <th class="p-2 text-left" style="width:140px">이름</th>
+        <th class="p-2 text-left" style="width:140px">부서</th>
+        <th class="p-2 text-left" style="width:140px">입사일</th>
         <th class="p-2 text-left">이메일</th>
-        <th class="p-2 text-center" style="width:80px">매니저</th>
-        <th class="p-2 text-center" style="width:220px">근무 규칙</th>
-        <th class="p-2 text-left" style="width:200px">퇴사일</th>
+        <th class="p-2 text-center" style="width:70px">매니저</th>
+        <th class="p-2 text-center" style="width:180px">근무 규칙</th>
+        <th class="p-2 text-center" style="width:60px" title="스케줄 그리드 표시 여부 (체크 해제 시 숨김)">표시</th>
+        <th class="p-2 text-left" style="width:130px" title="휴직 시작일 (비움 = 휴직 아님)">휴직시작</th>
+        <th class="p-2 text-left" style="width:130px" title="휴직 복귀 예정일">복귀일</th>
+        <th class="p-2 text-left" style="width:140px">퇴사일</th>
         <th class="p-2 text-center" style="width:150px">관리</th>
     `;
 
@@ -471,6 +483,7 @@ export function getManagementHTML() {
              `;
         }
 
+        const scheduleVisibleChecked = (emp.schedule_visible !== false) ? 'checked' : '';
         return `
             <tr class="border-b hover:bg-gray-50">
                 <td class="p-2 text-center"><input type="checkbox" class="employee-checkbox" value="${emp.id}"></td>
@@ -499,6 +512,9 @@ export function getManagementHTML() {
                         })()}
                     </button>
                 </td>
+                <td class="p-2 text-center"><input type="checkbox" id="visible-${emp.id}" ${scheduleVisibleChecked} title="체크 해제 시 스케줄 그리드에서 제외"></td>
+                <td class="p-2"><input type="date" id="leave-start-${emp.id}" class="table-input emp-date-input" value="${emp.leave_start_date || ''}"></td>
+                <td class="p-2"><input type="date" id="return-${emp.id}" class="table-input emp-date-input" value="${emp.return_date || ''}"></td>
                 <td class="p-2"><input type="date" id="resign-${emp.id}" class="table-input emp-date-input" value="${emp.resignation_date || ''}"></td>
                 <td class="p-2 text-center" style="white-space:nowrap;">${actions}</td>
             </tr>

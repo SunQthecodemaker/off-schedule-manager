@@ -52,9 +52,26 @@ function serializeScheduleForDb(s) {
     };
 }
 
-/** 직원이 특정 날짜에 재직 중인지 판별 (퇴사일 이전이면 재직) */
+/** 직원이 그리드 표시 대상인지 (시간 무관 — schedule_visible 토글까지 반영) */
+function isGridEmployee(e) {
+    if (!e) return false;
+    if (e.is_temp || e.retired || e.email?.startsWith('temp-')) return false;
+    if (e.schedule_visible === false) return false;
+    return true;
+}
+
+/** 직원이 특정 날짜에 그리드에 표시되어야 하는지 판별
+ *  - 임시직원/퇴사/표시제외 → false
+ *  - 휴직 기간 내(leave_start_date 이후, return_date 이전) → false
+ *  - 퇴사일 이후 → false
+ */
 function isActiveOnDate(emp, dateStr) {
     if (emp.is_temp || emp.retired || emp.email?.startsWith('temp-')) return false;
+    if (emp.schedule_visible === false) return false;
+    // 휴직 기간: leave_start_date <= dateStr < return_date (return_date 없으면 무기한)
+    if (emp.leave_start_date && dateStr >= emp.leave_start_date) {
+        if (!emp.return_date || dateStr < emp.return_date) return false;
+    }
     if (!emp.resignation_date) return true;
     return dateStr < emp.resignation_date;
 }
@@ -138,7 +155,7 @@ function getOccupiedPositions(dateStr, excludeEmpId) {
     const occupied = new Set();
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => isGridEmployee(e)
     );
 
     // 레코드가 있으면 레코드의 grid_position, 없으면 배치 패널 기본 위치
@@ -180,13 +197,34 @@ function findNearestEmpty(dateStr, fromPos, excludeEmpId) {
 function placeCards(items, dateStr, startPos = null) {
     let placed = 0;
 
-    // 상대 위치 보존: _origPos가 있으면 오프셋 계산
+    // 상대 위치 보존: _origPos 있으면 (row,col) 델타 기반 계산 (flat index 금지, CLAUDE.md 원칙)
     const hasOrigPos = items.some(i => i._origPos != null);
-    const baseOffset = (hasOrigPos && startPos != null && items[0]._origPos != null)
-        ? (startPos - items[0]._origPos) : 0;
+    let rowDelta = 0, colDelta = 0;
+    if (hasOrigPos && startPos != null && items[0]._origPos != null) {
+        const fromRow = Math.floor(items[0]._origPos / GRID_COLS);
+        const fromCol = items[0]._origPos % GRID_COLS;
+        const toRow = Math.floor(startPos / GRID_COLS);
+        const toCol = startPos % GRID_COLS;
+        rowDelta = toRow - fromRow;
+        colDelta = toCol - fromCol;
+    }
 
     // 복수 배치 시 선택된 카드끼리는 서로 빈자리 처리하지 않음 (CLAUDE.md 네임카드 규칙)
     const selectedEmpIds = new Set(items.map(i => i.employee_id));
+
+    // (row, col) 델타 적용 시 경계 검사: 하나라도 OOB 이면 이동 전체 취소
+    if (hasOrigPos && (rowDelta !== 0 || colDelta !== 0)) {
+        for (const it of items) {
+            if (it._origPos == null) continue;
+            const origRow = Math.floor(it._origPos / GRID_COLS);
+            const origCol = it._origPos % GRID_COLS;
+            const newRow = origRow + rowDelta;
+            const newCol = origCol + colDelta;
+            if (newRow < 0 || newCol < 0 || newCol >= GRID_COLS || newRow * GRID_COLS + newCol >= GRID_SIZE) {
+                return 0; // OOB 전체 취소
+            }
+        }
+    }
 
     items.forEach((item, idx) => {
         const empId = item.employee_id;
@@ -197,7 +235,9 @@ function placeCards(items, dateStr, startPos = null) {
             // 호출자가 각 카드의 타겟 위치를 직접 지정 (row/col 델타 기반 배치 등)
             assignPos = item._targetPos;
         } else if (hasOrigPos && item._origPos != null) {
-            assignPos = item._origPos + baseOffset;
+            const origRow = Math.floor(item._origPos / GRID_COLS);
+            const origCol = item._origPos % GRID_COLS;
+            assignPos = (origRow + rowDelta) * GRID_COLS + (origCol + colDelta);
         } else if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
             assignPos = startPos + idx;
         } else {
@@ -966,7 +1006,7 @@ function applyLayoutToSchedules(positionMap, targetDates) {
     // 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
     if (dateSet) {
         const activeEmps = (state.management.employees || []).filter(
-            e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+            e => isGridEmployee(e)
         );
         dateSet.forEach(dateStr => {
             const existingEmpIds = new Set(
@@ -1084,7 +1124,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     const currentGrid = new Array(GRID_SIZE).fill(null);
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => isGridEmployee(e)
     );
     const dateScheds = new Map();
     state.schedule.schedules.forEach(s => {
@@ -1520,7 +1560,7 @@ function getWorkingEmployeesOnDate(dateStr) {
 
     // ✅ 모든 활성 직원 중 근무 상태인 직원 반환 (레코드 유무 무관)
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')) && !excludedIds.has(e.id)
+        e => isGridEmployee(e) && !excludedIds.has(e.id)
     );
     activeEmps.forEach(emp => {
         const status = getEmployeeStatusOnDate(emp.id, dateStr);
@@ -1620,7 +1660,7 @@ function getEmployeeBasePositions() {
     // layout에 없는 활성 직원 → 빈 자리에 순차 배정
     const usedPositions = new Set(posMap.values());
     const activeIds = (state.management.employees || [])
-        .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+        .filter(e => isGridEmployee(e))
         .map(e => e.id);
     activeIds.forEach(id => {
         if (!posMap.has(id)) {
@@ -1798,7 +1838,7 @@ function renderCalendar() {
     const basePositions = getEmployeeBasePositions();
     const excludedIds = getExcludedEmployeeIds();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => isGridEmployee(e)
         // resignation_date는 루프 안에서 날짜별로 체크 (월 중 퇴사 가능)
     );
 
@@ -2181,7 +2221,7 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
     const currentGrid = new Array(GRID_SIZE).fill(null);
     const basePositions = getEmployeeBasePositions();
     const activeEmps = (state.management.employees || []).filter(
-        e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-'))
+        e => isGridEmployee(e)
     );
     const dateScheds = new Map();
     allSchedules.forEach(s => { dateScheds.set(s.employee_id, s); });
@@ -2445,7 +2485,7 @@ async function loadAndRenderScheduleData(date) {
         }
         // ✅ 활성 직원 중 members에 없는 직원 자동 추가 (신규 입사 등)
         const activeEmployeeIds = (state.management?.employees || [])
-            .filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')))
+            .filter(e => isGridEmployee(e))
             .map(e => e.id);
         if (employeeOrder.length > 0) {
             const memberSet = new Set(employeeOrder);
@@ -3217,7 +3257,7 @@ function handleDateHeaderDblClick(e) {
             });
             // 레코드 없는 직원도 휴무 레코드 생성 (화면에 보이는 전원)
             const existingEmpIds = new Set(state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0).map(s => s.employee_id));
-            const activeEmps = (state.management.employees || []).filter(e => !e.is_temp && !e.retired);
+            const activeEmps = (state.management.employees || []).filter(e => isGridEmployee(e));
             activeEmps.forEach(emp => {
                 if (!existingEmpIds.has(emp.id)) {
                     const cardEl = document.querySelector(`.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${emp.id}"]`);
@@ -3252,7 +3292,7 @@ function handleDateHeaderDblClick(e) {
 
             // 2. 복귀 대상 직원 처리
             const allActiveEmployees = state.management.employees.filter(e =>
-                !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')) && (!e.resignation_date || dateStr < e.resignation_date)
+                isGridEmployee(e) && (!e.resignation_date || dateStr < e.resignation_date)
             );
 
             allActiveEmployees.forEach(emp => {
@@ -4321,9 +4361,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
     // 활성 직원 필터링
     const employees = state.management?.employees || [];
-    let targetEmployees = employees.filter(emp =>
-        !emp.is_temp && !emp.retired && !(emp.email?.startsWith('temp-'))
-    );
+    let targetEmployees = employees.filter(emp => isGridEmployee(emp));
 
     const savedLayout = state.schedule?.teamLayout?.data?.[0];
     if (savedLayout?.members?.length > 0) {
@@ -4831,7 +4869,7 @@ async function handleImportPreviousMonth() {
 
         // 4. 새 스케줄 생성
         const newSchedules = [];
-        const allEmployees = state.management.employees.filter(e => !e.is_temp && !e.retired && !(e.email?.startsWith('temp-')));
+        const allEmployees = state.management.employees.filter(e => isGridEmployee(e));
 
         // 모든 날짜 순회
         let iter = currentStart.clone();
