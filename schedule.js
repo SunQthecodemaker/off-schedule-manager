@@ -278,8 +278,8 @@ function placeCards(items, dateStr, startPos = null) {
         //         렌더링 시 basePositions fallback으로 타겟에 돌아오는 것 방지
         const basePositionsMap = getEmployeeBasePositions();
         (state.management.employees || []).forEach(emp => {
-            if (!emp || emp.id === empId || emp.is_temp || emp.retired) return;
-            if (emp.email?.startsWith('temp-')) return;
+            if (!emp || emp.id === empId) return;
+            if (!isGridEmployee(emp)) return;
             if (selectedEmpIds.has(emp.id)) return;
             if (displacedEmpIds.has(emp.id)) return;
             if (basePositionsMap.get(emp.id) !== assignPos) return;
@@ -1342,10 +1342,9 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 return;
             }
 
-            // 🎯 규칙 2: row/col 델타 기반 배치 유지 (4열 그리드)
-            const COLS = 4;
-            const rowDelta = Math.floor(targetPos / COLS) - Math.floor(fromPos / COLS);
-            const colDelta = (targetPos % COLS) - (fromPos % COLS);
+            // 🎯 규칙 2: row/col 델타 기반 배치 유지 (전역 GRID_COLS 사용)
+            const rowDelta = Math.floor(targetPos / GRID_COLS) - Math.floor(fromPos / GRID_COLS);
+            const colDelta = (targetPos % GRID_COLS) - (fromPos % GRID_COLS);
 
             // 선택된 카드들의 새 위치 계산
             const items = [];
@@ -1362,17 +1361,17 @@ function initializeDayDragDrop(dayEl, dateStr) {
                 const origPos = selCard ? parseInt(selCard.dataset.position, 10) : null;
                 if (origPos == null || isNaN(origPos)) return;
 
-                const origRow = Math.floor(origPos / COLS);
-                const origCol = origPos % COLS;
+                const origRow = Math.floor(origPos / GRID_COLS);
+                const origCol = origPos % GRID_COLS;
                 const newRow = origRow + rowDelta;
                 const newCol = origCol + colDelta;
 
                 // 그리드 경계 체크: 하나라도 밖이면 배치 관계 유지 불가 → 전체 취소
-                if (newCol < 0 || newCol >= COLS || newRow < 0) {
+                if (newCol < 0 || newCol >= GRID_COLS || newRow < 0) {
                     outOfBounds = true;
                     return;
                 }
-                const newPos = newRow * COLS + newCol;
+                const newPos = newRow * GRID_COLS + newCol;
                 if (newPos < 0 || newPos >= GRID_SIZE) {
                     outOfBounds = true;
                     return;
@@ -2394,17 +2393,19 @@ function handleEventCardDblClick(e, card) {
         renderCalendar();
         updateSaveButtonState();
     } else {
-        // 기존 스케줄 객체가 없는 경우 (예: 연차 대상자인데 DB에 명시적 스케줄 기록이 없을 때)
-        // 근무 상태로 신규 생성
+        // 기존 스케줄 객체가 없는 경우 (엣지: DOM에는 카드가 있으나 state에 레코드 없음)
+        // 근무 상태로 신규 생성 — card가 자리잡은 DOM 위치를 그대로 사용
         pushUndoState('Add Schedule');
         const tempId = `temp-${Date.now()}-${empId}`;
+        const cardPos = parseInt(card.dataset.position, 10);
+        const pos = Number.isFinite(cardPos) && cardPos >= 0 && cardPos < GRID_SIZE ? cardPos : -1;
         const newSchedule = {
             id: tempId,
             date: dateStr,
             employee_id: empId,
             status: '근무',
-            sort_order: 99,
-            grid_position: 99
+            sort_order: pos,
+            grid_position: pos
         };
         state.schedule.schedules.push(newSchedule);
         unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
@@ -2928,17 +2929,16 @@ function handleLayoutGridClick(e) {
 
     // Shift+클릭: 범위 선택
     if (e.shiftKey && layoutLastClickedPos != null) {
-        const COLS = 4;
-        const startRow = Math.floor(layoutLastClickedPos / COLS);
-        const startCol = layoutLastClickedPos % COLS;
-        const endRow = Math.floor(pos / COLS);
-        const endCol = pos % COLS;
+        const startRow = Math.floor(layoutLastClickedPos / GRID_COLS);
+        const startCol = layoutLastClickedPos % GRID_COLS;
+        const endRow = Math.floor(pos / GRID_COLS);
+        const endCol = pos % GRID_COLS;
         const minRow = Math.min(startRow, endRow), maxRow = Math.max(startRow, endRow);
         const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
         document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(el => {
             const p = parseInt(el.dataset.position, 10);
-            const r = Math.floor(p / COLS), c = p % COLS;
+            const r = Math.floor(p / GRID_COLS), c = p % GRID_COLS;
             if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
                 layoutSelectedSlots.add(p);
                 el.classList.add('layout-selected');
@@ -3014,18 +3014,17 @@ function handleLayoutDragSelectMove(e) {
     const endPos = parseInt(slot.dataset.position, 10);
 
     // row/col 기반 사각형 선택
-    const COLS = 4;
-    const startRow = Math.floor(layoutDragState.startPos / COLS);
-    const startCol = layoutDragState.startPos % COLS;
-    const endRow = Math.floor(endPos / COLS);
-    const endCol = endPos % COLS;
+    const startRow = Math.floor(layoutDragState.startPos / GRID_COLS);
+    const startCol = layoutDragState.startPos % GRID_COLS;
+    const endRow = Math.floor(endPos / GRID_COLS);
+    const endCol = endPos % GRID_COLS;
     const minRow = Math.min(startRow, endRow), maxRow = Math.max(startRow, endRow);
     const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
     clearLayoutSelection();
     document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(sl => {
         const p = parseInt(sl.dataset.position, 10);
-        const r = Math.floor(p / COLS), c = p % COLS;
+        const r = Math.floor(p / GRID_COLS), c = p % GRID_COLS;
         if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
             layoutSelectedSlots.add(p);
             sl.classList.add('layout-selected');
@@ -3294,9 +3293,7 @@ function handleDateHeaderDblClick(e) {
             });
 
             // 2. 복귀 대상 직원 처리
-            const allActiveEmployees = state.management.employees.filter(e =>
-                isGridEmployee(e) && (!e.resignation_date || dateStr < e.resignation_date)
-            );
+            const allActiveEmployees = state.management.employees.filter(e => isActiveOnDate(e, dateStr));
 
             allActiveEmployees.forEach(emp => {
                 let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
@@ -3467,11 +3464,11 @@ function handleContextMenu(e) {
         const departments = [...state.management.departments].sort((a, b) => a.id - b.id);
 
         departments.forEach(dept => {
-            // 해당 부서의 직원 목록 (제외직원/이미배치된 직원 제외)
+            // 해당 부서의 직원 목록 (제외직원/비활성 직원 제외)
             const deptEmployees = state.management.employees.filter(emp =>
                 emp.department_id === dept.id &&
                 !excludedIds.has(emp.id) &&
-                !emp.resignation_date
+                isActiveOnDate(emp, date)
             );
 
             if (deptEmployees.length === 0) return; // 표시할 직원이 없으면 부서 스킵
@@ -3905,8 +3902,7 @@ function handleDragSelectMove(e) {
         if (eid && eid !== 'empty' && elDate) state.schedule.selectedSchedules.delete(`${elDate}_${eid}`);
     });
 
-    // 범위 계산 (날짜 간 + row/col 기반 사각형 선택)
-    const COLS = 4; // 4열 그리드
+    // 범위 계산 (날짜 간 + row/col 기반 사각형 선택, 4열 그리드)
     const allDayEls = document.querySelectorAll('.calendar-day');
     const dates = Array.from(allDayEls).map(d => d.dataset.date).filter(Boolean).sort();
     const startIdx = dates.indexOf(dragSelectState.startDate);
@@ -3917,10 +3913,10 @@ function handleDragSelectMove(e) {
     const maxDateIdx = Math.max(startIdx, endIdx);
 
     // position → row/col 변환으로 사각형 선택
-    const startRow = Math.floor(dragSelectState.startPos / COLS);
-    const startCol = dragSelectState.startPos % COLS;
-    const endRow = Math.floor(info.position / COLS);
-    const endCol = info.position % COLS;
+    const startRow = Math.floor(dragSelectState.startPos / GRID_COLS);
+    const startCol = dragSelectState.startPos % GRID_COLS;
+    const endRow = Math.floor(info.position / GRID_COLS);
+    const endCol = info.position % GRID_COLS;
     const minRow = Math.min(startRow, endRow);
     const maxRow = Math.max(startRow, endRow);
     const minCol = Math.min(startCol, endCol);
@@ -3933,8 +3929,8 @@ function handleDragSelectMove(e) {
         if (!dayEl) continue;
         dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
             const pos = parseInt(el.dataset.position, 10);
-            const row = Math.floor(pos / COLS);
-            const col = pos % COLS;
+            const row = Math.floor(pos / GRID_COLS);
+            const col = pos % GRID_COLS;
             if (row >= minRow && row <= maxRow && col >= minCol && col <= maxCol) {
                 el.classList.add('selected', 'drag-select-highlight');
                 const eid = el.dataset.employeeId;
@@ -4495,7 +4491,6 @@ function handlePrintSchedule() {
 
     const allEmployees = state.management.employees || [];
     const holidays = state.schedule.companyHolidays || new Set();
-    const COLS = 4; // 이름 4열 배치
     const DIRECTOR_DEPT_ID = 4; // 원장 부서 ID
 
     // 부서 색상 맵 + 원장 여부 맵
@@ -4630,7 +4625,7 @@ h1 { text-align:center; font-size:12pt; margin-bottom:0; font-weight:700; line-h
 .p-sat .p-date { color:#1e40af; }
 .p-holiday { background:#fff5f5; }
 .p-holiday .p-date { color:#dc2626; }
-.p-names { display:grid; grid-template-columns:repeat(${COLS},1fr); gap:0; }
+.p-names { display:grid; grid-template-columns:repeat(${GRID_COLS},1fr); gap:0; }
 .p-name { font-size:8pt; padding:0 1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; display:flex; align-items:center; gap:1px; }
 .p-name i { display:inline-block; width:5px; height:5px; border-radius:50%; flex-shrink:0; }
 .p-empty { visibility:hidden; }
@@ -4913,7 +4908,7 @@ async function handleImportPreviousMonth() {
                 // 단, 정기 휴무 규칙 적용
                 let positionCounter = 0;
 
-                allEmployees.filter(emp => !emp.resignation_date || targetDateStr < emp.resignation_date).forEach(emp => {
+                allEmployees.filter(emp => isActiveOnDate(emp, targetDateStr)).forEach(emp => {
                     // 정기 휴무 요일이면 제외 (주차별 규칙 반영)
                     if (!isFixedOffDay(emp.regular_holiday_rules, dayOfWeek, targetDateStr)) {
                         schedulesForDay.push({
