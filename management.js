@@ -2651,12 +2651,14 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
                     if (updateError) console.error("❌ 스케줄 업데이트 실패:", updateError);
                     else console.log("✅ 스케줄 상태 '휴무'로 변경 완료");
                 } else {
-                    // 스케줄이 없으면 새로 '휴무' 스케줄 생성
+                    // 스케줄이 없으면 새로 '휴무' 스케줄 생성 (연차 기록, 그리드 off)
                     await db.from('schedules').insert({
                         date: inputDate,
                         employee_id: targetEmpId,
                         status: '휴무',
-                        grid_position: 99,
+                        is_annual_leave: true,
+                        row_pos: null,
+                        col_pos: null,
                         created_at: new Date().toISOString()
                     });
                 }

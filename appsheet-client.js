@@ -998,14 +998,20 @@ async function applyImportedSchedules(newSchedules) {
 
     console.log('✅ 기존 스케줄 삭제 완료 (대상 직원만)');
 
-    // 3. 새 데이터 삽입 (batch 50건 단위)
-    const insertData = newSchedules.map(s => ({
-        date: s.date,
-        employee_id: s.employee_id,
-        status: '근무',
-        sort_order: s.grid_position,
-        grid_position: s.grid_position
-    }));
+    // 3. 새 데이터 삽입 (batch 50건 단위) — row_pos/col_pos 스키마
+    const insertData = newSchedules.map(s => {
+        const gp = s.grid_position;
+        const onGrid = (gp != null && gp >= 0 && gp < 32);
+        return {
+            date: s.date,
+            employee_id: s.employee_id,
+            status: '근무',
+            sort_order: gp,
+            row_pos: onGrid ? Math.floor(gp / 4) : null,
+            col_pos: onGrid ? (gp % 4) : null,
+            is_annual_leave: false
+        };
+    });
 
     const BATCH_SIZE = 50;
     for (let i = 0; i < insertData.length; i += BATCH_SIZE) {

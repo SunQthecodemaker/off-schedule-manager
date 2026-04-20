@@ -24,6 +24,33 @@ const DEFAULT_TEAM_MEMBERS = [
 
 // ✅ 그리드 크기 상수 (모든 곳에서 이 값만 사용)
 const GRID_SIZE = 32;
+const GRID_COLS = 4;
+
+// ═══════════════════════════════════════════════════════
+// ✅ DB ↔ 메모리 변환 헬퍼 (2026-04-21 schema migration)
+// DB: schedules 테이블은 row_pos/col_pos/is_annual_leave 컬럼 사용
+// 메모리: 기존 코드 호환을 위해 grid_position = row_pos*4 + col_pos 로 하이드레이션
+// off-grid(휴무 처리된 밀려난 카드) = row_pos/col_pos NULL → grid_position = -1
+// ═══════════════════════════════════════════════════════
+function hydrateScheduleRow(row) {
+    if (!row) return row;
+    const onGrid = (row.row_pos != null && row.col_pos != null);
+    return {
+        ...row,
+        grid_position: onGrid ? (row.row_pos * GRID_COLS + row.col_pos) : -1
+    };
+}
+
+function serializeScheduleForDb(s) {
+    const { grid_position, ...rest } = s;
+    const onGrid = (grid_position != null && grid_position >= 0 && grid_position < GRID_SIZE);
+    return {
+        ...rest,
+        row_pos: onGrid ? Math.floor(grid_position / GRID_COLS) : null,
+        col_pos: onGrid ? (grid_position % GRID_COLS) : null,
+        is_annual_leave: rest.is_annual_leave ?? false
+    };
+}
 
 /** 직원이 특정 날짜에 재직 중인지 판별 (퇴사일 이전이면 재직) */
 function isActiveOnDate(emp, dateStr) {
@@ -600,13 +627,14 @@ async function handleSaveSchedules() {
             const BATCH_SIZE = 50;
             try {
                 for (let i = 0; i < schedulesToInsert.length; i += BATCH_SIZE) {
-                    const batch = schedulesToInsert.slice(i, i + BATCH_SIZE);
+                    const batch = schedulesToInsert.slice(i, i + BATCH_SIZE).map(serializeScheduleForDb);
                     const { error: insertError } = await db.from('schedules').insert(batch);
                     if (insertError) throw insertError;
                 }
             } catch (insertErr) {
                 console.error('삽입 실패, 백업 데이터 복원 시도...', insertErr);
                 if (backupData && backupData.length > 0) {
+                    // backupData는 DB에서 바로 받은 것이므로 row_pos/col_pos 스키마. id/created_at만 제거.
                     const restoreRows = backupData.map(({ id, created_at, ...rest }) => rest);
                     for (let i = 0; i < restoreRows.length; i += BATCH_SIZE) {
                         await db.from('schedules').insert(restoreRows.slice(i, i + BATCH_SIZE));
@@ -765,7 +793,7 @@ async function handleResetSchedule() {
         // 6. 새 스케줄 삽입 (배치 처리)
         const BATCH_SIZE = 50;
         for (let i = 0; i < schedulesToInsert.length; i += BATCH_SIZE) {
-            const batch = schedulesToInsert.slice(i, i + BATCH_SIZE);
+            const batch = schedulesToInsert.slice(i, i + BATCH_SIZE).map(serializeScheduleForDb);
             const { error: insertError } = await db.from('schedules').insert(batch);
 
             if (insertError) {
@@ -880,7 +908,7 @@ async function handleSaveEmployeeOrder(options = {}) {
             members: employeeOrder
         }];
 
-        const { error } = await db.from('team_layouts')
+        const { error } = await db.from('monthly_layouts')
             .upsert({
                 month,
                 layout_data: layoutData,
@@ -2396,7 +2424,7 @@ async function loadAndRenderScheduleData(date) {
 
     try {
         const [layoutRes, scheduleRes, holidayRes] = await Promise.all([
-            db.from('team_layouts').select('layout_data').lte('month', currentMonth).order('month', { ascending: false }).limit(1),
+            db.from('monthly_layouts').select('layout_data').lte('month', currentMonth).order('month', { ascending: false }).limit(1),
             db.from('schedules').select('*').gte('date', fetchStart).lte('date', fetchEnd),
             db.from('company_holidays').select('date').gte('date', fetchStart).lte('date', fetchEnd)
         ]);
@@ -2438,7 +2466,7 @@ async function loadAndRenderScheduleData(date) {
             month: dayjs(date).format('YYYY-MM'),
             data: employeeOrder.length > 0 ? [{ id: 'main', name: '직원 목록', members: employeeOrder }] : []
         };
-        state.schedule.schedules = scheduleRes.data || [];
+        state.schedule.schedules = (scheduleRes.data || []).map(hydrateScheduleRow);
         state.schedule.companyHolidays = new Set((holidayRes.data || []).map(h => h.date));
 
 
@@ -4749,13 +4777,14 @@ async function handleImportPreviousMonth() {
         const prevEnd = prevDate.endOf('month');
 
         // 1. 지난달 데이터 가져오기 (DB)
-        const { data: prevSchedules, error: fetchError } = await db.from('schedules')
+        const { data: prevSchedulesRaw, error: fetchError } = await db.from('schedules')
             .select('*')
             .gte('date', prevStart.format('YYYY-MM-DD'))
             .lte('date', prevEnd.format('YYYY-MM-DD'))
             .eq('status', '근무'); // 근무만 복사
 
         if (fetchError) throw fetchError;
+        const prevSchedules = (prevSchedulesRaw || []).map(hydrateScheduleRow);
 
 
         // 2. 현재 달 스케줄 초기화 (DB 삭제)
@@ -4869,7 +4898,7 @@ async function handleImportPreviousMonth() {
         if (newSchedules.length > 0) {
             const BATCH_SIZE = 100;
             for (let i = 0; i < newSchedules.length; i += BATCH_SIZE) {
-                const batch = newSchedules.slice(i, i + BATCH_SIZE);
+                const batch = newSchedules.slice(i, i + BATCH_SIZE).map(serializeScheduleForDb);
                 const { error: insertError } = await db.from('schedules').insert(batch);
                 if (insertError) throw insertError;
             }
