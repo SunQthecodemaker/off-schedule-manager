@@ -1650,10 +1650,13 @@ function getOffEmployeesOnDate(dateStr) {
 function getEmployeeBasePositions() {
     const posMap = new Map();
     const layout = state.schedule.teamLayout?.data?.[0]?.members;
+    const empList = state.management.employees || [];
+    const visibleIds = new Set(empList.filter(e => isGridEmployee(e)).map(e => e.id));
 
     if (layout) {
         layout.forEach((id, idx) => {
-            if (id > 0) posMap.set(id, idx);
+            // 저장된 배치에 있어도 schedule_visible=false / 퇴사 / 임시 인 직원은 건너뜀
+            if (id > 0 && visibleIds.has(id)) posMap.set(id, idx);
         });
     }
 
@@ -2684,8 +2687,8 @@ async function renderScheduleSidebar() {
     const isTemp = (e) => e.is_temp || (e.email && e.email.startsWith('temp-'));
 
     const isTest = (e) => isTemp(e) && /^테스트/.test(e.name);
-    // 정규 활성 직원 (retired 제외, temp 제외)
-    const activeRegular = allEmployees.filter(e => !isTemp(e) && !e.retired);
+    // 정규 활성 직원 — isGridEmployee 기준 (schedule_visible=false 제외)
+    const activeRegular = allEmployees.filter(e => isGridEmployee(e));
     // 임시 직원 (알바용, 테스트 제외)
     const tempEmployees = allEmployees.filter(e => isTemp(e) && !isTest(e));
     // 테스트 직원
