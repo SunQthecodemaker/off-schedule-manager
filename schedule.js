@@ -197,13 +197,34 @@ function findNearestEmpty(dateStr, fromPos, excludeEmpId) {
 function placeCards(items, dateStr, startPos = null) {
     let placed = 0;
 
-    // 상대 위치 보존: _origPos가 있으면 오프셋 계산
+    // 상대 위치 보존: _origPos 있으면 (row,col) 델타 기반 계산 (flat index 금지, CLAUDE.md 원칙)
     const hasOrigPos = items.some(i => i._origPos != null);
-    const baseOffset = (hasOrigPos && startPos != null && items[0]._origPos != null)
-        ? (startPos - items[0]._origPos) : 0;
+    let rowDelta = 0, colDelta = 0;
+    if (hasOrigPos && startPos != null && items[0]._origPos != null) {
+        const fromRow = Math.floor(items[0]._origPos / GRID_COLS);
+        const fromCol = items[0]._origPos % GRID_COLS;
+        const toRow = Math.floor(startPos / GRID_COLS);
+        const toCol = startPos % GRID_COLS;
+        rowDelta = toRow - fromRow;
+        colDelta = toCol - fromCol;
+    }
 
     // 복수 배치 시 선택된 카드끼리는 서로 빈자리 처리하지 않음 (CLAUDE.md 네임카드 규칙)
     const selectedEmpIds = new Set(items.map(i => i.employee_id));
+
+    // (row, col) 델타 적용 시 경계 검사: 하나라도 OOB 이면 이동 전체 취소
+    if (hasOrigPos && (rowDelta !== 0 || colDelta !== 0)) {
+        for (const it of items) {
+            if (it._origPos == null) continue;
+            const origRow = Math.floor(it._origPos / GRID_COLS);
+            const origCol = it._origPos % GRID_COLS;
+            const newRow = origRow + rowDelta;
+            const newCol = origCol + colDelta;
+            if (newRow < 0 || newCol < 0 || newCol >= GRID_COLS || newRow * GRID_COLS + newCol >= GRID_SIZE) {
+                return 0; // OOB 전체 취소
+            }
+        }
+    }
 
     items.forEach((item, idx) => {
         const empId = item.employee_id;
@@ -214,7 +235,9 @@ function placeCards(items, dateStr, startPos = null) {
             // 호출자가 각 카드의 타겟 위치를 직접 지정 (row/col 델타 기반 배치 등)
             assignPos = item._targetPos;
         } else if (hasOrigPos && item._origPos != null) {
-            assignPos = item._origPos + baseOffset;
+            const origRow = Math.floor(item._origPos / GRID_COLS);
+            const origCol = item._origPos % GRID_COLS;
+            assignPos = (origRow + rowDelta) * GRID_COLS + (origCol + colDelta);
         } else if (startPos != null && startPos >= 0 && startPos < GRID_SIZE) {
             assignPos = startPos + idx;
         } else {
