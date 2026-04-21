@@ -27,29 +27,108 @@ const GRID_SIZE = 32;
 const GRID_COLS = 4;
 
 // ═══════════════════════════════════════════════════════
-// ✅ DB ↔ 메모리 변환 헬퍼 (2026-04-21 schema migration)
-// DB: schedules 테이블은 row_pos/col_pos/is_annual_leave 컬럼 사용
-// 메모리: 기존 코드 호환을 위해 grid_position = row_pos*4 + col_pos 로 하이드레이션
-// off-grid(휴무 처리된 밀려난 카드) = row_pos/col_pos NULL → grid_position = -1
+// ✅ DB ↔ 메모리 변환 헬퍼 (원칙 19단계 — (row, col) 네이티브)
+// DB/메모리 모두 row/col 사용. flat index 금지.
+// off-grid(밀려난 카드)는 _offGrid: true 플래그로 표현 (DB에선 row_pos/col_pos NULL)
 // ═══════════════════════════════════════════════════════
-function hydrateScheduleRow(row) {
-    if (!row) return row;
-    const onGrid = (row.row_pos != null && row.col_pos != null);
+function hydrateScheduleRow(dbRow) {
+    if (!dbRow) return dbRow;
+    const onGrid = (dbRow.row_pos != null && dbRow.col_pos != null);
+    const { row_pos, col_pos, ...rest } = dbRow;
     return {
-        ...row,
-        grid_position: onGrid ? (row.row_pos * GRID_COLS + row.col_pos) : -1
+        ...rest,
+        row: onGrid ? row_pos : null,
+        col: onGrid ? col_pos : null,
+        _offGrid: !onGrid,
+        is_annual_leave: dbRow.is_annual_leave ?? false,
+        // 읽기 편의용 파생 필드 — 직접 수정 금지. setSchedulePos/setScheduleOffGrid 사용.
+        grid_position: onGrid ? (row_pos * GRID_COLS + col_pos) : -1
     };
 }
 
 function serializeScheduleForDb(s) {
-    const { grid_position, ...rest } = s;
-    const onGrid = (grid_position != null && grid_position >= 0 && grid_position < GRID_SIZE);
+    // 내부/UI 전용 필드 제거
+    const { row, col, _offGrid, _origRow, _origCol, _origPos, _targetRow, _targetCol, _targetPos, _empStatus, grid_position, ...rest } = s;
+    // 1차: row/col 메모리 값 우선. 2차: 레거시 grid_position 로부터 파생 (보호 장치)
+    let finalRow = null, finalCol = null;
+    if (!_offGrid) {
+        if (isValidGridCell(row, col)) {
+            finalRow = row; finalCol = col;
+        } else if (grid_position != null && grid_position >= 0 && grid_position < GRID_SIZE) {
+            finalRow = Math.floor(grid_position / GRID_COLS);
+            finalCol = grid_position % GRID_COLS;
+        }
+    }
     return {
         ...rest,
-        row_pos: onGrid ? Math.floor(grid_position / GRID_COLS) : null,
-        col_pos: onGrid ? (grid_position % GRID_COLS) : null,
+        row_pos: finalRow,
+        col_pos: finalCol,
         is_annual_leave: rest.is_annual_leave ?? false
     };
+}
+
+/** 특정 (row, col) 이 그리드 유효 범위 내인지 */
+function isValidGridCell(row, col) {
+    return row != null && col != null &&
+        row >= 0 && row < GRID_SIZE / GRID_COLS &&
+        col >= 0 && col < GRID_COLS;
+}
+
+/** (row, col) 쌍을 Set 키 문자열로 */
+function rcKey(row, col) {
+    return `${row},${col}`;
+}
+
+/** 스케줄 객체에 그리드 위치 설정 (row/col/_offGrid/grid_position 동기화) */
+function setSchedulePos(s, row, col) {
+    if (!isValidGridCell(row, col)) {
+        s.row = null;
+        s.col = null;
+        s._offGrid = true;
+        s.grid_position = -1;
+    } else {
+        s.row = row;
+        s.col = col;
+        s._offGrid = false;
+        s.grid_position = row * GRID_COLS + col;
+    }
+}
+
+/** flat pos → row/col 동기화 (레거시 코드 호환 — 새 코드는 setSchedulePos 사용) */
+function setSchedulePosFlat(s, pos) {
+    if (pos == null || pos < 0 || pos >= GRID_SIZE) {
+        setScheduleOffGrid(s);
+    } else {
+        setSchedulePos(s, Math.floor(pos / GRID_COLS), pos % GRID_COLS);
+    }
+}
+
+/** 스케줄을 off-grid (밀려남) 상태로 */
+function setScheduleOffGrid(s) {
+    s.row = null;
+    s.col = null;
+    s._offGrid = true;
+    s.grid_position = -1;
+}
+
+/** 스케줄이 그리드 위에 있는지 */
+function isOnGrid(s) {
+    return s && !s._offGrid && isValidGridCell(s.row, s.col);
+}
+
+/** 스케줄이 특정 (row, col) 에 있는지 */
+function isAt(s, row, col) {
+    return s && !s._offGrid && s.row === row && s.col === col;
+}
+
+/** DOM data-position (flat) → (row, col). DOM은 선형 순서이므로 data-position 유지 */
+function posToRC(pos) {
+    return { row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS };
+}
+
+/** (row, col) → DOM data-position (flat). DOM attribute 생성용 */
+function rcToPos(row, col) {
+    return row * GRID_COLS + col;
 }
 
 /** 직원이 그리드 표시 대상인지 (시간 무관 — schedule_visible 토글까지 반영) */
@@ -256,7 +335,7 @@ function placeCards(items, dateStr, startPos = null) {
         state.schedule.schedules.forEach(s => {
             if (s.date === dateStr && s.employee_id === empId) {
                 s.status = '휴무';
-                s.grid_position = -1; // 위치 해제
+                setScheduleOffGrid(s); // 위치 해제
                 unsavedChanges.set(s.id, { type: 'update', data: s });
             }
         });
@@ -269,7 +348,7 @@ function placeCards(items, dateStr, startPos = null) {
             if (s.date === dateStr && s.grid_position === assignPos && s.employee_id !== empId && s.employee_id > 0) {
                 if (selectedEmpIds.has(s.employee_id)) return; // 선택된 카드는 다음 순번에서 자기 위치로 이동됨
                 s.status = '휴무';
-                s.grid_position = -1;
+                setScheduleOffGrid(s);
                 unsavedChanges.set(s.id, { type: 'update', data: s });
                 displacedEmpIds.add(s.employee_id);
             }
@@ -291,8 +370,9 @@ function placeCards(items, dateStr, startPos = null) {
                 date: dateStr,
                 employee_id: emp.id,
                 status: '휴무',
-                grid_position: -1,
-                sort_order: -1
+                sort_order: -1,
+                row: null, col: null, _offGrid: true, grid_position: -1,
+                is_annual_leave: false
             };
             state.schedule.schedules.push(newSched);
             unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
@@ -305,17 +385,21 @@ function placeCards(items, dateStr, startPos = null) {
         });
         if (target) {
             target.status = item.status || '근무';
-            target.grid_position = assignPos;
+            setSchedulePosFlat(target, assignPos);
             target.sort_order = assignPos;
             unsavedChanges.set(target.id, { type: 'update', data: target });
         } else {
+            const assignRow = Math.floor(assignPos / GRID_COLS);
+            const assignCol = assignPos % GRID_COLS;
             const newSched = {
                 id: `place-${Date.now()}-${empId}-${Math.random()}`,
                 date: dateStr,
                 employee_id: empId,
                 status: item.status || '근무',
+                row: assignRow, col: assignCol, _offGrid: false,
                 grid_position: assignPos,
                 sort_order: assignPos,
+                is_annual_leave: false,
                 created_at: new Date().toISOString()
             };
             state.schedule.schedules.push(newSched);
@@ -351,7 +435,9 @@ function moveCards(empIds, fromDate, toDate, targetPos = null) {
             const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
             const newSched = {
                 id: `move-${Date.now()}-${empId}`, date: fromDate, employee_id: empId,
-                status: '휴무', grid_position: pos, sort_order: pos
+                status: '휴무', sort_order: pos,
+                row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS, _offGrid: false,
+                grid_position: pos, is_annual_leave: false
             };
             state.schedule.schedules.push(newSched);
             unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
@@ -423,6 +509,29 @@ function undoLastChange() {
     updateSaveButtonState();
 }
 
+function redoLastChange() {
+    if (redoStack.length === 0) {
+        alert('다시 실행할 작업이 없습니다.');
+        return;
+    }
+    const { name, snapshot } = redoStack.pop();
+
+    // 현재 상태는 undo 쪽으로 옮겨두어 연속 Redo/Undo 가능하게
+    const currentSnapshot = {
+        schedules: JSON.parse(JSON.stringify(state.schedule.schedules)),
+        unsavedChanges: new Map(unsavedChanges)
+    };
+    undoStack.push({ name, snapshot: currentSnapshot });
+    if (undoStack.length > 50) undoStack.shift();
+
+    // 복원
+    state.schedule.schedules = snapshot.schedules;
+    unsavedChanges = snapshot.unsavedChanges;
+
+    renderCalendar();
+    updateSaveButtonState();
+}
+
 // Keyboard shortcuts are handled in the main event handler section below
 
 
@@ -457,7 +566,7 @@ function updateScheduleSortOrders(dateStr) {
             const newPos = newPositions.get(schedule.employee_id);
             if (newPos !== undefined) {
                 if (schedule.grid_position !== newPos) {
-                    schedule.grid_position = newPos;
+                    setSchedulePosFlat(schedule, newPos);
                     schedule.sort_order = newPos;
                     unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
                     changeCount++;
@@ -562,16 +671,8 @@ function handleViewModeChange(e) {
 
         clearSelection(); // ✨ 뷰 모드 변경 시 선택 초기화
 
-        // Update button active states
-        document.querySelectorAll('.schedule-view-btn').forEach(b => {
-            if (b.dataset.mode === newMode) {
-                b.classList.add('bg-white', 'text-blue-600', 'shadow-sm');
-                b.classList.remove('text-gray-500', 'hover:text-blue-600', 'hover:bg-white');
-            } else {
-                b.classList.remove('bg-white', 'text-blue-600', 'shadow-sm');
-                b.classList.add('text-gray-500', 'hover:text-blue-600', 'hover:bg-white');
-            }
-        });
+        // active 클래스 일원화 (style.css의 .schedule-view-btn.active 하이라이트 적용)
+        updateViewModeButtons();
 
         renderCalendar();
     }
@@ -997,7 +1098,7 @@ function applyLayoutToSchedules(positionMap, targetDates) {
 
         const newPos = positionMap.get(s.employee_id);
         if (s.grid_position !== newPos) {
-            s.grid_position = newPos;
+            setSchedulePosFlat(s, newPos);
             unsavedChanges.set(s.id, { type: 'update', data: s });
             updateCount++;
         }
@@ -1203,7 +1304,7 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
         if (schedule) {
             // 기존 스케줄 업데이트
             if (schedule.grid_position !== position) {
-                schedule.grid_position = position;
+                setSchedulePosFlat(schedule, position);
                 schedule.sort_order = position;
                 unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
             }
@@ -2102,31 +2203,41 @@ function handleEventCardClick(e) {
     const empId = card.dataset.employeeId;
     const selKey = (cardDate && empId && empId !== 'empty') ? `${cardDate}_${empId}` : null;
 
-    // ✨ [A3] Shift+클릭: 범위 선택 (lastSelectedCardInfo ~ 현재 카드)
+    // ✨ [A3] Shift+클릭: (row, col) 직사각 영역 선택 — CLAUDE.md 4단계 원칙
+    // 앵커 A (r_A, c_A), 타겟 B (r_B, c_B) → {(r,c) : min_r≤r≤max_r, min_c≤c≤max_c}
     if (e.shiftKey && lastSelectedCardInfo) {
         e.preventDefault();
         const fromDate = lastSelectedCardInfo.date;
         const fromPos = lastSelectedCardInfo.position;
 
-        // 같은 날짜 내에서만 범위 선택
-        if (cardDate === fromDate) {
-            const minPos = Math.min(fromPos, cardPos);
-            const maxPos = Math.max(fromPos, cardPos);
+        const fromRow = Math.floor(fromPos / GRID_COLS);
+        const fromCol = fromPos % GRID_COLS;
+        const toRow = Math.floor(cardPos / GRID_COLS);
+        const toCol = cardPos % GRID_COLS;
+        const minRow = Math.min(fromRow, toRow);
+        const maxRow = Math.max(fromRow, toRow);
+        const minCol = Math.min(fromCol, toCol);
+        const maxCol = Math.max(fromCol, toCol);
 
-            // 범위 내 모든 카드 선택
+        const selectInDay = (dayEl, dateStr) => {
+            dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
+                const pos = parseInt(el.dataset.position, 10);
+                const r = Math.floor(pos / GRID_COLS);
+                const c = pos % GRID_COLS;
+                if (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol) {
+                    const eid = el.dataset.employeeId;
+                    if (eid && eid !== 'empty') state.schedule.selectedSchedules.add(`${dateStr}_${eid}`);
+                    el.classList.add('selected');
+                }
+            });
+        };
+
+        // 같은 날짜 내에서 직사각 선택
+        if (cardDate === fromDate) {
             const dayEl = card.closest('.calendar-day');
-            if (dayEl) {
-                dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
-                    const pos = parseInt(el.dataset.position, 10);
-                    if (pos >= minPos && pos <= maxPos) {
-                        const eid = el.dataset.employeeId;
-                        if (eid && eid !== 'empty') state.schedule.selectedSchedules.add(`${cardDate}_${eid}`);
-                        el.classList.add('selected');
-                    }
-                });
-            }
+            if (dayEl) selectInDay(dayEl, cardDate);
         }
-        // 다른 날짜 간 범위: 모든 날짜에서 같은 position 범위 선택
+        // 크로스 날짜: 두 날짜 사이의 모든 날짜에서 같은 (row, col) 직사각 영역 선택
         else {
             const allDayEls = document.querySelectorAll('.calendar-day');
             const dates = Array.from(allDayEls).map(d => d.dataset.date).filter(Boolean).sort();
@@ -2135,20 +2246,9 @@ function handleEventCardClick(e) {
             if (startIdx >= 0 && endIdx >= 0) {
                 const minIdx = Math.min(startIdx, endIdx);
                 const maxIdx = Math.max(startIdx, endIdx);
-                const minPos = Math.min(fromPos, cardPos);
-                const maxPos = Math.max(fromPos, cardPos);
-
                 for (let di = minIdx; di <= maxIdx; di++) {
                     const dayEl = document.querySelector(`.calendar-day[data-date="${dates[di]}"]`);
-                    if (!dayEl) continue;
-                    dayEl.querySelectorAll('.event-card, .event-slot').forEach(el => {
-                        const pos = parseInt(el.dataset.position, 10);
-                        if (pos >= minPos && pos <= maxPos) {
-                            const eid = el.dataset.employeeId;
-                            if (eid && eid !== 'empty') state.schedule.selectedSchedules.add(`${dates[di]}_${eid}`);
-                            el.classList.add('selected');
-                        }
-                    });
+                    if (dayEl) selectInDay(dayEl, dates[di]);
                 }
             }
         }
@@ -2334,7 +2434,7 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
             }
         } else {
             if (schedule.grid_position !== newPos) {
-                schedule.grid_position = newPos;
+                setSchedulePosFlat(schedule, newPos);
                 schedule.sort_order = newPos;
                 unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
                 changeCount++;
@@ -3313,7 +3413,7 @@ function handleDateHeaderDblClick(e) {
 
                         if (targetPos < GRID_SIZE) {
                             schedule.status = '근무';
-                            schedule.grid_position = targetPos;
+                            setSchedulePosFlat(schedule, targetPos);
                             schedule.sort_order = targetPos; // 정렬 순서도 동기화
                             unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
                             occupiedPositions.add(targetPos);
@@ -3965,10 +4065,18 @@ function handleGlobalKeydown(e) {
     // ✅ 배치 그리드에 선택이 있으면 배치 그리드 키보드 처리 우선
     if (layoutSelectedSlots.size > 0 && handleLayoutKeyAction(e)) return;
 
-    // Undo (Ctrl+Z)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    // Undo (Ctrl+Z) — Shift+Ctrl+Z 는 Redo
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
-        undoLastChange();
+        if (e.shiftKey) redoLastChange();
+        else undoLastChange();
+        return;
+    }
+
+    // Redo (Ctrl+Y)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        redoLastChange();
         return;
     }
 
