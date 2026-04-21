@@ -2,23 +2,21 @@ import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
-import { registerManualLeave, cancelManualLeave } from './management.js';
+import { registerManualLeave } from './management.js';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
-import { ScheduleGenerator } from './schedule-generator.js';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
 
 // ✅ 기본 팀 배치 (엑셀 팀표 순서 — 스케줄 리셋 시 기본값)
 // 1행: 원장 / 2~5행: 진료실 / 6행: 경영지원실 / 7행: 기공실
+// 원칙 11단계: 스페이서(-1) 완전 제거 — (row,col) 그리드에서 빈 슬롯이 자연 경계 역할
 const DEFAULT_TEAM_MEMBERS = [
     1, 29, 30, 31,       // 원장: 박선규, 류효경, 박보현, 김민재
     32, 35, 34, 38,      // 진료실1: 이고은, 최수연, 정유진, 정해인
     36, 37, 224, 40,     // 진료실2: 김민주, 최지은, 신현채, 김가현
     41, 39, 234,         // 진료실3: 최윤미, 최지혜, 김규빈
-    -1,                  // 구분선
     43, 44, 45, 46,      // 경영지원실: 유시온, 최나은, 김채이, 이진현
-    -1,                  // 구분선
     47, 48, 226          // 기공실: 이우현, 용윤지, 이지민
 ];
 
@@ -27,9 +25,9 @@ const GRID_SIZE = 32;
 const GRID_COLS = 4;
 
 // ═══════════════════════════════════════════════════════
-// ✅ DB ↔ 메모리 변환 헬퍼 (원칙 19단계 — (row, col) 네이티브)
-// DB/메모리 모두 row/col 사용. flat index 금지.
-// off-grid(밀려난 카드)는 _offGrid: true 플래그로 표현 (DB에선 row_pos/col_pos NULL)
+// ✅ DB ↔ 메모리 변환 헬퍼 (원칙 2/19단계 — (row, col) 네이티브)
+// DB/메모리 모두 row/col 사용. flat index 금지. off-grid 개념 완전 제거(원칙 2단계):
+// 활성 직원은 항상 그리드 어딘가에 위치. 밀려난 카드는 즉시 가장 가까운 빈자리로 재배치.
 // ═══════════════════════════════════════════════════════
 function hydrateScheduleRow(dbRow) {
     if (!dbRow) return dbRow;
@@ -39,25 +37,22 @@ function hydrateScheduleRow(dbRow) {
         ...rest,
         row: onGrid ? row_pos : null,
         col: onGrid ? col_pos : null,
-        _offGrid: !onGrid,
         is_annual_leave: dbRow.is_annual_leave ?? false,
-        // 읽기 편의용 파생 필드 — 직접 수정 금지. setSchedulePos/setScheduleOffGrid 사용.
-        grid_position: onGrid ? (row_pos * GRID_COLS + col_pos) : -1
+        // 읽기 편의용 파생 필드 — 직접 수정 금지. setSchedulePos 사용.
+        grid_position: onGrid ? (row_pos * GRID_COLS + col_pos) : null
     };
 }
 
 function serializeScheduleForDb(s) {
     // 내부/UI 전용 필드 제거
-    const { row, col, _offGrid, _origRow, _origCol, _origPos, _targetRow, _targetCol, _targetPos, _empStatus, grid_position, ...rest } = s;
+    const { row, col, _origRow, _origCol, _origPos, _targetRow, _targetCol, _targetPos, _empStatus, grid_position, ...rest } = s;
     // 1차: row/col 메모리 값 우선. 2차: 레거시 grid_position 로부터 파생 (보호 장치)
     let finalRow = null, finalCol = null;
-    if (!_offGrid) {
-        if (isValidGridCell(row, col)) {
-            finalRow = row; finalCol = col;
-        } else if (grid_position != null && grid_position >= 0 && grid_position < GRID_SIZE) {
-            finalRow = Math.floor(grid_position / GRID_COLS);
-            finalCol = grid_position % GRID_COLS;
-        }
+    if (isValidGridCell(row, col)) {
+        finalRow = row; finalCol = col;
+    } else if (grid_position != null && grid_position >= 0 && grid_position < GRID_SIZE) {
+        finalRow = Math.floor(grid_position / GRID_COLS);
+        finalCol = grid_position % GRID_COLS;
     }
     return {
         ...rest,
@@ -79,46 +74,58 @@ function rcKey(row, col) {
     return `${row},${col}`;
 }
 
-/** 스케줄 객체에 그리드 위치 설정 (row/col/_offGrid/grid_position 동기화) */
+/** 스케줄 객체에 그리드 위치 설정 (row/col/grid_position 동기화) */
 function setSchedulePos(s, row, col) {
     if (!isValidGridCell(row, col)) {
-        s.row = null;
-        s.col = null;
-        s._offGrid = true;
-        s.grid_position = -1;
-    } else {
-        s.row = row;
-        s.col = col;
-        s._offGrid = false;
-        s.grid_position = row * GRID_COLS + col;
+        // 원칙 2단계: off-grid 상태 금지. 호출자가 유효한 자리를 보장해야 함.
+        console.warn('setSchedulePos called with invalid cell:', row, col, '— skipped');
+        return;
     }
+    s.row = row;
+    s.col = col;
+    s.grid_position = row * GRID_COLS + col;
 }
 
-/** flat pos → row/col 동기화 (레거시 코드 호환 — 새 코드는 setSchedulePos 사용) */
+/** flat pos → row/col 동기화 */
 function setSchedulePosFlat(s, pos) {
     if (pos == null || pos < 0 || pos >= GRID_SIZE) {
-        setScheduleOffGrid(s);
-    } else {
-        setSchedulePos(s, Math.floor(pos / GRID_COLS), pos % GRID_COLS);
+        console.warn('setSchedulePosFlat called with invalid pos:', pos, '— skipped');
+        return;
     }
+    setSchedulePos(s, Math.floor(pos / GRID_COLS), pos % GRID_COLS);
 }
 
-/** 스케줄을 off-grid (밀려남) 상태로 */
-function setScheduleOffGrid(s) {
-    s.row = null;
-    s.col = null;
-    s._offGrid = true;
-    s.grid_position = -1;
+/**
+ * 원칙 3단계: 타겟 위치에서 가장 가까운 빈 자리 탐색 (displaced 카드 재배치용).
+ * 거리 = |Δrow| + |Δcol| (Manhattan). 동거리면 pos(flat) 오름차순.
+ * @returns {number|null} 빈 자리 flat pos 또는 null(모든 자리 점유됨)
+ */
+function findNearestEmptyPos(targetPos, occupied) {
+    if (occupied.size >= GRID_SIZE) return null;
+    const tRow = Math.floor(targetPos / GRID_COLS);
+    const tCol = targetPos % GRID_COLS;
+    let bestPos = null, bestDist = Infinity;
+    for (let p = 0; p < GRID_SIZE; p++) {
+        if (occupied.has(p)) continue;
+        const r = Math.floor(p / GRID_COLS);
+        const c = p % GRID_COLS;
+        const d = Math.abs(r - tRow) + Math.abs(c - tCol);
+        if (d < bestDist || (d === bestDist && p < bestPos)) {
+            bestDist = d;
+            bestPos = p;
+        }
+    }
+    return bestPos;
 }
 
 /** 스케줄이 그리드 위에 있는지 */
 function isOnGrid(s) {
-    return s && !s._offGrid && isValidGridCell(s.row, s.col);
+    return s && isValidGridCell(s.row, s.col);
 }
 
 /** 스케줄이 특정 (row, col) 에 있는지 */
 function isAt(s, row, col) {
-    return s && !s._offGrid && s.row === row && s.col === col;
+    return s && isValidGridCell(s.row, s.col) && s.row === row && s.col === col;
 }
 
 /** DOM data-position (flat) → (row, col). DOM은 선형 순서이므로 data-position 유지 */
@@ -331,61 +338,86 @@ function placeCards(items, dateStr, startPos = null) {
             return;
         }
 
-        // R2: 같은 날짜에 같은 직원의 기존 레코드 제거 (이동이니까)
+        // 현재 날짜의 점유 맵: flat pos -> schedule. 레거시 레코드는 배제.
+        const occupancyByPos = new Map();
         state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr && s.employee_id === empId) {
-                s.status = '휴무';
-                setScheduleOffGrid(s); // 위치 해제
-                unsavedChanges.set(s.id, { type: 'update', data: s });
-            }
+            if (s.date !== dateStr) return;
+            if (s.employee_id <= 0) return;
+            if (s.grid_position == null || s.grid_position < 0 || s.grid_position >= GRID_SIZE) return;
+            occupancyByPos.set(s.grid_position, s);
         });
 
-        // R1: 타겟 위치의 다른 카드 → 빈자리로 전환 (원칙 3단계: 뷰별 상태 분기)
-        //     - 근무자뷰: 밀려난 카드 → 휴무 (뷰에서 사라짐)
-        //     - 휴무자뷰: 밀려난 카드 → 근무 (뷰에서 사라짐)
-        //     - 통합뷰: 밀려난 카드 → 휴무 (기본)
-        //     - 연차자(is_annual_leave=true): 상태 변경 안 함 (원칙 12단계)
-        //     단, 선택된 카드 본인들끼리는 서로 빈자리 처리하지 않음 (복수 드래그 시)
+        // R1: 타겟 위치의 다른 카드 → 가장 가까운 빈자리로 재배치 (원칙 2·3단계: off-grid 금지)
+        //     - 상태: 뷰별 전환 (근무자뷰→휴무, 휴무자뷰→근무, 통합→휴무)
+        //     - 연차자(is_annual_leave=true): 상태 변경 안 함 (원칙 12단계). 위치만 이동.
+        //     - 선택된 카드끼리는 서로 displace 안 함 (자기 위치로 이동될 예정)
         const currentView = state.schedule.viewMode || 'all';
         const displacedStatus = (currentView === 'off') ? '근무' : '휴무';
-        const displacedEmpIds = new Set();
-        state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr && s.grid_position === assignPos && s.employee_id !== empId && s.employee_id > 0) {
-                if (selectedEmpIds.has(s.employee_id)) return; // 선택된 카드는 다음 순번에서 자기 위치로 이동됨
-                // 연차자는 상태 건드리지 않음 (12단계 원칙)
-                if (!s.is_annual_leave) {
-                    s.status = displacedStatus;
+
+        const existingAtTarget = occupancyByPos.get(assignPos);
+        if (existingAtTarget
+            && existingAtTarget.employee_id !== empId
+            && existingAtTarget.employee_id > 0
+            && !selectedEmpIds.has(existingAtTarget.employee_id)) {
+            // 점유 슬롯 계산 (이번 이동 자리는 비어 있다고 간주, 본인/선택카드는 무시)
+            const occupied = new Set();
+            occupancyByPos.forEach((s, p) => {
+                if (p === assignPos) return;
+                if (s.employee_id === empId) return;
+                if (selectedEmpIds.has(s.employee_id)) return;
+                occupied.add(p);
+            });
+            const nearest = findNearestEmptyPos(assignPos, occupied);
+            if (nearest != null) {
+                if (!existingAtTarget.is_annual_leave) {
+                    existingAtTarget.status = displacedStatus;
                 }
-                setScheduleOffGrid(s);
-                unsavedChanges.set(s.id, { type: 'update', data: s });
-                displacedEmpIds.add(s.employee_id);
+                setSchedulePosFlat(existingAtTarget, nearest);
+                existingAtTarget.sort_order = nearest;
+                unsavedChanges.set(existingAtTarget.id, { type: 'update', data: existingAtTarget });
+                occupancyByPos.delete(assignPos);
+                occupancyByPos.set(nearest, existingAtTarget);
+            } else {
+                // 전 슬롯 점유: 원칙상 여기 도달 안 해야 함. 방어적으로 상태만 변경.
+                if (!existingAtTarget.is_annual_leave) {
+                    existingAtTarget.status = displacedStatus;
+                }
+                unsavedChanges.set(existingAtTarget.id, { type: 'update', data: existingAtTarget });
             }
-        });
-        //     (b) basePositions으로만 점유하던 직원 (explicit 레코드 없음) → 신규 휴무 레코드 생성
-        //         렌더링 시 basePositions fallback으로 타겟에 돌아오는 것 방지
+        }
+
+        // R1(b): basePositions으로만 점유하던 직원 (explicit 레코드 없음) → 신규 휴무 레코드 + 빈자리 배치
         const basePositionsMap = getEmployeeBasePositions();
         (state.management.employees || []).forEach(emp => {
             if (!emp || emp.id === empId) return;
             if (!isGridEmployee(emp)) return;
             if (selectedEmpIds.has(emp.id)) return;
-            if (displacedEmpIds.has(emp.id)) return;
             if (basePositionsMap.get(emp.id) !== assignPos) return;
-            // 해당 날짜에 이 직원의 explicit 레코드가 없으면 → 신규 휴무 레코드 생성
             const hasExplicit = state.schedule.schedules.some(s => s.date === dateStr && s.employee_id === emp.id);
             if (hasExplicit) return;
+            // 가장 가까운 빈자리 찾기
+            const occupied = new Set();
+            occupancyByPos.forEach((s, p) => { occupied.add(p); });
+            occupied.add(assignPos); // 타겟은 이번 이동으로 점유 예정
+            const nearest = findNearestEmptyPos(assignPos, occupied);
+            if (nearest == null) return;
+            const nRow = Math.floor(nearest / GRID_COLS);
+            const nCol = nearest % GRID_COLS;
             const newSched = {
                 id: `displace-${Date.now()}-${emp.id}-${Math.random()}`,
                 date: dateStr,
                 employee_id: emp.id,
                 status: displacedStatus,
-                sort_order: -1,
-                row: null, col: null, _offGrid: true, grid_position: -1,
+                sort_order: nearest,
+                row: nRow, col: nCol, grid_position: nearest,
                 is_annual_leave: false
             };
             state.schedule.schedules.push(newSched);
             unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
+            occupancyByPos.set(nearest, newSched);
         });
 
+        // R2: 같은 날짜에 같은 직원의 기존 레코드 (다른 위치) → 업데이트 대상. 삭제하지 않고 아래 target 처리로 이어감.
         // 배치: 기존 스케줄 업데이트 또는 신규 생성
         let target = null;
         state.schedule.schedules.forEach(s => {
@@ -404,7 +436,7 @@ function placeCards(items, dateStr, startPos = null) {
                 date: dateStr,
                 employee_id: empId,
                 status: item.status || '근무',
-                row: assignRow, col: assignCol, _offGrid: false,
+                row: assignRow, col: assignCol,
                 grid_position: assignPos,
                 sort_order: assignPos,
                 is_annual_leave: false,
@@ -456,7 +488,7 @@ function moveCards(empIds, fromDate, toDate, targetPos = null) {
             const newSched = {
                 id: `move-${Date.now()}-${empId}`, date: fromDate, employee_id: empId,
                 status: '휴무', sort_order: pos,
-                row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS, _offGrid: false,
+                row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS,
                 grid_position: pos, is_annual_leave: false
             };
             state.schedule.schedules.push(newSched);
@@ -471,6 +503,7 @@ function moveCards(empIds, fromDate, toDate, targetPos = null) {
 
 state.schedule.activeDepartmentFilters = new Set();
 state.schedule.companyHolidays = new Set();
+state.schedule.holidaySnapshots = new Map(); // dateStr -> Array<{employee_id,status,grid_position,is_annual_leave}> (원칙 15단계)
 state.schedule.activeReorder = {
     date: null,
     sortable: null,
@@ -609,22 +642,6 @@ function getDepartmentColor(departmentId) {
 }
 
 
-// ✅ 빈칸 카운터 (고유 ID 생성용)
-let spacerCounter = 1;
-
-function getSpacerHtml() {
-    // 고유한 음수 ID 생성 (빈칸1: -1, 빈칸2: -2, ...)
-    const spacerId = -(spacerCounter++);
-    const spacerName = `빈칸${-spacerId}`;
-    return `<div class="draggable-employee" data-employee-id="${spacerId}" data-type="employee">
-        <span class="handle">☰</span>
-        <div class="fc-draggable-item" style="background-color: #f3f4f6;">
-            <span style="background-color: #f3f4f6;" class="department-dot"></span>
-            <span class="flex-grow font-semibold" style="color: #f3f4f6;">${spacerName}</span>
-        </div>
-    </div>`;
-}
-
 function getSeparatorHtml() {
     return `<div class="list-separator flex items-center" data-type="separator"><span class="handle">☰</span><div class="line"></div><button class="delete-separator-btn" title="구분선 삭제">×</button></div>`;
 }
@@ -646,17 +663,7 @@ function getTeamHtml(team, allEmployees) {
     const deleteButton = `<button class="delete-team-btn ml-auto text-red-500 hover:text-red-700 disabled:opacity-25" data-team-id="${team.id}" title="팀이 비어있을 때만 삭제 가능" ${team.members.length > 0 ? 'disabled' : ''}>🗑️</button>`;
     const membersHtml = team.members.map(memberId => {
         if (memberId === '---separator---') return getSeparatorHtml();
-        if (memberId < 0) {
-            // 음수 ID는 빈칸
-            const spacerName = `빈칸${-memberId}`;
-            return `<div class="draggable-employee" data-employee-id="${memberId}" data-type="employee">
-                <span class="handle">☰</span>
-                <div class="fc-draggable-item" style="background-color: #f3f4f6;">
-                    <span style="background-color: #f3f4f6;" class="department-dot"></span>
-                    <span class="flex-grow font-semibold" style="color: #f3f4f6;">${spacerName}</span>
-                </div>
-            </div>`;
-        }
+        if (memberId < 0) return ''; // 원칙 11단계: 스페이서 완전 제거 — 레거시 데이터 무시
         const emp = allEmployees.find(e => e.id === memberId);
         return emp ? getEmployeeHtml(emp) : '';
     }).join('');
@@ -921,25 +928,15 @@ async function handleResetSchedule() {
         const orderedEmployees = [];
         let gridPosition = 0;
 
-        // ✅ 직원 목록(.employee-list)에서만 가져오기
+        // ✅ 직원 목록(.employee-list)에서만 가져오기 (원칙 11단계: 스페이서 제거, 실제 직원만)
         document.querySelectorAll('.employee-list .draggable-employee').forEach(memberEl => {
             const empId = parseInt(memberEl.dataset.employeeId, 10);
-
-            if (!isNaN(empId)) {
-                if (empId < 0) {
-                    // 음수 ID = 빈칸
-                    orderedEmployees.push({
-                        type: 'spacer',
-                        position: gridPosition++
-                    });
-                } else {
-                    // 양수 ID = 실제 직원
-                    orderedEmployees.push({
-                        type: 'employee',
-                        employee_id: empId,
-                        position: gridPosition++
-                    });
-                }
+            if (!isNaN(empId) && empId > 0) {
+                orderedEmployees.push({
+                    type: 'employee',
+                    employee_id: empId,
+                    position: gridPosition++
+                });
             }
         });
 
@@ -1064,24 +1061,10 @@ function handleAddSeparator() {
     _('#unassigned-list').insertAdjacentHTML('beforeend', getSeparatorHtml());
 }
 
-function handleAddSpacer() {
-    // 레거시 — 새 그리드 편집기에서는 더블클릭으로 빈칸 토글
-    const grid = document.querySelector('#layout-grid');
-    if (!grid) return;
-    // 마지막 빈 슬롯을 spacer로 변환
-    const emptySlots = grid.querySelectorAll('.layout-empty');
-    if (emptySlots.length > 0) {
-        const slot = emptySlots[emptySlots.length - 1];
-        const pos = parseInt(slot.dataset.position);
-        slot.className = 'layout-slot layout-spacer';
-        slot.dataset.employeeId = '-1';
-        slot.innerHTML = `<span class="slot-number" style="color:#d1d5db;">${pos + 1}</span>`;
-    }
-}
-
 function handleDeleteSpacer(e) {
-    if (e.target.matches('.delete-spacer-btn, .delete-separator-btn')) {
-        e.target.closest('[data-type]').remove();
+    // 원칙 11단계: 스페이서 개념 제거됨. 구분선(separator)만 삭제 지원.
+    if (e.target.matches('.delete-separator-btn')) {
+        e.target.closest('[data-type]')?.remove();
     }
 }
 
@@ -1091,27 +1074,16 @@ async function handleSaveEmployeeOrder(options = {}) {
     saveBtn.textContent = '저장중...';
 
     // ✅ 4×8 그리드에서 순서 수집 (달력과 동일한 event-card/event-slot 구조)
+    //    원칙 11단계: 스페이서(-1) 제거. 빈 슬롯은 저장하지 않고 실제 직원만 유지.
     const employeeOrder = [];
     document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(slot => {
         const empId = slot.dataset.employeeId;
-        if (empId === 'empty') {
-            employeeOrder.push(0); // placeholder
-        } else {
-            const id = parseInt(empId, 10);
-            if (!isNaN(id)) {
-                employeeOrder.push(id); // 음수(spacer)도 포함
-            }
+        if (empId === 'empty') return;
+        const id = parseInt(empId, 10);
+        if (!isNaN(id) && id > 0) {
+            employeeOrder.push(id);
         }
     });
-
-    // 끝에 있는 빈 슬롯(0) 제거, 중간 빈 슬롯은 유지
-    while (employeeOrder.length > 0 && employeeOrder[employeeOrder.length - 1] === 0) {
-        employeeOrder.pop();
-    }
-    // 중간 빈 슬롯(0)은 -1(spacer)로 변환
-    for (let i = 0; i < employeeOrder.length; i++) {
-        if (employeeOrder[i] === 0) employeeOrder[i] = -1;
-    }
 
 
     const month = dayjs(state.schedule.currentDate).format('YYYY-MM-01');
@@ -1641,90 +1613,8 @@ function initializeDayDragDrop(dayEl, dateStr) {
 }
 
 // =========================================================================================
-// [기능 복구] 자동 배정 및 AppSheet 관련 로직
+// AppSheet 관련 로직 (원칙 13단계: handleAutoSchedule 완전 제거됨)
 // =========================================================================================
-
-export async function handleAutoSchedule() {
-    if (!confirm('현재 보고 있는 달의 스케줄을 자동으로 생성하시겠습니까?\n\n주의: 현재 화면의 기존 근무 스케줄은 모두 삭제되고 새로 생성됩니다.\n(결과는 저장하기 전까지 확정되지 않습니다)')) return;
-
-    const generator = new ScheduleGenerator();
-    const currentDate = dayjs(state.schedule.currentDate);
-
-    // 1. 필요한 데이터 준비
-    const year = currentDate.year();
-    const month = currentDate.month(); // 0-indexed
-    const employees = state.management.employees;
-
-    // 연차 정보 가져오기 (승인된 것만)
-    const leaves = state.management.leaveRequests
-        .filter(req => req.status === 'approved' || req.final_manager_status === 'approved')
-        .map(req => ({
-            employee_id: req.employee_id,
-            dates: req.dates || []
-        }));
-
-    const companyHolidays = state.schedule.companyHolidays;
-
-    try {
-        const btn = _('#auto-schedule-btn');
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = '생성 중...';
-        }
-
-        // 2. 로직 실행
-        const newSchedules = generator.generate(year, month, employees, leaves, companyHolidays);
-
-
-        // 3. 기존 스케줄 삭제 처리 (Local State & UnsavedChanges)
-        const startOfMonth = currentDate.startOf('month').format('YYYY-MM-DD');
-        const endOfMonth = currentDate.endOf('month').format('YYYY-MM-DD');
-
-        // 삭제 대상 식별: 해당 월의 '근무' 스케줄
-        const schedulesToRemove = state.schedule.schedules.filter(s =>
-            s.date >= startOfMonth && s.date <= endOfMonth && s.status === '근무'
-        );
-
-        schedulesToRemove.forEach(s => {
-            // DB에 있는 데이터라면 삭제 목록에 추가
-            if (!s.id.toString().startsWith('temp-')) {
-                unsavedChanges.set(s.id, { type: 'delete', data: s });
-            } else {
-                unsavedChanges.delete(s.id);
-            }
-        });
-
-        // State에서 제거
-        state.schedule.schedules = state.schedule.schedules.filter(s =>
-            !(s.date >= startOfMonth && s.date <= endOfMonth && s.status === '근무')
-        );
-
-        // 4. 새 스케줄 추가 처리 (Local State & UnsavedChanges)
-        newSchedules.forEach(s => {
-            const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const scheduleWithId = { ...s, id: tempId };
-
-            state.schedule.schedules.push(scheduleWithId);
-            unsavedChanges.set(tempId, { type: 'new', data: scheduleWithId });
-        });
-
-        // 5. 화면 갱신
-        renderCalendar();
-        updateSaveButtonState();
-
-        alert(`자동 배정이 완료되었습니다.\n총 ${newSchedules.length}건이 생성되었습니다.\n\n내용을 확인하고 [스케줄 저장] 버튼을 눌러 확정하세요.`);
-
-    } catch (e) {
-        console.error('자동 배정 실패:', e);
-        alert('자동 배정 중 오류가 발생했습니다: ' + e.message);
-    } finally {
-        const btn = _('#auto-schedule-btn');
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = '🤖 자동 배정';
-        }
-    }
-}
 
 function handleAppSheetSettings() {
     const currentUrl = getScriptUrl();
@@ -2133,28 +2023,14 @@ function renderCalendar() {
             }
         });
 
-        // 빈칸(spacer) 배치
-        state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr && s.employee_id < 0 && s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                if (!gridSlots[s.grid_position]) gridSlots[s.grid_position] = s;
-            }
-        });
-
         // ═══════════════════════════════════════════
         // 그리드 슬롯 → HTML 변환 (공통)
+        // 원칙 11단계: employee_id<0 스페이서 분기 완전 제거
         // ═══════════════════════════════════════════
         eventsHTML = gridSlots.map((schedule, position) => {
             if (!schedule) {
                 return `<div class="event-slot empty-slot" data-position="${position}" data-employee-id="empty" data-type="empty">
                     <span class="slot-number">${position + 1}</span>
-                </div>`;
-            } else if (schedule.employee_id < 0) {
-                const spacerName = `빈칸${-schedule.employee_id}`;
-                const selKey = `${dateStr}_${schedule.employee_id}`;
-                const isSelected = state.schedule.selectedSchedules.has(selKey) ? 'selected' : '';
-                return `<div class="event-card event-working ${isSelected}" data-position="${position}" data-employee-id="${schedule.employee_id}" data-schedule-id="${schedule.id}" data-type="working" style="background-color: #f3f4f6;">
-                    <span class="event-dot" style="background-color: #f3f4f6;"></span>
-                    <span class="event-name" style="color: #f3f4f6;">${spacerName}</span>
                 </div>`;
             } else {
                 const emp = state.management.employees.find(e => e.id === schedule.employee_id);
@@ -2680,16 +2556,12 @@ async function loadAndRenderScheduleData(date) {
             .filter(e => isGridEmployee(e))
             .map(e => e.id);
         if (employeeOrder.length > 0) {
+            // 레거시 -1 스페이서 값이 남아 있다면 전부 정리 (원칙 11단계)
+            employeeOrder = employeeOrder.filter(id => id > 0);
             const memberSet = new Set(employeeOrder);
             activeEmployeeIds.forEach(id => {
                 if (!memberSet.has(id)) {
-                    // -1(구분선) 앞에 삽입, 없으면 끝에 추가
-                    const sepIdx = employeeOrder.indexOf(-1);
-                    if (sepIdx >= 0) {
-                        employeeOrder.splice(sepIdx, 0, id);
-                    } else {
-                        employeeOrder.push(id);
-                    }
+                    employeeOrder.push(id);
                     memberSet.add(id);
                 }
             });
@@ -2891,20 +2763,15 @@ async function renderScheduleSidebar() {
 
     const savedLayout = state.schedule.teamLayout?.data?.[0];
     if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
-        // 저장된 배치 순서대로 그리드 채우기
+        // 저장된 배치 순서대로 그리드 채우기 (스페이서 -1 값은 무시 — 원칙 11단계)
         let slotIdx = 0;
         savedLayout.members.forEach(memberId => {
             if (slotIdx >= GRID_SIZE) return;
-            if (memberId < 0) {
-                // 음수 ID = 빈칸(spacer)
-                gridSlots[slotIdx] = { id: memberId, isSpacer: true };
+            if (memberId < 0) return; // 레거시 스페이서 skip
+            const emp = activeRegular.find(e => e.id === memberId);
+            if (emp) {
+                gridSlots[slotIdx] = emp;
                 slotIdx++;
-            } else {
-                const emp = activeRegular.find(e => e.id === memberId);
-                if (emp) {
-                    gridSlots[slotIdx] = emp;
-                    slotIdx++;
-                }
             }
         });
 
@@ -2919,19 +2786,14 @@ async function renderScheduleSidebar() {
         let slotIdx = 0;
         DEFAULT_TEAM_MEMBERS.forEach(memberId => {
             if (slotIdx >= GRID_SIZE) return;
-            if (memberId < 0) {
-                gridSlots[slotIdx] = { id: memberId, isSpacer: true };
+            const emp = activeRegular.find(e => e.id === memberId);
+            if (emp) {
+                gridSlots[slotIdx] = emp;
                 slotIdx++;
-            } else {
-                const emp = activeRegular.find(e => e.id === memberId);
-                if (emp) {
-                    gridSlots[slotIdx] = emp;
-                    slotIdx++;
-                }
             }
         });
         // DEFAULT에 없는 활성 직원 → 미배치
-        const defaultIds = new Set(DEFAULT_TEAM_MEMBERS.filter(id => id > 0));
+        const defaultIds = new Set(DEFAULT_TEAM_MEMBERS);
         activeRegular.forEach(emp => {
             if (!defaultIds.has(emp.id) && !gridSlots.some(s => s && s.id === emp.id)) {
                 unplacedEmployees.push(emp);
@@ -2940,24 +2802,19 @@ async function renderScheduleSidebar() {
     }
 
 
-    // ═══ 그리드 슬롯 HTML 생성 (달력 날짜칸과 동일한 구조) ═══
+    // ═══ 그리드 슬롯 HTML 생성 (달력 날짜칸과 동일한 구조)
+    //    원칙 11단계: isSpacer 분기 제거
     const gridSlotsHtml = gridSlots.map((slot, pos) => {
         if (!slot) {
             return `<div class="event-slot empty-slot" data-position="${pos}" data-employee-id="empty" data-type="empty">
                 <span class="slot-number">${pos + 1}</span>
             </div>`;
-        } else if (slot.isSpacer) {
-            return `<div class="event-card event-working" data-position="${pos}" data-employee-id="${slot.id}" data-type="working" style="background-color: #f3f4f6;">
-                <span class="event-dot" style="background-color: #f3f4f6;"></span>
-                <span class="event-name" style="color: #f3f4f6;">빈칸</span>
-            </div>`;
-        } else {
-            const deptColor = getDepartmentColor(slot.departments?.id);
-            return `<div class="event-card event-working" data-position="${pos}" data-employee-id="${slot.id}" data-type="working">
-                <span class="event-dot" style="background-color: ${deptColor};"></span>
-                <span class="event-name">${slot.name}</span>
-            </div>`;
         }
+        const deptColor = getDepartmentColor(slot.departments?.id);
+        return `<div class="event-card event-working" data-position="${pos}" data-employee-id="${slot.id}" data-type="working">
+            <span class="event-dot" style="background-color: ${deptColor};"></span>
+            <span class="event-name">${slot.name}</span>
+        </div>`;
     }).join('');
 
     const currentMonth = dayjs(state.schedule.currentDate).format('YYYY년 M월');
@@ -3065,28 +2922,10 @@ async function renderScheduleSidebar() {
     sidebar.addEventListener('click', handleSidebarDeleteClick);
 
     // ═══ 그리드 클릭 선택 (달력과 동일한 조작) ═══
+    //    원칙 11단계: 스페이서 토글 제거 — 빈 슬롯 그대로가 경계 역할
     const layoutGrid = _('#layout-grid');
     if (layoutGrid) {
         layoutGrid.addEventListener('click', handleLayoutGridClick);
-        layoutGrid.addEventListener('dblclick', (e) => {
-            const slot = e.target.closest('.event-card, .event-slot');
-            if (!slot || !slot.closest('#layout-grid')) return;
-            const empId = slot.dataset.employeeId;
-            const pos = parseInt(slot.dataset.position);
-            if (empId === 'empty') {
-                // 빈 슬롯 더블클릭 → spacer로 변경
-                slot.className = 'event-card event-working';
-                slot.dataset.employeeId = '-1';
-                slot.dataset.type = 'working';
-                slot.innerHTML = `<span class="event-dot" style="background-color: #f3f4f6;"></span><span class="event-name" style="color: #f3f4f6;">빈칸</span>`;
-            } else if (parseInt(empId) < 0) {
-                // spacer 더블클릭 → 빈 슬롯으로 복원
-                slot.className = 'event-slot empty-slot';
-                slot.dataset.employeeId = 'empty';
-                slot.dataset.type = 'empty';
-                slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
-            }
-        });
     }
 
     initializeSortableAndDraggable();
@@ -3440,6 +3279,15 @@ function handleDateHeaderDblClick(e) {
 
     if (!isHoliday) {
         if (confirm(`${dateStr}을 휴일로 지정하고 모든 근무자를 휴무로 변경하시겠습니까?`)) {
+            pushUndoState(`Set holiday ${dateStr}`);
+
+            // 원칙 15단계: 지정 직전 상태를 스냅샷으로 보관
+            const snapshot = state.schedule.schedules
+                .filter(s => s.date === dateStr && s.employee_id > 0)
+                .map(s => ({ employee_id: s.employee_id, status: s.status, grid_position: s.grid_position, is_annual_leave: s.is_annual_leave ?? false }));
+            if (!state.schedule.holidaySnapshots) state.schedule.holidaySnapshots = new Map();
+            state.schedule.holidaySnapshots.set(dateStr, snapshot);
+
             // 기존 레코드가 있는 근무자 → 휴무 전환
             workingSchedules.forEach(s => {
                 s.status = '휴무';
@@ -3468,9 +3316,36 @@ function handleDateHeaderDblClick(e) {
         }
     } else {
         if (confirm(`${dateStr}의 휴일 설정을 해제하고 모든 직원을 근무로 변경하시겠습니까?`)) {
+            pushUndoState(`Unset holiday ${dateStr}`);
+
             state.schedule.companyHolidays.delete(dateStr);
             unsavedHolidayChanges.toRemove.add(dateStr);
             unsavedHolidayChanges.toAdd.delete(dateStr);
+
+            // 원칙 15단계: 스냅샷 있으면 복원, 없으면 전원 근무로 초기화
+            const snapshot = state.schedule.holidaySnapshots?.get(dateStr);
+            if (snapshot) {
+                // 스냅샷 복원
+                const snapById = new Map(snapshot.map(s => [s.employee_id, s]));
+                state.schedule.schedules.forEach(s => {
+                    if (s.date === dateStr && s.employee_id > 0 && snapById.has(s.employee_id)) {
+                        const snap = snapById.get(s.employee_id);
+                        s.status = snap.status;
+                        if (snap.grid_position != null) {
+                            setSchedulePosFlat(s, snap.grid_position);
+                            s.sort_order = snap.grid_position;
+                        }
+                        s.is_annual_leave = snap.is_annual_leave ?? false;
+                        unsavedChanges.set(s.id, { type: 'update', data: s });
+                    }
+                });
+                state.schedule.holidaySnapshots.delete(dateStr);
+                renderCalendar();
+                updateSaveButtonState();
+                return;
+            }
+
+            // 스냅샷 없음 → 전원 근무 초기화 분기 (기존 로직)
 
             // 1. 이미 근무 중인 사람들의 포지션 점유 확인
             const occupiedPositions = new Set();
@@ -3713,23 +3588,30 @@ function handleContextMenu(e) {
         employeeContextMenu.classList.remove('hidden');
 
     } else if (card) {
-        // 기존 V2 컨텍스트 메뉴 (연차 취소/등록) 로직
+        // 원칙 10단계: 카드 우클릭 메뉴
+        //  - 연차자: "연차입니다" 알림만, 메뉴 안 열림
+        //  - 근무자(정규): "연차 등록하기" 포함
+        //  - 근무자(임시 직원): "연차 등록하기" 숨김 (Fix 5)
+        //  - 휴무자: 근무자로 변경 전용 (연차 취소/해제 메뉴 일절 없음 — 연차 관리 페이지로 이동)
         const contextMenuV2 = document.getElementById('custom-context-menu-v2');
         if (!contextMenuV2) return;
 
-        employeeContextMenu.classList.add('hidden'); // 새 메뉴 숨기기
+        employeeContextMenu.classList.add('hidden');
 
         const employeeId = card.dataset.employeeId;
         const dayEl = card.closest('.calendar-day');
         const date = dayEl ? dayEl.dataset.date : null;
-        const cardType = card.dataset.type; // 'working', 'leave', 'humu', etc.
+        const cardType = card.dataset.type;
 
         if (!employeeId || !date) return;
 
-        // ✅ 승인된 연차는 수정 불가 (컨텍스트 메뉴 차단)
         const empIdNum = parseInt(employeeId);
-        if (empIdNum > 0 && getEmployeeStatusOnDate(empIdNum, date) === 'leave') {
-            alert('승인된 연차는 확정 휴무이므로 수정할 수 없습니다.\n연차 취소는 연차 관리에서 처리해주세요.');
+        const isLeave = card.classList.contains('event-leave') || cardType === 'leave'
+            || (empIdNum > 0 && getEmployeeStatusOnDate(empIdNum, date) === 'leave');
+
+        // 연차자: 알림만 띄우고 메뉴 열지 않음
+        if (isLeave) {
+            alert('연차입니다.\n연차 변경은 "연차 관리" 페이지에서 처리해주세요.');
             return;
         }
 
@@ -3738,29 +3620,16 @@ function handleContextMenu(e) {
         contextMenuV2.dataset.date = date;
 
         const registerBtn = document.getElementById('ctx-register-leave-v2');
-        const cancelBtn = document.getElementById('ctx-cancel-leave-v2');
-
-        if (registerBtn && cancelBtn) {
-            const isLeave = card.classList.contains('event-leave') || cardType === 'leave';
-            const isOff = card.classList.contains('event-off') || cardType === '휴무';
-
-            if (isLeave || isOff) {
-                // 휴무/연차자 -> 연차 취소(삭제) 가능
-                registerBtn.style.display = 'none';
-                cancelBtn.style.display = 'block';
-                cancelBtn.textContent = "🗑️ 연차 취소하기";
-                contextMenuV2.style.border = "";
-                cancelBtn.style.backgroundColor = "";
-
+        if (registerBtn) {
+            // 임시 직원은 연차여부 항상 false → 등록 메뉴 숨김 (원칙 11단계 Fix 5)
+            const emp = (state.management.employees || []).find(e => e.id === empIdNum);
+            const isTempEmp = !!(emp && (emp.is_temp || emp.email?.startsWith('temp-')));
+            if (isTempEmp) {
                 registerBtn.classList.add('hidden');
-                cancelBtn.classList.remove('hidden');
+                registerBtn.style.display = 'none';
             } else {
-                // 근무자 or 기타 -> 연차 등록 가능
-                registerBtn.style.display = 'block';
-                cancelBtn.style.display = 'none';
-
                 registerBtn.classList.remove('hidden');
-                cancelBtn.classList.add('hidden');
+                registerBtn.style.display = 'block';
             }
         }
 
@@ -3921,18 +3790,7 @@ function handleMenuRegisterClick() {
     contextMenu.classList.add('hidden');
 }
 
-// ✨ Cancel Menu Item Click Handler
-function handleMenuCancelClick() {
-    const contextMenu = document.getElementById('custom-context-menu-v2');
-    const employeeId = contextMenu.dataset.employeeId;
-    const date = contextMenu.dataset.date;
-
-    if (employeeId && date) {
-        // Call imported management function
-        cancelManualLeave(employeeId, date);
-    }
-    contextMenu.classList.add('hidden');
-}
+// 원칙 10단계: 카드 우클릭에서 "연차 취소하기" 메뉴 제거됨 (연차 관리 페이지로 일원화)
 
 // ✨ Named Handler for Calendar Grid Double Click (to avoid stacking)
 function handleCalendarGridDblClick(e) {
@@ -3970,16 +3828,12 @@ function initializeCalendarEvents() {
     document.addEventListener('click', handleGlobalClickForMenu);
 
     const registerBtn = document.getElementById('ctx-register-leave-v2');
-    const cancelBtn = document.getElementById('ctx-cancel-leave-v2'); // New
     const closeBtn = document.getElementById('ctx-close-menu');
     const contextMenuV2 = document.getElementById('custom-context-menu-v2');
 
-    // Binding existing v2 menu
+    // 원칙 10단계: "연차 취소하기" 바인딩 제거, "연차 등록하기"만 유지
     if (registerBtn) {
         registerBtn.onclick = handleMenuRegisterClick;
-    }
-    if (cancelBtn) {
-        cancelBtn.onclick = handleMenuCancelClick;
     }
     if (closeBtn && contextMenuV2) {
         closeBtn.onclick = () => contextMenuV2.classList.add('hidden');
@@ -4241,7 +4095,7 @@ function handleGlobalKeydown(e) {
                     const newSched = {
                         id: `cut-${Date.now()}-${eid}`,
                         date, employee_id: eid, status: '휴무',
-                        row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS, _offGrid: false,
+                        row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS,
                         grid_position: pos, sort_order: pos, is_annual_leave: false
                     };
                     state.schedule.schedules.push(newSched);
@@ -4378,7 +4232,7 @@ function handleGlobalKeydown(e) {
                         const newSched = {
                             id: `del-${Date.now()}-${eid}`, date, employee_id: eid,
                             status: newStatus,
-                            row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS, _offGrid: false,
+                            row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS,
                             grid_position: pos, sort_order: pos, is_annual_leave: false
                         };
                         state.schedule.schedules.push(newSched);
@@ -4507,6 +4361,7 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
                     <div class="flex items-center">
                         <h2 id="calendar-title" class="text-2xl font-bold"></h2>
                         <span id="schedule-status-badge" class="px-3 py-1 rounded-full text-sm font-bold ml-2 hidden"></span>
+                        <span id="schedule-deadline-icon" class="ml-2 text-xl hidden" title="확정 기준일(전월 15일) 경과 - 미확정">⚠️</span>
                     </div>
                     <button id="calendar-next" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">다음 ▶</button>
                     <button id="calendar-today" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">오늘</button>
@@ -4532,7 +4387,6 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
         _('#work-reset-btn')?.addEventListener('click', handleWorkReset);
         _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule); // legacy (button removed from UI)
         _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
-        _('#auto-schedule-btn')?.addEventListener('click', handleAutoSchedule);
         _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
         _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
         _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
@@ -4759,13 +4613,7 @@ function handlePrintSchedule() {
             const gridSlots = new Array(GRID_SIZE).fill(null);
 
             daySchedules.forEach(s => {
-                if (s.employee_id <= 0) {
-                    // spacer (빈칸 구분선)
-                    if (s.grid_position >= 0 && s.grid_position < GRID_SIZE) {
-                        gridSlots[s.grid_position] = { name: '', color: 'transparent', status: 'spacer' };
-                    }
-                    return;
-                }
+                if (s.employee_id <= 0) return; // 레거시 스페이서 레코드 skip (원칙 11단계)
                 const emp = allEmployees.find(e => e.id === s.employee_id);
                 if (!emp) return;
 
@@ -4783,7 +4631,7 @@ function handlePrintSchedule() {
             // 끝에서부터 빈 슬롯 제거 (인쇄 공간 절약)
             let lastFilled = -1;
             for (let i = GRID_SIZE - 1; i >= 0; i--) {
-                if (gridSlots[i] && gridSlots[i].status !== 'spacer') { lastFilled = i; break; }
+                if (gridSlots[i]) { lastFilled = i; break; }
             }
             const names = gridSlots.slice(0, lastFilled + 1);
 
@@ -4808,7 +4656,7 @@ function handlePrintSchedule() {
     function renderNames(slots) {
         if (slots.length === 0) return '';
         return `<div class="p-names">${slots.map(n => {
-            if (!n || n.status === 'spacer') return `<span class="p-name p-empty"></span>`;
+            if (!n) return `<span class="p-name p-empty"></span>`;
             let cls = n.status === 'leave' ? ' p-leave' : n.status === 'off' ? ' p-off' : '';
             if (n.isDirector) cls += ' p-director';
             return `<span class="p-name${cls}"><i style="background:${n.color}"></i>${n.name}</span>`;
@@ -4894,6 +4742,16 @@ ${tableHtml}
 // [신규] 스케줄 확정 관련 기능
 // =========================================================================================
 
+// 원칙 14단계: 확정 기준일 = 전월 15일. 해당 월이 "M월"일 때 오늘이 (M-1)월 15일 이후면 미확정 = 경고.
+function isPastConfirmDeadline(viewDate) {
+    const viewMonth = dayjs(viewDate).startOf('month');
+    const deadline = viewMonth.subtract(1, 'month').date(15); // 전월 15일
+    return dayjs().isAfter(deadline, 'day') || dayjs().isSame(deadline, 'day');
+}
+
+// 세션당 1회 알림 기록 (월 단위)
+const confirmDeadlineWarned = new Set();
+
 async function checkScheduleConfirmationStatus() {
     const viewDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
     const month = dayjs(viewDate).format('YYYY-MM');
@@ -4906,6 +4764,7 @@ async function checkScheduleConfirmationStatus() {
 
         const badge = document.querySelector('#schedule-status-badge');
         const confirmBtn = document.querySelector('#confirm-schedule-btn');
+        const deadlineIcon = document.querySelector('#schedule-deadline-icon');
 
         // 승인 요청 배너 (관리자 전용)
         const existingBanner = document.querySelector('#approval-request-banner');
@@ -4925,7 +4784,11 @@ async function checkScheduleConfirmationStatus() {
             if (calendarArea) calendarArea.prepend(banner);
         }
 
-        if (data && data.is_confirmed) {
+        const isConfirmed = !!(data && data.is_confirmed);
+        const pastDeadline = isPastConfirmDeadline(viewDate);
+        const isAdmin = !!(state.currentUser?.role === 'admin' || state.currentUser?.isAdmin);
+
+        if (isConfirmed) {
             // 확정됨
             if (badge) {
                 badge.textContent = '확정됨';
@@ -4937,6 +4800,7 @@ async function checkScheduleConfirmationStatus() {
                 confirmBtn.className = 'px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 font-bold';
                 confirmBtn.onclick = () => handleConfirmSchedule(false); // 해제 모드
             }
+            if (deadlineIcon) deadlineIcon.classList.add('hidden');
         } else {
             // 미확정
             if (badge) {
@@ -4950,6 +4814,24 @@ async function checkScheduleConfirmationStatus() {
                 confirmBtn.textContent = '스케줄 확정';
                 confirmBtn.className = 'px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold';
                 confirmBtn.onclick = () => handleConfirmSchedule(true); // 확정 모드
+            }
+
+            // 원칙 14단계: 기준일(전월 15일) 경과 + 미확정 → 경고 아이콘 상시 표시
+            if (deadlineIcon) {
+                if (pastDeadline) {
+                    deadlineIcon.classList.remove('hidden');
+                    deadlineIcon.title = `${month} 스케줄이 아직 확정되지 않았습니다 (기준일: 전월 15일).`;
+                } else {
+                    deadlineIcon.classList.add('hidden');
+                }
+            }
+
+            // 관리자 로그인 세션당 1회 팝업 알림
+            if (pastDeadline && isAdmin && !confirmDeadlineWarned.has(month)) {
+                confirmDeadlineWarned.add(month);
+                setTimeout(() => {
+                    alert(`⚠️ ${month} 스케줄이 아직 확정되지 않았습니다.\n\n확정 기준일(전월 15일)이 지났습니다. 확인 후 "스케줄 확정" 버튼을 눌러주세요.`);
+                }, 300);
             }
         }
     } catch (err) {
