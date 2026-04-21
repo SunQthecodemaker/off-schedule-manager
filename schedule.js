@@ -340,14 +340,22 @@ function placeCards(items, dateStr, startPos = null) {
             }
         });
 
-        // R1: 타겟 위치의 다른 카드 → 빈자리로 (휴무 처리, 주변 밀어내기 없음)
+        // R1: 타겟 위치의 다른 카드 → 빈자리로 전환 (원칙 3단계: 뷰별 상태 분기)
+        //     - 근무자뷰: 밀려난 카드 → 휴무 (뷰에서 사라짐)
+        //     - 휴무자뷰: 밀려난 카드 → 근무 (뷰에서 사라짐)
+        //     - 통합뷰: 밀려난 카드 → 휴무 (기본)
+        //     - 연차자(is_annual_leave=true): 상태 변경 안 함 (원칙 12단계)
         //     단, 선택된 카드 본인들끼리는 서로 빈자리 처리하지 않음 (복수 드래그 시)
-        //     (a) explicit schedule 레코드
+        const currentView = state.schedule.viewMode || 'all';
+        const displacedStatus = (currentView === 'off') ? '근무' : '휴무';
         const displacedEmpIds = new Set();
         state.schedule.schedules.forEach(s => {
             if (s.date === dateStr && s.grid_position === assignPos && s.employee_id !== empId && s.employee_id > 0) {
                 if (selectedEmpIds.has(s.employee_id)) return; // 선택된 카드는 다음 순번에서 자기 위치로 이동됨
-                s.status = '휴무';
+                // 연차자는 상태 건드리지 않음 (12단계 원칙)
+                if (!s.is_annual_leave) {
+                    s.status = displacedStatus;
+                }
                 setScheduleOffGrid(s);
                 unsavedChanges.set(s.id, { type: 'update', data: s });
                 displacedEmpIds.add(s.employee_id);
@@ -369,7 +377,7 @@ function placeCards(items, dateStr, startPos = null) {
                 id: `displace-${Date.now()}-${emp.id}-${Math.random()}`,
                 date: dateStr,
                 employee_id: emp.id,
-                status: '휴무',
+                status: displacedStatus,
                 sort_order: -1,
                 row: null, col: null, _offGrid: true, grid_position: -1,
                 is_annual_leave: false
@@ -421,16 +429,28 @@ function placeCards(items, dateStr, startPos = null) {
  * @returns {number} 이동된 개수
  */
 function moveCards(empIds, fromDate, toDate, targetPos = null) {
-    // 원본 날짜에서 휴무 처리
+    // 원본 날짜 상태 전환 (원칙 7단계: 뷰별 + 연차자 특수 처리)
+    //   - 근무자: 근무 → 휴무
+    //   - 일반 휴무자: 휴무 → 근무
+    //   - 연차자(is_annual_leave=true): 원본 상태 & 연차 모두 유지 (건드리지 않음)
+    //   - 타겟 날짜의 연차여부는 false 로 시작 (단 기존 타겟이 연차면 유지 — placeCards 에서 처리)
     empIds.forEach(empId => {
         let src = state.schedule.schedules.find(
-            s => s.date === fromDate && s.employee_id === empId && s.status === '근무'
+            s => s.date === fromDate && s.employee_id === empId
         );
         if (src) {
-            src.status = '휴무';
-            unsavedChanges.set(src.id, { type: 'update', data: src });
+            if (src.is_annual_leave) {
+                // 연차자: 원본 그대로 둠. 타겟에만 새로 배치됨.
+            } else if (src.status === '근무') {
+                src.status = '휴무';
+                unsavedChanges.set(src.id, { type: 'update', data: src });
+            } else if (src.status === '휴무') {
+                // 휴무자 → 근무 전환 (원본)
+                src.status = '근무';
+                unsavedChanges.set(src.id, { type: 'update', data: src });
+            }
         } else {
-            // 레코드 없는 직원 → 휴무 레코드 신규 생성
+            // 레코드 없는 직원 → 휴무 레코드 신규 생성 (근무자에서 이동 기본 가정)
             const cardEl = document.querySelector(`.calendar-day[data-date="${fromDate}"] .event-card[data-employee-id="${empId}"]`);
             const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
             const newSched = {
@@ -444,7 +464,7 @@ function moveCards(empIds, fromDate, toDate, targetPos = null) {
         }
     });
 
-    // 대상 날짜에 배치
+    // 대상 날짜에 배치 (타겟 상태는 근무, is_annual_leave=false 로 시작)
     const items = empIds.map(id => ({ employee_id: id, status: '근무' }));
     return placeCards(items, toDate, targetPos);
 }
@@ -485,6 +505,8 @@ function pushUndoState(actionName) {
     undoStack.push({ name: actionName, snapshot });
     if (undoStack.length > 50) undoStack.shift();
     redoStack.length = 0; // New action clears redo stack
+    // Undo/Redo 버튼 활성화 상태 갱신
+    if (typeof updateSaveButtonState === 'function') updateSaveButtonState();
 }
 
 function undoLastChange() {
@@ -644,17 +666,23 @@ function getTeamHtml(team, allEmployees) {
 function updateSaveButtonState() {
     const saveBtn = _('#save-schedule-btn');
     const revertBtn = _('#revert-schedule-btn');
-    if (!saveBtn || !revertBtn) return;
     const totalChanges = unsavedChanges.size + unsavedHolidayChanges.toAdd.size + unsavedHolidayChanges.toRemove.size;
-    if (totalChanges > 0) {
-        saveBtn.disabled = false;
-        revertBtn.disabled = false;
-        saveBtn.textContent = `💾 스케줄 저장 (${totalChanges}건)`;
-    } else {
-        saveBtn.disabled = true;
-        revertBtn.disabled = true;
-        saveBtn.textContent = '💾 스케줄 저장';
+    if (saveBtn && revertBtn) {
+        if (totalChanges > 0) {
+            saveBtn.disabled = false;
+            revertBtn.disabled = false;
+            saveBtn.textContent = `💾 스케줄 저장 (${totalChanges}건)`;
+        } else {
+            saveBtn.disabled = true;
+            revertBtn.disabled = true;
+            saveBtn.textContent = '💾 스케줄 저장';
+        }
     }
+    // 이전/이후 버튼 활성화 동기화 (Undo/Redo 스택 기반)
+    const undoBtn = _('#undo-schedule-btn');
+    const redoBtn = _('#redo-schedule-btn');
+    if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+    if (redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
 
 function updateViewModeButtons() {
@@ -692,6 +720,60 @@ async function handleRevertChanges() {
     if (confirm("정말로 모든 변경사항을 되돌리시겠습니까?")) {
         await loadAndRenderScheduleData(state.schedule.currentDate);
     }
+}
+
+/**
+ * 위치 초기화 — 해당 월 모든 날짜의 직원 (row, col) 위치를 배치 패널 디폴트로 리셋.
+ * 상태(근무/휴무)와 연차여부는 건드리지 않음. (원칙 8단계)
+ */
+async function handlePositionReset() {
+    if (!confirm('이번 달 전체 날짜의 직원 위치를 배치 패널 기본값으로 초기화하시겠습니까?\n\n(근무/휴무 상태와 연차 여부는 그대로 유지됩니다.)')) return;
+
+    pushUndoState('위치 초기화');
+
+    // getLayoutPositionMap() 존재 여부 확인 + 폴백
+    const positionMap = (typeof getLayoutPositionMap === 'function')
+        ? getLayoutPositionMap()
+        : new Map();
+
+    if (positionMap.size === 0) {
+        alert('배치 그리드에 직원이 없습니다. 먼저 배치 패널에서 직원을 배치해주세요.');
+        return;
+    }
+
+    const updateCount = applyLayoutToSchedules(positionMap, null); // null = 이번 달 전체
+    renderCalendar();
+    updateSaveButtonState();
+    alert(`위치 초기화 완료 (${updateCount}건 반영). "스케줄 저장" 버튼을 눌러 DB에 반영하세요.`);
+}
+
+/**
+ * 근무 초기화 — 해당 월 모든 스케줄 상태를 '근무'로. 위치·연차여부 유지. (원칙 8단계)
+ */
+async function handleWorkReset() {
+    if (!confirm('이번 달 전체 스케줄의 상태를 모두 "근무"로 초기화하시겠습니까?\n\n(위치와 연차 여부는 그대로 유지됩니다.)')) return;
+
+    pushUndoState('근무 초기화');
+
+    const startOfMonth = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
+    const endOfMonth = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
+
+    let changed = 0;
+    state.schedule.schedules.forEach(s => {
+        if (s.date < startOfMonth || s.date > endOfMonth) return;
+        if (s.employee_id <= 0) return;
+        // 연차자는 상태 그대로 유지 (원칙: 연차여부 우선)
+        if (s.is_annual_leave) return;
+        if (s.status !== '근무') {
+            s.status = '근무';
+            unsavedChanges.set(s.id, { type: 'update', data: s });
+            changed++;
+        }
+    });
+
+    renderCalendar();
+    updateSaveButtonState();
+    alert(`근무 초기화 완료 (${changed}건 상태 변경). "스케줄 저장" 버튼을 눌러 DB에 반영하세요.`);
 }
 
 async function handleSaveSchedules() {
@@ -2476,6 +2558,12 @@ function handleEventCardDblClick(e, card) {
     }
 
     if (schedule) {
+        // 연차자는 더블클릭 무반응 (원칙 7단계)
+        if (schedule.is_annual_leave) {
+            alert('연차자입니다. 연차 해제는 연차 관리 페이지에서 처리해주세요.');
+            return;
+        }
+
         pushUndoState('Toggle Status'); // 상태 변경 전 Undo 저장
 
         if (isTemp) {
@@ -4107,32 +4195,54 @@ function handleGlobalKeydown(e) {
         return;
     }
 
-    // Cut (Ctrl+X)
+    // Cut (Ctrl+X) — 원칙 7단계 (뷰별 + 연차자 특수)
+    //   - 근무자: 근무→휴무, 클립보드 "근무"
+    //   - 일반 휴무자(휴무자 뷰): 휴무→근무, 클립보드 "휴무"
+    //   - 연차자: 내부 상태 유지 (건드리지 않음), 클립보드 "휴무"
     if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
         if (state.schedule.selectedSchedules.size > 0) {
             pushUndoState('Cut Schedules'); // Undo 저장
 
+            const currentView = state.schedule.viewMode || 'all';
             scheduleClipboard = [];
             state.schedule.selectedSchedules.forEach(selKey => {
                 const [date, eidStr] = selKey.split('_');
                 const eid = parseInt(eidStr, 10);
                 const cardEl = document.querySelector(`.calendar-day[data-date="${date}"] .event-card[data-employee-id="${eid}"]`);
                 const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+
+                let sched = state.schedule.schedules.find(s => s.date === date && s.employee_id === eid);
+                const isLeave = sched?.is_annual_leave === true;
+                // 뷰 상황에 따른 Cut 의미 결정
+                let clipboardStatus = '근무';
+                if (isLeave) {
+                    clipboardStatus = '휴무'; // 연차자는 시각상 휴무자 취급
+                } else if (currentView === 'off' || (sched && sched.status === '휴무')) {
+                    clipboardStatus = '휴무';
+                }
                 scheduleClipboard.push({
                     employee_id: eid,
-                    status: '근무',
+                    status: clipboardStatus,
                     _origPos: pos
                 });
-                // 원본을 휴무 처리 (state에 있으면 업데이트, 없으면 신규 생성)
-                let sched = state.schedule.schedules.find(s => s.date === date && s.employee_id === eid);
+
+                // 원본 상태 전환
                 if (sched) {
-                    sched.status = '휴무';
-                    unsavedChanges.set(sched.id, { type: 'update', data: sched });
+                    if (isLeave) {
+                        // 연차자: 상태 변경 없음 (12단계 원칙)
+                    } else if (sched.status === '근무') {
+                        sched.status = '휴무';
+                        unsavedChanges.set(sched.id, { type: 'update', data: sched });
+                    } else if (sched.status === '휴무') {
+                        sched.status = '근무';
+                        unsavedChanges.set(sched.id, { type: 'update', data: sched });
+                    }
                 } else {
                     const newSched = {
                         id: `cut-${Date.now()}-${eid}`,
                         date, employee_id: eid, status: '휴무',
-                        grid_position: pos, sort_order: pos
+                        row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS, _offGrid: false,
+                        grid_position: pos, sort_order: pos, is_annual_leave: false
                     };
                     state.schedule.schedules.push(newSched);
                     unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
@@ -4234,32 +4344,47 @@ function handleGlobalKeydown(e) {
         return;
     }
 
-    // Delete / Backspace: 선택된 스케줄 삭제
+    // Delete / Backspace: 선택된 카드 상태 반전 (원칙 7단계: 뷰별 + 연차자 제외)
+    //   - 근무자: 근무 → 휴무
+    //   - 일반 휴무자: 휴무 → 근무 (휴무자 뷰에서 Del)
+    //   - 연차자: 무반응
     if (e.key === 'Delete' || e.key === 'Backspace') {
         if (state.schedule.selectedSchedules.size > 0) {
-            if (confirm(`선택한 ${state.schedule.selectedSchedules.size}개의 스케줄을 삭제(휴무 처리)하시겠습니까?`)) {
-                pushUndoState('Delete Schedules'); // Undo 저장
+            if (confirm(`선택한 ${state.schedule.selectedSchedules.size}개의 카드 상태를 반전하시겠습니까?`)) {
+                pushUndoState('Toggle Delete'); // Undo 저장
 
-                let deletedCount = 0;
+                const currentView = state.schedule.viewMode || 'all';
+                let changedCount = 0;
                 state.schedule.selectedSchedules.forEach(selKey => {
                     const [date, eidStr] = selKey.split('_');
                     const eid = parseInt(eidStr, 10);
                     let sched = state.schedule.schedules.find(s => s.date === date && s.employee_id === eid);
                     if (sched) {
-                        sched.status = '휴무';
+                        // 연차자는 무반응 (12단계 원칙)
+                        if (sched.is_annual_leave) return;
+                        if (sched.status === '근무') {
+                            sched.status = '휴무';
+                            changedCount++;
+                        } else if (sched.status === '휴무') {
+                            sched.status = '근무';
+                            changedCount++;
+                        }
                         unsavedChanges.set(sched.id, { type: 'update', data: sched });
                     } else {
-                        // 레코드 없는 직원 → 휴무 레코드 신규 생성
+                        // 레코드 없음 → 통합/근무자뷰에서 Del = 휴무 생성, 휴무자뷰에서 Del = 근무 생성
                         const cardEl = document.querySelector(`.calendar-day[data-date="${date}"] .event-card[data-employee-id="${eid}"]`);
                         const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+                        const newStatus = (currentView === 'off') ? '근무' : '휴무';
                         const newSched = {
                             id: `del-${Date.now()}-${eid}`, date, employee_id: eid,
-                            status: '휴무', grid_position: pos, sort_order: pos
+                            status: newStatus,
+                            row: Math.floor(pos / GRID_COLS), col: pos % GRID_COLS, _offGrid: false,
+                            grid_position: pos, sort_order: pos, is_annual_leave: false
                         };
                         state.schedule.schedules.push(newSched);
                         unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
+                        changedCount++;
                     }
-                    deletedCount++;
                 });
                 clearSelection();
                 renderCalendar();
@@ -4340,8 +4465,10 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
                 <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
+                <button id="undo-schedule-btn" class="sch-btn sch-btn-ghost" title="이전 (Ctrl+Z)" disabled>↶ 이전</button>
+                <button id="redo-schedule-btn" class="sch-btn sch-btn-ghost" title="이후 (Ctrl+Y)" disabled>↷ 이후</button>
                 <button id="print-schedule-btn" class="sch-btn sch-btn-secondary">인쇄하기</button>
-                <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>되돌리기</button>
+                <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>변경 취소</button>
                 <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
                 <button id="request-approval-btn" class="sch-btn sch-btn-primary bg-orange-500 hover:bg-orange-600">승인 요청</button>
             </div>
@@ -4355,11 +4482,14 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
                 <button type="button" data-mode="off" class="schedule-view-btn px-4 py-2 text-sm font-medium rounded-md">휴무자 보기</button>
             </div>
             <div class="flex items-center gap-2">
+                <button id="undo-schedule-btn" class="sch-btn sch-btn-ghost" title="이전 (Ctrl+Z)" disabled>↶ 이전</button>
+                <button id="redo-schedule-btn" class="sch-btn sch-btn-ghost" title="이후 (Ctrl+Y)" disabled>↷ 이후</button>
                 <button id="confirm-schedule-btn" class="sch-btn sch-btn-primary">스케줄 확정</button>
                 <button id="import-last-month-btn" class="sch-btn sch-btn-secondary">지난달 불러오기</button>
-                <button id="reset-schedule-btn" class="sch-btn sch-btn-secondary">스케줄 리셋</button>
+                <button id="position-reset-btn" class="sch-btn sch-btn-secondary" title="이번 달 전체 위치를 배치 패널 기본값으로">위치 초기화</button>
+                <button id="work-reset-btn" class="sch-btn sch-btn-secondary" title="이번 달 전체 상태를 근무로 (위치·연차 유지)">근무 초기화</button>
                 <button id="print-schedule-btn" class="sch-btn sch-btn-secondary">인쇄하기</button>
-                <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>되돌리기</button>
+                <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>변경 취소</button>
                 <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
             </div>
         </div>`;
@@ -4396,7 +4526,11 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
     if (!isReadOnly) {
         _('#save-schedule-btn')?.addEventListener('click', handleSaveSchedules);
         _('#revert-schedule-btn')?.addEventListener('click', handleRevertChanges);
-        _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule);
+        _('#undo-schedule-btn')?.addEventListener('click', undoLastChange);
+        _('#redo-schedule-btn')?.addEventListener('click', redoLastChange);
+        _('#position-reset-btn')?.addEventListener('click', handlePositionReset);
+        _('#work-reset-btn')?.addEventListener('click', handleWorkReset);
+        _('#reset-schedule-btn')?.addEventListener('click', handleResetSchedule); // legacy (button removed from UI)
         _('#import-last-month-btn')?.addEventListener('click', handleImportPreviousMonth);
         _('#auto-schedule-btn')?.addEventListener('click', handleAutoSchedule);
         _('#sync-appsheet-btn')?.addEventListener('click', syncToAppSheet);
