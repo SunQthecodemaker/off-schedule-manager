@@ -4346,7 +4346,7 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
                 <button id="print-schedule-btn" class="sch-btn sch-btn-secondary">인쇄하기</button>
                 <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>변경 취소</button>
                 <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
-                <button id="request-approval-btn" class="sch-btn sch-btn-primary bg-orange-500 hover:bg-orange-600">승인 요청</button>
+                <!-- 원칙 8/14: 승인 요청은 월 옆 #confirm-schedule-btn 토글로 통일 (하단 중복 버튼 제거) -->
             </div>
         </div>`;
     } else {
@@ -4413,8 +4413,7 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
         _('#import-appsheet-btn')?.addEventListener('click', importFromAppSheet);
         _('#appsheet-settings-btn')?.addEventListener('click', handleAppSheetSettings);
 
-        // 매니저: 승인 요청 버튼
-        _('#request-approval-btn')?.addEventListener('click', handleRequestScheduleApproval);
+        // 매니저 승인 요청은 #confirm-schedule-btn 토글에서 처리 (역할별 분기는 checkScheduleConfirmationStatus 참고)
     }
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
@@ -4787,11 +4786,14 @@ async function checkScheduleConfirmationStatus() {
         const confirmBtn = document.querySelector('#confirm-schedule-btn');
         const deadlineIcon = document.querySelector('#schedule-deadline-icon');
 
-        // 승인 요청 배너 (관리자 전용)
+        // 승인 요청 배너 (관리자 전용 — 승인/반려 버튼 포함)
         const existingBanner = document.querySelector('#approval-request-banner');
         if (existingBanner) existingBanner.remove();
 
-        if (data && data.approval_requested && !data.is_confirmed && !state.schedule.isReadOnly && !state.schedule.isManager) {
+        const isAdmin = !!(state.currentUser?.role === 'admin' || state.currentUser?.isAdmin);
+        const isManager = !!(state.currentUser?.isManager);
+
+        if (data && data.approval_requested && !data.is_confirmed && isAdmin) {
             const banner = document.createElement('div');
             banner.id = 'approval-request-banner';
             banner.className = 'bg-orange-50 border border-orange-300 rounded-lg p-3 mb-3 flex items-center justify-between';
@@ -4800,24 +4802,31 @@ async function checkScheduleConfirmationStatus() {
                     <span class="font-bold text-orange-700">승인 요청</span>
                     <span class="text-sm text-orange-600 ml-2">${data.requested_by || '매니저'}님이 ${month} 스케줄 확정을 요청했습니다 (${data.requested_at ? dayjs(data.requested_at).format('MM/DD HH:mm') : ''})</span>
                 </div>
+                <div class="flex gap-2">
+                    <button id="banner-approve-btn" class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700">✅ 승인 (확정)</button>
+                    <button id="banner-reject-btn" class="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700">❌ 반려</button>
+                </div>
             `;
             const calendarArea = document.querySelector('.schedule-main-content');
             if (calendarArea) calendarArea.prepend(banner);
+            _('#banner-approve-btn')?.addEventListener('click', () => handleConfirmSchedule(true));
+            _('#banner-reject-btn')?.addEventListener('click', () => handleRejectScheduleApproval(month));
         }
 
         const isConfirmed = !!(data && data.is_confirmed);
         const approvalRequested = !!(data && data.approval_requested);
         const pastDeadline = isPastConfirmDeadline(viewDate);
-        const isAdmin = !!(state.currentUser?.role === 'admin' || state.currentUser?.isAdmin);
-        const isManager = !!(state.currentUser?.isManager);
-        const canToggle = (isAdmin || isManager) && !state.schedule.isReadOnly;
 
-        // 원칙 8/14단계: 월 연월 옆 확정 토글 버튼. 관리자/매니저만 노출, 직원은 숨김.
+        // 원칙 8/14: 월 옆 확정 토글 — 역할별 의미 분기
+        //  - 관리자: ⚪ 미확정(확정) / 📩 승인요청됨(확정) / ✅ 확정됨(해제)
+        //  - 매니저: 📤 승인요청 / ⏳ 승인 대기(요청취소) / ✅ 확정됨(정보표시 비활성)
+        //  - 직원: 숨김
         if (confirmBtn) {
-            if (!canToggle) {
+            if (state.schedule.isReadOnly || (!isAdmin && !isManager)) {
                 confirmBtn.classList.add('hidden');
-            } else {
+            } else if (isAdmin) {
                 confirmBtn.classList.remove('hidden');
+                confirmBtn.disabled = false;
                 confirmBtn.setAttribute('aria-pressed', isConfirmed ? 'true' : 'false');
                 if (isConfirmed) {
                     confirmBtn.textContent = '✅ 확정됨';
@@ -4826,7 +4835,7 @@ async function checkScheduleConfirmationStatus() {
                     confirmBtn.onclick = () => handleConfirmSchedule(false);
                 } else if (approvalRequested) {
                     confirmBtn.textContent = '📩 승인 요청됨';
-                    confirmBtn.title = '클릭하여 스케줄 확정';
+                    confirmBtn.title = '클릭하여 확정 (또는 상단 배너에서 반려)';
                     confirmBtn.className = 'sch-confirm-toggle is-approval-requested ml-2 px-3 py-1 rounded-full text-sm font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors';
                     confirmBtn.onclick = () => handleConfirmSchedule(true);
                 } else {
@@ -4834,6 +4843,26 @@ async function checkScheduleConfirmationStatus() {
                     confirmBtn.title = '클릭하여 스케줄 확정';
                     confirmBtn.className = 'sch-confirm-toggle is-unconfirmed ml-2 px-3 py-1 rounded-full text-sm font-bold bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors';
                     confirmBtn.onclick = () => handleConfirmSchedule(true);
+                }
+            } else if (isManager) {
+                confirmBtn.classList.remove('hidden');
+                confirmBtn.disabled = false;
+                if (isConfirmed) {
+                    confirmBtn.textContent = '✅ 확정됨';
+                    confirmBtn.title = '관리자가 확정함 (해제는 관리자 권한)';
+                    confirmBtn.className = 'sch-confirm-toggle is-confirmed ml-2 px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-700 cursor-default border border-green-300';
+                    confirmBtn.disabled = true;
+                    confirmBtn.onclick = null;
+                } else if (approvalRequested) {
+                    confirmBtn.textContent = '⏳ 승인 대기 중';
+                    confirmBtn.title = '클릭하여 승인 요청 취소';
+                    confirmBtn.className = 'sch-confirm-toggle is-pending ml-2 px-3 py-1 rounded-full text-sm font-bold bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300';
+                    confirmBtn.onclick = () => handleCancelScheduleApprovalRequest(month);
+                } else {
+                    confirmBtn.textContent = '📤 승인 요청';
+                    confirmBtn.title = '관리자에게 스케줄 승인 요청';
+                    confirmBtn.className = 'sch-confirm-toggle is-request ml-2 px-3 py-1 rounded-full text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition-colors';
+                    confirmBtn.onclick = () => handleRequestScheduleApproval();
                 }
             }
         }
@@ -4860,6 +4889,49 @@ async function checkScheduleConfirmationStatus() {
     }
 }
 
+// 매니저: 승인 요청 취소
+async function handleCancelScheduleApprovalRequest(month) {
+    if (!confirm(`${month} 스케줄 승인 요청을 취소하시겠습니까?`)) return;
+    try {
+        const { error } = await db.from('schedule_confirmations').upsert({
+            month,
+            approval_requested: false,
+            requested_by: null,
+            requested_at: null
+        }, { onConflict: 'month' });
+        if (error) throw error;
+        await checkScheduleConfirmationStatus();
+    } catch (e) {
+        console.error('승인 요청 취소 실패:', e);
+        alert('승인 요청 취소 실패: ' + e.message);
+    }
+}
+
+// 관리자: 매니저 승인 요청 반려 (사유 기록)
+async function handleRejectScheduleApproval(month) {
+    const reason = prompt(`${month} 스케줄 승인 요청을 반려합니다.\n\n반려 사유 (선택):`, '');
+    if (reason === null) return;
+    const adminName = state.currentUser?.name || '관리자';
+    try {
+        const { error } = await db.from('schedule_confirmations').upsert({
+            month,
+            approval_requested: false,
+            requested_by: null,
+            requested_at: null,
+            rejected_at: new Date().toISOString(),
+            rejection_reason: reason || null,
+            rejected_by: adminName,
+            is_confirmed: false
+        }, { onConflict: 'month' });
+        if (error) throw error;
+        alert(`${month} 스케줄 승인 요청을 반려했습니다.\n매니저가 수정 후 다시 요청할 수 있습니다.`);
+        await checkScheduleConfirmationStatus();
+    } catch (e) {
+        console.error('반려 실패:', e);
+        alert('반려 실패: ' + e.message);
+    }
+}
+
 async function handleRequestScheduleApproval() {
     const viewDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
     const month = dayjs(viewDate).format('YYYY-MM');
@@ -4879,23 +4951,26 @@ async function handleRequestScheduleApproval() {
     if (!confirm(`${month} 스케줄을 관리자에게 승인 요청하시겠습니까?`)) return;
 
     try {
-        // schedule_approval_requests 테이블에 저장 (없으면 schedule_confirmations에 메모 방식)
+        // upsert: 이전 반려 정보는 클리어 (새 사이클 시작)
         const { error } = await db.from('schedule_confirmations').upsert({
             month: month,
             is_confirmed: false,
             approval_requested: true,
             requested_by: managerName,
-            requested_at: new Date().toISOString()
+            requested_at: new Date().toISOString(),
+            rejected_at: null,
+            rejection_reason: null,
+            rejected_by: null
         }, { onConflict: 'month' });
 
         if (error) {
             console.error('승인 요청 실패:', error);
-            // 컬럼이 없을 수 있으므로 단순 알림으로 fallback
             alert(`${month} 스케줄 승인 요청이 전송되었습니다.\n관리자가 스케줄 관리 탭에서 확인 후 확정합니다.`);
             return;
         }
 
         alert(`${month} 스케줄 승인 요청 완료!\n\n관리자가 스케줄 관리 탭에서 확인 후 확정합니다.`);
+        await checkScheduleConfirmationStatus();
     } catch (err) {
         console.error('승인 요청 오류:', err);
         alert(`${month} 스케줄 승인 요청이 전송되었습니다.\n관리자가 스케줄 관리 탭에서 확인 후 확정합니다.`);
@@ -4913,7 +4988,7 @@ async function handleConfirmSchedule(isConfirm = true) {
     if (!confirm(message)) return;
 
     try {
-        // Upsert logic
+        // 확정 시 승인요청·반려 정보 모두 클리어 (사이클 종료)
         const { error } = await db.from('schedule_confirmations')
             .upsert({
                 month: month,
@@ -4921,13 +4996,16 @@ async function handleConfirmSchedule(isConfirm = true) {
                 confirmed_at: new Date().toISOString(),
                 approval_requested: false,
                 requested_by: null,
-                requested_at: null
+                requested_at: null,
+                rejected_at: null,
+                rejection_reason: null,
+                rejected_by: null
             }, { onConflict: 'month' });
 
         if (error) throw error;
 
         alert(isConfirm ? '스케줄이 확정되었습니다.' : '스케줄 확정이 해제되었습니다.');
-        checkScheduleConfirmationStatus(); // UI 갱신
+        checkScheduleConfirmationStatus();
 
     } catch (error) {
         console.error('스케줄 확정 오류:', error);
