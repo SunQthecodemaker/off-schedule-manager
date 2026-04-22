@@ -1154,7 +1154,8 @@ body {
     .modal-overlay,
     header,
     .day-number.text-red-500,
-    #schedule-status-badge {
+    #confirm-schedule-btn,
+    #schedule-deadline-icon {
         display: none !important;
     }
 

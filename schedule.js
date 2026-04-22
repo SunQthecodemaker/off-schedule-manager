@@ -4338,7 +4338,6 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
             <div class="flex items-center gap-2">
                 <button id="undo-schedule-btn" class="sch-btn sch-btn-ghost" title="이전 (Ctrl+Z)" disabled>↶ 이전</button>
                 <button id="redo-schedule-btn" class="sch-btn sch-btn-ghost" title="이후 (Ctrl+Y)" disabled>↷ 이후</button>
-                <button id="confirm-schedule-btn" class="sch-btn sch-btn-primary">스케줄 확정</button>
                 <button id="import-last-month-btn" class="sch-btn sch-btn-secondary">지난달 불러오기</button>
                 <button id="position-reset-btn" class="sch-btn sch-btn-secondary" title="이번 달 전체 위치를 배치 패널 기본값으로">위치 초기화</button>
                 <button id="work-reset-btn" class="sch-btn sch-btn-secondary" title="이번 달 전체 상태를 근무로 (위치·연차 유지)">근무 초기화</button>
@@ -4358,10 +4357,11 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
                 </div>
                 <div class="calendar-controls flex items-center justify-between mb-4">
                     <button id="calendar-prev" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">◀ 이전</button>
-                    <div class="flex items-center">
+                    <div class="flex items-center gap-2">
                         <h2 id="calendar-title" class="text-2xl font-bold"></h2>
-                        <span id="schedule-status-badge" class="px-3 py-1 rounded-full text-sm font-bold ml-2 hidden"></span>
-                        <span id="schedule-deadline-icon" class="ml-2 text-xl hidden" title="확정 기준일(전월 15일) 경과 - 미확정">⚠️</span>
+                        <!-- 원칙 8/14단계: 월 연월 옆 확정 토글 (관리자만 노출). 배지 역할도 겸함. -->
+                        <button id="confirm-schedule-btn" class="hidden sch-confirm-toggle" type="button" aria-pressed="false"></button>
+                        <span id="schedule-deadline-icon" class="text-xl hidden" title="확정 기준일(전월 15일) 경과 - 미확정">⚠️</span>
                     </div>
                     <button id="calendar-next" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">다음 ▶</button>
                     <button id="calendar-today" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">오늘</button>
@@ -4762,7 +4762,6 @@ async function checkScheduleConfirmationStatus() {
             .eq('month', month)
             .maybeSingle();
 
-        const badge = document.querySelector('#schedule-status-badge');
         const confirmBtn = document.querySelector('#confirm-schedule-btn');
         const deadlineIcon = document.querySelector('#schedule-deadline-icon');
 
@@ -4785,54 +4784,54 @@ async function checkScheduleConfirmationStatus() {
         }
 
         const isConfirmed = !!(data && data.is_confirmed);
+        const approvalRequested = !!(data && data.approval_requested);
         const pastDeadline = isPastConfirmDeadline(viewDate);
         const isAdmin = !!(state.currentUser?.role === 'admin' || state.currentUser?.isAdmin);
+        const isManager = !!(state.currentUser?.isManager);
+        const canToggle = (isAdmin || isManager) && !state.schedule.isReadOnly;
 
-        if (isConfirmed) {
-            // 확정됨
-            if (badge) {
-                badge.textContent = '확정됨';
-                badge.className = 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-green-100 text-green-800';
-                badge.classList.remove('hidden');
-            }
-            if (confirmBtn) {
-                confirmBtn.textContent = '확정 해제';
-                confirmBtn.className = 'px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 font-bold';
-                confirmBtn.onclick = () => handleConfirmSchedule(false); // 해제 모드
-            }
-            if (deadlineIcon) deadlineIcon.classList.add('hidden');
-        } else {
-            // 미확정
-            if (badge) {
-                badge.textContent = data?.approval_requested ? '승인 요청됨' : '미확정';
-                badge.className = data?.approval_requested
-                    ? 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-orange-100 text-orange-800'
-                    : 'px-3 py-1 rounded-full text-sm font-bold ml-2 bg-yellow-100 text-yellow-800';
-                badge.classList.remove('hidden');
-            }
-            if (confirmBtn) {
-                confirmBtn.textContent = '스케줄 확정';
-                confirmBtn.className = 'px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold';
-                confirmBtn.onclick = () => handleConfirmSchedule(true); // 확정 모드
-            }
-
-            // 원칙 14단계: 기준일(전월 15일) 경과 + 미확정 → 경고 아이콘 상시 표시
-            if (deadlineIcon) {
-                if (pastDeadline) {
-                    deadlineIcon.classList.remove('hidden');
-                    deadlineIcon.title = `${month} 스케줄이 아직 확정되지 않았습니다 (기준일: 전월 15일).`;
+        // 원칙 8/14단계: 월 연월 옆 확정 토글 버튼. 관리자/매니저만 노출, 직원은 숨김.
+        if (confirmBtn) {
+            if (!canToggle) {
+                confirmBtn.classList.add('hidden');
+            } else {
+                confirmBtn.classList.remove('hidden');
+                confirmBtn.setAttribute('aria-pressed', isConfirmed ? 'true' : 'false');
+                if (isConfirmed) {
+                    confirmBtn.textContent = '✅ 확정됨';
+                    confirmBtn.title = '클릭하여 확정 해제';
+                    confirmBtn.className = 'sch-confirm-toggle is-confirmed ml-2 px-3 py-1 rounded-full text-sm font-bold bg-green-600 text-white hover:bg-green-700 transition-colors';
+                    confirmBtn.onclick = () => handleConfirmSchedule(false);
+                } else if (approvalRequested) {
+                    confirmBtn.textContent = '📩 승인 요청됨';
+                    confirmBtn.title = '클릭하여 스케줄 확정';
+                    confirmBtn.className = 'sch-confirm-toggle is-approval-requested ml-2 px-3 py-1 rounded-full text-sm font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors';
+                    confirmBtn.onclick = () => handleConfirmSchedule(true);
                 } else {
-                    deadlineIcon.classList.add('hidden');
+                    confirmBtn.textContent = '⚪ 미확정';
+                    confirmBtn.title = '클릭하여 스케줄 확정';
+                    confirmBtn.className = 'sch-confirm-toggle is-unconfirmed ml-2 px-3 py-1 rounded-full text-sm font-bold bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors';
+                    confirmBtn.onclick = () => handleConfirmSchedule(true);
                 }
             }
+        }
 
-            // 관리자 로그인 세션당 1회 팝업 알림
-            if (pastDeadline && isAdmin && !confirmDeadlineWarned.has(month)) {
-                confirmDeadlineWarned.add(month);
-                setTimeout(() => {
-                    alert(`⚠️ ${month} 스케줄이 아직 확정되지 않았습니다.\n\n확정 기준일(전월 15일)이 지났습니다. 확인 후 "스케줄 확정" 버튼을 눌러주세요.`);
-                }, 300);
+        // 원칙 14단계: 기준일(전월 15일) 경과 + 미확정 → 경고 아이콘 상시 표시
+        if (deadlineIcon) {
+            if (!isConfirmed && pastDeadline) {
+                deadlineIcon.classList.remove('hidden');
+                deadlineIcon.title = `${month} 스케줄이 아직 확정되지 않았습니다 (기준일: 전월 15일).`;
+            } else {
+                deadlineIcon.classList.add('hidden');
             }
+        }
+
+        // 원칙 14단계: 관리자 로그인 세션당 1회 팝업 (미확정 + 기준일 경과일 때)
+        if (!isConfirmed && pastDeadline && isAdmin && !confirmDeadlineWarned.has(month)) {
+            confirmDeadlineWarned.add(month);
+            setTimeout(() => {
+                alert(`⚠️ ${month} 스케줄이 아직 확정되지 않았습니다.\n\n확정 기준일(전월 15일)이 지났습니다. 월 연월 옆 토글 버튼을 눌러 확정해주세요.`);
+            }, 300);
         }
     } catch (err) {
         console.error('확정 상태 확인 실패:', err);
