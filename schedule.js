@@ -4333,6 +4333,7 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
             </div>
         </div>`;
     } else if (isManager) {
+        // 매니저 = 스케줄 실무 담당. 관리자와 동일 버튼 세트 사용 (확정만 월 옆 토글에서 분기)
         topControlsHtml = `
         <div class="flex justify-between items-center mb-2 pb-2 border-b">
             <div id="schedule-view-toggle" class="flex rounded-md shadow-sm bg-gray-100 p-1" role="group">
@@ -4343,10 +4344,13 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
             <div class="flex items-center gap-2">
                 <button id="undo-schedule-btn" class="sch-btn sch-btn-ghost" title="이전 (Ctrl+Z)" disabled>↶ 이전</button>
                 <button id="redo-schedule-btn" class="sch-btn sch-btn-ghost" title="이후 (Ctrl+Y)" disabled>↷ 이후</button>
+                <button id="import-last-month-btn" class="sch-btn sch-btn-secondary">지난달 불러오기</button>
+                <button id="position-reset-btn" class="sch-btn sch-btn-secondary" title="이번 달 전체 위치를 배치 패널 기본값으로">위치 초기화</button>
+                <button id="work-reset-btn" class="sch-btn sch-btn-secondary" title="이번 달 전체 상태를 근무로 (위치·연차 유지)">근무 초기화</button>
                 <button id="print-schedule-btn" class="sch-btn sch-btn-secondary">인쇄하기</button>
                 <button id="revert-schedule-btn" class="sch-btn sch-btn-ghost" disabled>변경 취소</button>
                 <button id="save-schedule-btn" class="sch-btn sch-btn-primary" disabled>스케줄 저장</button>
-                <!-- 원칙 8/14: 승인 요청은 월 옆 #confirm-schedule-btn 토글로 통일 (하단 중복 버튼 제거) -->
+                <!-- 원칙 8/14: 승인 요청은 월 옆 #confirm-schedule-btn 토글로 통일 -->
             </div>
         </div>`;
     } else {
