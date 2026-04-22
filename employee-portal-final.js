@@ -5,6 +5,33 @@ import { renderScheduleManagement } from './schedule.js?v=20260412a';
 import { getLeaveListHTML, getLeaveStatusHTML } from './management.js';
 
 // =========================================================================================
+// 매니저 권한 시스템 (employees.manager_permissions jsonb)
+// 8개 메뉴: schedule, leave_request_list, leave_status, document_review,
+//           leave_management, employee_management, department, form
+// 각 메뉴: { view: bool, edit: bool }
+// 관리자가 직원 관리 모달에서 토글 가능, 기본값 전부 view+edit on
+// =========================================================================================
+const DEFAULT_MANAGER_PERMS = {
+    schedule:            { view: true,  edit: true },
+    leave_request_list:  { view: true,  edit: true },
+    leave_status:        { view: true,  edit: false },
+    document_review:     { view: true,  edit: true },
+    leave_management:    { view: true,  edit: true },
+    employee_management: { view: true,  edit: true },
+    department:          { view: true,  edit: true },
+    form:                { view: true,  edit: true }
+};
+
+/** 현재 로그인 직원의 메뉴 권한 (관리자는 모두 true, 매니저는 DB 값, 일반 직원은 모두 false) */
+export function getManagerPerm(menuKey) {
+    if (state.userRole === 'admin') return { view: true, edit: true };
+    const u = state.currentUser;
+    if (!u || !u.isManager) return { view: false, edit: false };
+    const p = (u.manager_permissions && u.manager_permissions[menuKey]) || DEFAULT_MANAGER_PERMS[menuKey];
+    return p || { view: false, edit: false };
+}
+
+// =========================================================================================
 // 직원 포털 렌더링
 // =========================================================================================
 
@@ -118,12 +145,29 @@ export async function renderEmployeePortal() {
                 <button id="tab-work-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
                     📅 근무 스케줄
                 </button>
-                ${user.isManager ? `
-                    <button id="tab-leave-list-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 신청 목록</button>
-                    <button id="tab-leave-status-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 현황</button>
-                    <button id="tab-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">스케줄 관리</button>
-                ` : ''}
+                ${user.isManager ? (() => {
+                    const perms = user.manager_permissions || DEFAULT_MANAGER_PERMS;
+                    const tabs = [];
+                    if (perms.leave_request_list?.view) tabs.push(`<button id="tab-leave-list-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 신청 목록</button>`);
+                    if (perms.leave_status?.view) tabs.push(`<button id="tab-leave-status-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 현황</button>`);
+                    if (perms.schedule?.view) tabs.push(`<button id="tab-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">스케줄 관리</button>`);
+                    return tabs.join('');
+                })() : ''}
             </div>
+
+            <!-- 매니저 전용: 스케줄 승인 요청 반려 알림 배너 -->
+            ${user.isManager ? `
+                <div id="manager-rejection-banner" class="hidden mb-4 bg-red-50 border border-red-300 rounded-lg p-4 flex items-start justify-between gap-3">
+                    <div class="flex items-start gap-3">
+                        <span class="text-2xl">⚠️</span>
+                        <div>
+                            <p class="font-bold text-red-700">스케줄 승인 요청이 반려되었습니다</p>
+                            <p id="manager-rejection-detail" class="text-sm text-red-600 mt-1"></p>
+                        </div>
+                    </div>
+                    <button id="manager-rejection-dismiss" class="text-red-700 hover:bg-red-100 px-3 py-1 rounded">확인</button>
+                </div>
+            ` : ''}
 
             <!-- 연차 신청 탭 -->
             <div id="employee-leave-tab" class="tab-content">
@@ -153,11 +197,14 @@ export async function renderEmployeePortal() {
                 <!-- 모바일 친화적 주간 스케줄 -->
             </div>
 
-            ${user.isManager ? `
-                <div id="employee-leave-list-tab" class="tab-content hidden"></div>
-                <div id="employee-leave-status-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>
-                <div id="employee-schedule-tab" class="tab-content hidden"></div>
-            ` : ''}
+            ${user.isManager ? (() => {
+                const perms = user.manager_permissions || DEFAULT_MANAGER_PERMS;
+                const containers = [];
+                if (perms.leave_request_list?.view) containers.push(`<div id="employee-leave-list-tab" class="tab-content hidden"></div>`);
+                if (perms.leave_status?.view) containers.push(`<div id="employee-leave-status-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
+                if (perms.schedule?.view) containers.push(`<div id="employee-schedule-tab" class="tab-content hidden"></div>`);
+                return containers.join('');
+            })() : ''}
         </div>
     `;
 
@@ -176,11 +223,43 @@ export async function renderEmployeePortal() {
         _('#tab-leave-list-btn')?.addEventListener('click', () => switchEmployeeTab('leaveList'));
         _('#tab-leave-status-btn')?.addEventListener('click', () => switchEmployeeTab('leaveStatus'));
         _('#tab-schedule-btn')?.addEventListener('click', () => switchEmployeeTab('schedule'));
+
+        await loadManagerRejectionBanner();
+        _('#manager-rejection-dismiss')?.addEventListener('click', () => {
+            const banner = document.getElementById('manager-rejection-banner');
+            if (banner) banner.classList.add('hidden');
+            sessionStorage.setItem('mgr_rejection_dismissed_at', Date.now().toString());
+        });
     }
 
     await loadEmployeeData();
 
     // 미제출 서류 알림은 loadEmployeeData() 내에서 한 번만 표시
+}
+
+// 매니저 포털: 가장 최근 반려된 스케줄 승인 요청 표시 (sessionStorage dismiss)
+async function loadManagerRejectionBanner() {
+    try {
+        const dismissedAt = parseInt(sessionStorage.getItem('mgr_rejection_dismissed_at') || '0', 10);
+        const { data, error } = await db.from('schedule_confirmations')
+            .select('month, rejected_at, rejection_reason, rejected_by')
+            .not('rejected_at', 'is', null)
+            .order('rejected_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error || !data) return;
+        const rejectedTs = new Date(data.rejected_at).getTime();
+        if (rejectedTs <= dismissedAt) return;
+        const banner = document.getElementById('manager-rejection-banner');
+        const detail = document.getElementById('manager-rejection-detail');
+        if (banner && detail) {
+            const reasonTxt = data.rejection_reason ? ` 사유: "${data.rejection_reason}"` : '';
+            detail.textContent = `${data.month} 스케줄 — 반려자: ${data.rejected_by || '관리자'}.${reasonTxt} 수정 후 다시 승인 요청해주세요.`;
+            banner.classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error('반려 배너 로드 실패:', e);
+    }
 }
 
 async function handleChangePassword() {

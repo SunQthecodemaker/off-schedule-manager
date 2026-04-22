@@ -19,6 +19,94 @@ export function assignManagementEventHandlers() {
     window.handleResetPassword = handleResetPassword;
     window.handleUpdateLeave = handleUpdateLeave;
     window.openRegularHolidayModal = openRegularHolidayModal;
+    window.openManagerPermissionModal = openManagerPermissionModal;
+}
+
+// =========================================================================================
+// 매니저 권한 설정 모달 (employees.manager_permissions jsonb)
+// 8개 메뉴 × view/edit 토글. 관리자만 사용. 매니저로 지정된 직원에 한해 노출.
+// =========================================================================================
+const MANAGER_MENU_LIST = [
+    { key: 'schedule',            label: '스케줄 관리' },
+    { key: 'leave_request_list',  label: '연차 신청 목록' },
+    { key: 'leave_status',        label: '연차 현황' },
+    { key: 'document_review',     label: '서류 검토' },
+    { key: 'leave_management',    label: '연차 관리' },
+    { key: 'employee_management', label: '직원 관리' },
+    { key: 'department',          label: '부서 관리' },
+    { key: 'form',                label: '서식 관리' }
+];
+
+async function openManagerPermissionModal(employeeId) {
+    const emp = state.management.employees.find(e => e.id === employeeId);
+    if (!emp) return alert('직원 정보를 찾을 수 없습니다.');
+    const perms = emp.manager_permissions || {};
+
+    let modal = document.getElementById('manager-permission-modal');
+    if (modal) modal.remove();
+    modal = document.createElement('div');
+    modal.id = 'manager-permission-modal';
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[480px] max-w-full">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 class="text-xl font-bold">${emp.name} 매니저 권한 설정</h2>
+                <button id="mgr-perm-close" class="text-2xl">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">메뉴별로 열람·수정 권한을 설정하세요. 둘 다 끄면 매니저에게 메뉴 자체가 숨겨집니다.</p>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b bg-gray-50">
+                        <th class="p-2 text-left">메뉴</th>
+                        <th class="p-2 text-center w-20">열람</th>
+                        <th class="p-2 text-center w-20">수정</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${MANAGER_MENU_LIST.map(m => {
+                        const p = perms[m.key] || { view: false, edit: false };
+                        return `
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="p-2">${m.label}</td>
+                                <td class="p-2 text-center">
+                                    <input type="checkbox" data-perm-key="${m.key}" data-perm-type="view" ${p.view ? 'checked' : ''}>
+                                </td>
+                                <td class="p-2 text-center">
+                                    <input type="checkbox" data-perm-key="${m.key}" data-perm-type="edit" ${p.edit ? 'checked' : ''}>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+            <div class="flex justify-end gap-2 mt-6">
+                <button id="mgr-perm-cancel" class="px-4 py-2 bg-gray-300 rounded">취소</button>
+                <button id="mgr-perm-save" class="px-4 py-2 bg-blue-600 text-white rounded">저장</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('mgr-perm-close').onclick = () => modal.remove();
+    document.getElementById('mgr-perm-cancel').onclick = () => modal.remove();
+    document.getElementById('mgr-perm-save').onclick = async () => {
+        const newPerms = {};
+        MANAGER_MENU_LIST.forEach(m => {
+            const viewEl = modal.querySelector(`[data-perm-key="${m.key}"][data-perm-type="view"]`);
+            const editEl = modal.querySelector(`[data-perm-key="${m.key}"][data-perm-type="edit"]`);
+            newPerms[m.key] = { view: !!viewEl?.checked, edit: !!editEl?.checked };
+        });
+        const { error } = await db.from('employees')
+            .update({ manager_permissions: newPerms })
+            .eq('id', employeeId);
+        if (error) {
+            alert('권한 저장 실패: ' + error.message);
+        } else {
+            emp.manager_permissions = newPerms;
+            alert('매니저 권한이 저장되었습니다.');
+            modal.remove();
+        }
+    };
 }
 
 // =========================================================================================
@@ -471,9 +559,13 @@ export function getManagementHTML() {
 
         let actions = '';
         if (filter === 'active') {
+            const permBtn = emp.isManager
+                ? `<button onclick="window.openManagerPermissionModal(${emp.id})" class="text-xs bg-purple-500 text-white px-2 py-1 rounded ml-1" title="매니저 권한 설정">권한</button>`
+                : '';
             actions = `
                 <button onclick="handleUpdateEmployee(${emp.id})" class="text-xs bg-blue-500 text-white px-2 py-1 rounded">저장</button>
                 <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-1">PW</button>
+                ${permBtn}
                 <button onclick="handleDeleteEmployee(${emp.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1">삭제</button>
              `;
         } else {
