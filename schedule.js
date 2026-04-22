@@ -281,6 +281,11 @@ function findNearestEmpty(dateStr, fromPos, excludeEmpId) {
  * @returns {number} 배치된 개수
  */
 function placeCards(items, dateStr, startPos = null) {
+    // 원칙 15단계: 공휴일 날짜에는 카드 배치/이동 비활성
+    if (state.schedule.companyHolidays?.has(dateStr)) {
+        alert('공휴일/전원 휴무일입니다. 날짜를 더블클릭하여 해제한 뒤 배치해주세요.');
+        return 0;
+    }
     let placed = 0;
 
     // 상대 위치 보존: _origPos 있으면 (row,col) 델타 기반 계산 (flat index 금지, CLAUDE.md 원칙)
@@ -461,6 +466,11 @@ function placeCards(items, dateStr, startPos = null) {
  * @returns {number} 이동된 개수
  */
 function moveCards(empIds, fromDate, toDate, targetPos = null) {
+    // 원칙 15단계: 공휴일 원본/타겟 날짜는 조작 비활성
+    if (state.schedule.companyHolidays?.has(fromDate) || state.schedule.companyHolidays?.has(toDate)) {
+        alert('공휴일/전원 휴무일은 이동 원본/대상이 될 수 없습니다.');
+        return 0;
+    }
     // 원본 날짜 상태 전환 (원칙 7단계: 뷰별 + 연차자 특수 처리)
     //   - 근무자: 근무 → 휴무
     //   - 일반 휴무자: 휴무 → 근무
@@ -2413,6 +2423,13 @@ function handleEventCardDblClick(e, card) {
     // 빈칸 등 유효하지 않은 카드 제외
     if (!scheduleId || isNaN(empId)) return;
 
+    // 원칙 15단계: 공휴일 지정된 날짜는 카드 조작 비활성 (전원 휴무 강제)
+    const dateStr = card.closest('.calendar-day')?.dataset.date;
+    if (dateStr && state.schedule.companyHolidays?.has(dateStr)) {
+        alert('공휴일/전원 휴무일입니다. 날짜를 더블클릭하여 해제한 뒤 수정해주세요.');
+        return;
+    }
+
     // 3. 상태 토글 또는 삭제 (임시 직원)
     let schedule = state.schedule.schedules.find(s => s.id == scheduleId); // 타입 주의
 
@@ -2421,7 +2438,6 @@ function handleEventCardDblClick(e, card) {
     const isTemp = emp && emp.is_temp;
 
     // ✨ 연차 대상자인지 확인
-    const dateStr = card.closest('.calendar-day')?.dataset.date;
     const isLeave = state.management.leaveRequests.some(req =>
         (req.status === 'approved' || req.final_manager_status === 'approved') &&
         req.dates?.includes(dateStr) &&
@@ -3469,6 +3485,17 @@ function handleContextMenu(e) {
 
     e.preventDefault(); // 기본 브라우저 메뉴 차단
 
+    // 원칙 15단계: 공휴일 날짜의 카드/빈슬롯 우클릭은 비활성 (날짜 헤더 우클릭은 허용 — 공휴일 토글 해제용)
+    const ctxDayEl = e.target.closest('.calendar-day');
+    const ctxDateStr = ctxDayEl?.dataset.date;
+    const isHolidayDate = ctxDateStr && state.schedule.companyHolidays?.has(ctxDateStr);
+    if (isHolidayDate && (card || emptySlot) && !dateHeader) {
+        employeeContextMenu.classList.add('hidden');
+        document.getElementById('custom-context-menu-v2')?.classList.add('hidden');
+        dateContextMenu.classList.add('hidden');
+        return;
+    }
+
     // 메뉴 모두 숨기기 초기화
     employeeContextMenu.classList.add('hidden');
     document.getElementById('custom-context-menu-v2')?.classList.add('hidden');
@@ -4261,17 +4288,12 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
             activeDepartmentFilters: new Set(),
             companyHolidays: new Set(),
             activeReorder: { date: null, sortable: null },
-            activeReorder: { date: null, sortable: null },
             sortableInstances: [],
             selectedSchedules: new Set(),
-            undoStack: [] // ✨ Undo 스택 초기화
+            // 원칙 공통금지 8번: undoStack 중복 변수 금지 — 모듈 레벨 undoStack 만 사용
         };
     }
 
-    // ✨ 안전장치: 빈 state 객체가 넘어왔을 때 undoStack 보장
-    if (!state.schedule.undoStack) {
-        state.schedule.undoStack = [];
-    }
     state.schedule.isReadOnly = isReadOnly;
     state.schedule.isManager = isManager;
 
@@ -4914,11 +4936,25 @@ async function handleConfirmSchedule(isConfirm = true) {
 }
 
 // =========================================================================================
-// [신규] 지난달 스케줄 불러오기 (주차 기준 매칭 + 정기 휴무 반영)
+// [원칙 13단계] 지난달 스케줄 불러오기 — 금요일 앵커 주차 매칭
+// 주차 = 그 주의 금요일이 속한 달. 한 주는 그 주의 금요일이 속한 달에 배정됨.
 // =========================================================================================
 
+/** 주어진 날짜가 속한 주(일~토)의 금요일 정보 반환 */
+function fridayAnchorInfo(dateStr) {
+    const d = dayjs(dateStr);
+    const dow = d.day(); // 0=Sun ~ 6=Sat
+    const friday = d.add(5 - dow, 'day');
+    const fridayMonthStr = friday.format('YYYY-MM');
+    // 금요일의 "그 달 몇 번째 금요일" 계산
+    let firstFri = friday.startOf('month');
+    while (firstFri.day() !== 5) firstFri = firstFri.add(1, 'day');
+    const weekOfMonth = Math.floor(friday.diff(firstFri, 'day') / 7) + 1;
+    return { fridayMonth: fridayMonthStr, weekOfMonth, friday: friday.format('YYYY-MM-DD') };
+}
+
 async function handleImportPreviousMonth() {
-    if (!confirm('현재 보고 있는 달의 모든 스케줄을 지우고, 지난달 데이터를 기반으로 새 스케줄을 생성하시겠습니까?\n(주간 패턴 매칭 + 정기 휴무 규칙 적용)')) {
+    if (!confirm('현재 보고 있는 달의 스케줄에 지난달 주간 패턴(금요일 앵커 기준)을 적용하시겠습니까?\n(이번 달 현재 데이터는 덮어씌워집니다)')) {
         return;
     }
 
@@ -4929,128 +4965,110 @@ async function handleImportPreviousMonth() {
     try {
         const currentDate = dayjs(state.schedule.currentDate);
         const prevDate = currentDate.subtract(1, 'month');
-
+        const currentMonthStr = currentDate.format('YYYY-MM');
+        const prevMonthStr = prevDate.format('YYYY-MM');
         const currentStart = currentDate.startOf('month');
         const currentEnd = currentDate.endOf('month');
-        const prevStart = prevDate.startOf('month');
-        const prevEnd = prevDate.endOf('month');
 
-        // 1. 지난달 데이터 가져오기 (DB)
+        // 1. 지난달 + 이번달 경계 확장 데이터 가져오기 (주가 월경계 걸치는 경우 대비)
+        const fetchStart = prevDate.startOf('month').subtract(7, 'day').format('YYYY-MM-DD');
+        const fetchEnd = currentDate.endOf('month').add(7, 'day').format('YYYY-MM-DD');
         const { data: prevSchedulesRaw, error: fetchError } = await db.from('schedules')
             .select('*')
-            .gte('date', prevStart.format('YYYY-MM-DD'))
-            .lte('date', prevEnd.format('YYYY-MM-DD'))
-            .eq('status', '근무'); // 근무만 복사
-
+            .gte('date', fetchStart)
+            .lte('date', fetchEnd)
+            .eq('status', '근무');
         if (fetchError) throw fetchError;
-        const prevSchedules = (prevSchedulesRaw || []).map(hydrateScheduleRow);
+        const allPrevSchedules = (prevSchedulesRaw || []).map(hydrateScheduleRow);
 
-
-        // 2. 현재 달 스케줄 초기화 (DB 삭제)
-        // 주의: unsavedChanges도 초기화해야 함
-        const { error: deleteError } = await db.from('schedules')
-            .delete()
-            .gte('date', currentStart.format('YYYY-MM-DD'))
-            .lte('date', currentEnd.format('YYYY-MM-DD'));
-
-        if (deleteError) throw deleteError;
-
-        unsavedChanges.clear(); // 프론트엔드 변경분 초기화
-
-        // 3. 주차별/요일별 날짜 매핑 생성
-        // 예: Sun[0] -> prevSun[0], Mon[1] -> prevMon[1]
-        const dayMapping = new Map(); // targetDateStr -> sourceDateStr or null
-        const weekDays = [0, 1, 2, 3, 4, 5, 6]; // Sun to Sat
-
-        weekDays.forEach(dayIdx => {
-            // 지난달의 해당 요일 날짜들
-            const prevDays = [];
-            let p = prevStart.clone();
-            while (p.day() !== dayIdx) p = p.add(1, 'day'); // 첫 해당 요일 찾기
-            while (p.isSameOrBefore(prevEnd)) {
-                if (p.isSameOrAfter(prevStart)) prevDays.push(p.format('YYYY-MM-DD'));
-                p = p.add(7, 'day');
-            }
-
-            // 이번달의 해당 요일 날짜들
-            const currentDays = [];
-            let c = currentStart.clone();
-            while (c.day() !== dayIdx) c = c.add(1, 'day');
-            while (c.isSameOrBefore(currentEnd)) {
-                if (c.isSameOrAfter(currentStart)) currentDays.push(c.format('YYYY-MM-DD'));
-                c = c.add(7, 'day');
-            }
-
-            // 매핑 (인덱스 기준)
-            currentDays.forEach((currDateStr, idx) => {
-                const prevDateStr = prevDays[idx] || null; // 매칭되는 주차가 없으면 null
-                dayMapping.set(currDateStr, prevDateStr);
-            });
+        // 2. 지난달 소스: "해당 날짜의 주차 금요일이 prevMonth"인 근무 레코드만 사용
+        const prevByWeekDow = new Map(); // key = "weekN_dow" → sourceDateStr
+        const prevDates = new Set(allPrevSchedules.map(s => s.date));
+        prevDates.forEach(dateStr => {
+            const info = fridayAnchorInfo(dateStr);
+            if (info.fridayMonth !== prevMonthStr) return;
+            const key = `w${info.weekOfMonth}_d${dayjs(dateStr).day()}`;
+            if (!prevByWeekDow.has(key)) prevByWeekDow.set(key, dateStr);
         });
 
-        // 4. 새 스케줄 생성
+        // 3. fallback 주차(2주차) 패턴 수집
+        const prevWeek2Dates = new Map(); // dow → sourceDateStr
+        prevDates.forEach(dateStr => {
+            const info = fridayAnchorInfo(dateStr);
+            if (info.fridayMonth !== prevMonthStr || info.weekOfMonth !== 2) return;
+            const dow = dayjs(dateStr).day();
+            if (!prevWeek2Dates.has(dow)) prevWeek2Dates.set(dow, dateStr);
+        });
+
+        // 4. 삭제할 이번달 날짜 = "해당 날짜의 주차 금요일이 currentMonth"
+        const targetDates = [];
+        let iter = currentStart.clone();
+        while (iter.isSameOrBefore(currentEnd)) {
+            const ds = iter.format('YYYY-MM-DD');
+            if (fridayAnchorInfo(ds).fridayMonth === currentMonthStr) targetDates.push(ds);
+            iter = iter.add(1, 'day');
+        }
+        if (targetDates.length === 0) {
+            alert('복사할 대상 날짜가 없습니다.');
+            return;
+        }
+
+        // 5. 대상 날짜 DB 스케줄 삭제
+        const { error: deleteError } = await db.from('schedules')
+            .delete()
+            .in('date', targetDates);
+        if (deleteError) throw deleteError;
+        unsavedChanges.clear();
+
+        // 6. 새 스케줄 생성 — 주차 매칭 or fallback
         const newSchedules = [];
         const allEmployees = state.management.employees.filter(e => isGridEmployee(e));
 
-        // 모든 날짜 순회
-        let iter = currentStart.clone();
-        while (iter.isSameOrBefore(currentEnd)) {
-            const targetDateStr = iter.format('YYYY-MM-DD');
-            const sourceDateStr = dayMapping.get(targetDateStr);
-            const dayOfWeek = iter.day(); // 0(Sun) ~ 6(Sat)
+        targetDates.forEach(targetDateStr => {
+            const info = fridayAnchorInfo(targetDateStr);
+            const dow = dayjs(targetDateStr).day();
+            const key = `w${info.weekOfMonth}_d${dow}`;
+            let sourceDateStr = prevByWeekDow.get(key);
+            if (!sourceDateStr) sourceDateStr = prevWeek2Dates.get(dow); // fallback 2주차
 
             let schedulesForDay = [];
-
             if (sourceDateStr) {
-                // ✅ 매칭되는 지난달 날짜가 있음 -> 복사
-                const sourceSchedules = prevSchedules.filter(s => s.date === sourceDateStr);
-
-                // 직원 ID가 유효한지 확인하며 복사 (퇴사자 등 체크)
+                const sourceSchedules = allPrevSchedules.filter(s => s.date === sourceDateStr);
                 sourceSchedules.forEach(src => {
-                    // 현재 존재하는 직원인지 확인
-                    if (allEmployees.some(e => e.id === src.employee_id && (!e.resignation_date || targetDateStr < e.resignation_date))) {
+                    if (allEmployees.some(e => e.id === src.employee_id
+                        && (!e.resignation_date || targetDateStr < e.resignation_date))) {
                         schedulesForDay.push({
                             date: targetDateStr,
                             employee_id: src.employee_id,
                             status: '근무',
-                            sort_order: src.sort_order, // 순서 유지
-                            grid_position: src.grid_position // 그리드 위치 유지
+                            sort_order: src.sort_order,
+                            row: src.row, col: src.col,
+                            grid_position: src.grid_position
                         });
                     }
                 });
-
-                // 만약 지난달에 근무자가 아예 없었다면? -> 기본 규칙 적용?
-                // 사용자 요청: "복사... 수정... 복잡... 그냥 불러오기"
-                // 매칭되면 그대로 복사가 맞음.
             }
 
-            // ✅ 매칭 데이터가 없거나(5주차), 매칭은 됐는데 근무자가 0명인 경우(휴일이었을 수 있음)
-            // -> "남는 날짜나 모자른 날짜... 모든 직원 표시"
-            if (!sourceDateStr || schedulesForDay.length === 0) {
-                // 기본값: 모든 직원 근무
-                // 단, 정기 휴무 규칙 적용
+            // 매칭 0명이면 전원 근무 + 정기 휴무 반영
+            if (schedulesForDay.length === 0) {
                 let positionCounter = 0;
-
                 allEmployees.filter(emp => isActiveOnDate(emp, targetDateStr)).forEach(emp => {
-                    // 정기 휴무 요일이면 제외 (주차별 규칙 반영)
-                    if (!isFixedOffDay(emp.regular_holiday_rules, dayOfWeek, targetDateStr)) {
+                    if (!isFixedOffDay(emp.regular_holiday_rules, dow, targetDateStr)) {
                         schedulesForDay.push({
                             date: targetDateStr,
                             employee_id: emp.id,
                             status: '근무',
                             sort_order: positionCounter,
+                            row: Math.floor(positionCounter / GRID_COLS),
+                            col: positionCounter % GRID_COLS,
                             grid_position: positionCounter
                         });
                         positionCounter++;
                     }
                 });
             }
-
-            // 수집된 스케줄 추가
             newSchedules.push(...schedulesForDay);
-
-            iter = iter.add(1, 'day');
-        }
+        });
 
 
         // 5. DB에 일괄 저장
