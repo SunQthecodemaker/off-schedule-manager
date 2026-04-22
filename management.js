@@ -559,13 +559,10 @@ export function getManagementHTML() {
 
         let actions = '';
         if (filter === 'active') {
-            const permBtn = emp.isManager
-                ? `<button onclick="window.openManagerPermissionModal(${emp.id})" class="text-xs bg-purple-500 text-white px-2 py-1 rounded ml-1" title="매니저 권한 설정">권한</button>`
-                : '';
+            // 권한 설정 버튼은 매니저 체크박스 옆 ⚙️로 통일 (가로 스크롤 회피)
             actions = `
                 <button onclick="handleUpdateEmployee(${emp.id})" class="text-xs bg-blue-500 text-white px-2 py-1 rounded">저장</button>
                 <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-1">PW</button>
-                ${permBtn}
                 <button onclick="handleDeleteEmployee(${emp.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1">삭제</button>
              `;
         } else {
@@ -587,7 +584,10 @@ export function getManagementHTML() {
                 </td>
                 <td class="p-2"><input type="date" id="entry-${emp.id}" class="table-input emp-date-input" value="${emp.entryDate}"></td>
                 <td class="p-2" style="overflow:hidden;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
-                <td class="p-2 text-center"><input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}></td>
+                <td class="p-2 text-center" style="white-space:nowrap;">
+                    <input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}>
+                    ${emp.isManager ? `<button onclick="window.openManagerPermissionModal(${emp.id})" class="ml-1 text-xs bg-purple-500 text-white px-2 py-0.5 rounded" title="매니저 권한 설정">⚙️</button>` : ''}
+                </td>
                 <td class="p-2 text-center">
                     <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 w-full text-left">
                         <b>주${emp.weekly_work_days || 5}일</b>${(() => {
