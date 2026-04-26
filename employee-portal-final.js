@@ -2,7 +2,8 @@ import { state, db } from './state.js';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260412a';
-import { getLeaveListHTML, getLeaveStatusHTML } from './management.js';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260426a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260426a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -147,10 +148,16 @@ export async function renderEmployeePortal() {
                 </button>
                 ${user.isManager ? (() => {
                     const perms = user.manager_permissions || DEFAULT_MANAGER_PERMS;
+                    const btnCls = 'employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0';
                     const tabs = [];
-                    if (perms.leave_request_list?.view) tabs.push(`<button id="tab-leave-list-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 신청 목록</button>`);
-                    if (perms.leave_status?.view) tabs.push(`<button id="tab-leave-status-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">연차 현황</button>`);
-                    if (perms.schedule?.view) tabs.push(`<button id="tab-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">스케줄 관리</button>`);
+                    if (perms.leave_request_list?.view) tabs.push(`<button id="tab-leave-list-btn" class="${btnCls}">연차 신청 목록</button>`);
+                    if (perms.leave_status?.view) tabs.push(`<button id="tab-leave-status-btn" class="${btnCls}">연차 현황</button>`);
+                    if (perms.schedule?.view) tabs.push(`<button id="tab-schedule-btn" class="${btnCls}">스케줄 관리</button>`);
+                    if (perms.document_review?.view) tabs.push(`<button id="tab-document-review-btn" class="${btnCls}">서류 검토</button>`);
+                    if (perms.leave_management?.view) tabs.push(`<button id="tab-leave-management-btn" class="${btnCls}">연차 관리</button>`);
+                    if (perms.employee_management?.view) tabs.push(`<button id="tab-employee-management-btn" class="${btnCls}">직원 관리</button>`);
+                    if (perms.department?.view) tabs.push(`<button id="tab-department-btn" class="${btnCls}">부서 관리</button>`);
+                    if (perms.form?.view) tabs.push(`<button id="tab-form-btn" class="${btnCls}">서식 관리</button>`);
                     return tabs.join('');
                 })() : ''}
             </div>
@@ -203,6 +210,11 @@ export async function renderEmployeePortal() {
                 if (perms.leave_request_list?.view) containers.push(`<div id="employee-leave-list-tab" class="tab-content hidden"></div>`);
                 if (perms.leave_status?.view) containers.push(`<div id="employee-leave-status-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
                 if (perms.schedule?.view) containers.push(`<div id="employee-schedule-tab" class="tab-content hidden"></div>`);
+                if (perms.document_review?.view) containers.push(`<div id="employee-document-review-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
+                if (perms.leave_management?.view) containers.push(`<div id="employee-leave-management-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
+                if (perms.employee_management?.view) containers.push(`<div id="employee-management-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
+                if (perms.department?.view) containers.push(`<div id="employee-department-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
+                if (perms.form?.view) containers.push(`<div id="employee-form-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
                 return containers.join('');
             })() : ''}
         </div>
@@ -223,6 +235,11 @@ export async function renderEmployeePortal() {
         _('#tab-leave-list-btn')?.addEventListener('click', () => switchEmployeeTab('leaveList'));
         _('#tab-leave-status-btn')?.addEventListener('click', () => switchEmployeeTab('leaveStatus'));
         _('#tab-schedule-btn')?.addEventListener('click', () => switchEmployeeTab('schedule'));
+        _('#tab-document-review-btn')?.addEventListener('click', () => switchEmployeeTab('documentReview'));
+        _('#tab-leave-management-btn')?.addEventListener('click', () => switchEmployeeTab('leaveManagement'));
+        _('#tab-employee-management-btn')?.addEventListener('click', () => switchEmployeeTab('employeeManagement'));
+        _('#tab-department-btn')?.addEventListener('click', () => switchEmployeeTab('department'));
+        _('#tab-form-btn')?.addEventListener('click', () => switchEmployeeTab('form'));
 
         await loadManagerRejectionBanner();
         _('#manager-rejection-dismiss')?.addEventListener('click', () => {
@@ -300,7 +317,12 @@ function switchEmployeeTab(tab) {
         'workSchedule': { btn: '#tab-work-schedule-btn', content: '#employee-work-schedule-tab' },
         'leaveList': { btn: '#tab-leave-list-btn', content: '#employee-leave-list-tab' },
         'leaveStatus': { btn: '#tab-leave-status-btn', content: '#employee-leave-status-tab' },
-        'schedule': { btn: '#tab-schedule-btn', content: '#employee-schedule-tab' }
+        'schedule': { btn: '#tab-schedule-btn', content: '#employee-schedule-tab' },
+        'documentReview': { btn: '#tab-document-review-btn', content: '#employee-document-review-tab' },
+        'leaveManagement': { btn: '#tab-leave-management-btn', content: '#employee-leave-management-tab' },
+        'employeeManagement': { btn: '#tab-employee-management-btn', content: '#employee-management-tab' },
+        'department': { btn: '#tab-department-btn', content: '#employee-department-tab' },
+        'form': { btn: '#tab-form-btn', content: '#employee-form-tab' }
     };
 
     Object.keys(tabs).forEach(key => {
@@ -331,7 +353,97 @@ function switchEmployeeTab(tab) {
         renderManagerScheduleTab();
     } else if (tab === 'workSchedule') {
         renderEmployeeScheduleView();
+    } else if (tab === 'documentReview') {
+        renderManagerDocumentReview();
+    } else if (tab === 'leaveManagement') {
+        renderManagerLeaveManagement();
+    } else if (tab === 'employeeManagement') {
+        renderManagerEmployeeManagement();
+    } else if (tab === 'department') {
+        renderManagerDepartment();
+    } else if (tab === 'form') {
+        renderManagerFormManagement();
     }
+}
+
+// =========================================================================================
+// 매니저 5개 추가 탭 렌더 함수 (관리자 함수 재사용 + perm.edit 분기)
+// =========================================================================================
+
+async function ensureManagementData() {
+    if (typeof window.loadAndRenderManagement !== 'function') return;
+    const m = state.management;
+    const empty = !m || !m.employees?.length || !m.departments?.length;
+    if (empty) {
+        await window.loadAndRenderManagement().catch(() => {});
+    }
+}
+
+function applyEditPermission(container, edit) {
+    if (!container || edit) return;
+    container.querySelectorAll('input, select, textarea, button').forEach(el => {
+        if (el.matches('[data-keep-enabled]')) return;
+        if (el.tagName === 'BUTTON') {
+            el.style.display = 'none';
+        } else {
+            el.disabled = true;
+            el.classList.add('bg-gray-100', 'cursor-not-allowed');
+        }
+    });
+}
+
+async function renderManagerDocumentReview() {
+    const container = _('#employee-document-review-tab');
+    if (!container) return;
+    container.innerHTML = '<p class="text-gray-500 text-sm">불러오는 중...</p>';
+    await ensureManagementData();
+    renderDocumentReviewTab(container);
+    const perm = getManagerPerm('document_review');
+    setTimeout(() => applyEditPermission(container, perm.edit), 50);
+}
+
+async function renderManagerLeaveManagement() {
+    const container = _('#employee-leave-management-tab');
+    if (!container) return;
+    container.innerHTML = '<p class="text-gray-500 text-sm">불러오는 중...</p>';
+    await ensureManagementData();
+    container.innerHTML = getLeaveManagementHTML();
+    const perm = getManagerPerm('leave_management');
+    setTimeout(() => applyEditPermission(container, perm.edit), 50);
+}
+
+async function renderManagerEmployeeManagement() {
+    const container = _('#employee-management-tab');
+    if (!container) return;
+    container.innerHTML = '<p class="text-gray-500 text-sm">불러오는 중...</p>';
+    await ensureManagementData();
+    container.innerHTML = getManagementHTML();
+    // 매니저 직원 관리: ⚙️ 매니저 권한 토글 버튼은 admin 전용 → 숨김
+    container.querySelectorAll('button[onclick^="window.openManagerPermissionModal"]').forEach(b => b.style.display = 'none');
+    // 매니저 체크박스도 admin만 변경 가능 → disabled
+    container.querySelectorAll('input[id^="manager-"]').forEach(c => c.disabled = true);
+    const perm = getManagerPerm('employee_management');
+    setTimeout(() => applyEditPermission(container, perm.edit), 50);
+}
+
+async function renderManagerDepartment() {
+    const container = _('#employee-department-tab');
+    if (!container) return;
+    container.innerHTML = '<p class="text-gray-500 text-sm">불러오는 중...</p>';
+    await ensureManagementData();
+    container.innerHTML = getDepartmentManagementHTML();
+    const perm = getManagerPerm('department');
+    setTimeout(() => applyEditPermission(container, perm.edit), 50);
+}
+
+async function renderManagerFormManagement() {
+    const container = _('#employee-form-tab');
+    if (!container) return;
+    container.innerHTML = '<p class="text-gray-500 text-sm">불러오는 중...</p>';
+    await ensureManagementData();
+    await renderTemplatesManagement(container);
+    const perm = getManagerPerm('form');
+    setTimeout(() => applyEditPermission(container, perm.edit), 50);
 }
 
 // =========================================================================================

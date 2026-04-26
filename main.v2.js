@@ -1,10 +1,11 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260422b';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260422b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260422b';
-import { renderEmployeePortal } from './employee-portal-final.js?v=20260422b';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260426a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260426a';
+import { renderEmployeePortal } from './employee-portal-final.js?v=20260426a';
 import { getLeaveDetails } from './leave-utils.js';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260426a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -148,6 +149,7 @@ async function renderAdminPortal() {
                     <button id="adminLogoutBtn" class="mt-1 px-3 py-1 text-sm bg-gray-300 rounded">로그아웃</button>
                 </div>
              </div>
+            <div id="approval-banner-container"></div>
             <div id="admin-summary" class="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center mb-6 text-sm"></div>
             <div id="admin-tabs" class="flex flex-wrap gap-4 mb-4 border-b"></div>
             <div id="admin-content" class="bg-white shadow rounded p-4 overflow-x-auto"></div>
@@ -167,7 +169,156 @@ async function renderAdminPortal() {
     renderAdminSummary();
     renderManagementTabs();
     renderManagementContent();
+    await renderApprovalBanner();
 }
+
+// =========================================================================================
+// 매니저 임시저장 승인 배너 (관리자 포털 상단)
+// =========================================================================================
+async function renderApprovalBanner() {
+    const container = _('#approval-banner-container');
+    if (!container) return;
+
+    const items = await loadPendingChanges();
+    if (!items.length) {
+        container.innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="mb-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">⏳</span>
+                <div>
+                    <p class="font-bold text-yellow-800">매니저가 제출한 변경 ${items.length}건 대기 중</p>
+                    <p class="text-sm text-yellow-700">실제 데이터에 반영하려면 검토 후 승인하세요.</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button id="approve-all-pending-btn" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold">전체 승인</button>
+                <button id="review-pending-btn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">개별 검토</button>
+                <button id="reject-all-pending-btn" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">전체 반려</button>
+            </div>
+        </div>
+    `;
+
+    _('#approve-all-pending-btn').onclick = async () => {
+        if (!confirm(`임시저장된 ${items.length}건을 모두 승인하시겠습니까?\n실제 데이터에 즉시 반영됩니다.`)) return;
+        const r = await approveAllPending();
+        let msg = `승인 ${r.success}건 완료`;
+        if (r.failed) msg += `, ${r.failed}건 실패\n${r.errors.join('\n')}`;
+        alert(msg);
+        await window.loadAndRenderManagement?.();
+        await renderApprovalBanner();
+    };
+
+    _('#reject-all-pending-btn').onclick = async () => {
+        const reason = prompt(`임시저장된 ${items.length}건을 모두 반려합니다.\n반려 사유를 입력하세요:`);
+        if (!reason) return;
+        const r = await rejectAllPending(reason);
+        alert(`반려 ${r.success}건 완료${r.failed ? `, ${r.failed}건 실패` : ''}`);
+        await renderApprovalBanner();
+    };
+
+    _('#review-pending-btn').onclick = () => openReviewModal(items);
+}
+
+function openReviewModal(items) {
+    let modal = document.getElementById('review-pending-modal');
+    if (modal) modal.remove();
+    modal = document.createElement('div');
+    modal.id = 'review-pending-modal';
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+
+    const empMap = {};
+    state.management.employees.forEach(e => { empMap[e.id] = e.name; });
+
+    const labelMap = {
+        employee: '직원', department: '부서', leave_management: '연차관리',
+        document: '서류', document_request: '서류요청', form_template: '서식'
+    };
+    const actionMap = { create: '생성', update: '수정', delete: '삭제' };
+
+    const rows = items.map(it => {
+        const creator = empMap[it.created_by] || `매니저 #${it.created_by}`;
+        const time = dayjs(it.created_at).format('MM-DD HH:mm');
+        const summary = summarizeChange(it);
+        return `
+            <tr class="border-b hover:bg-gray-50">
+                <td class="p-2 text-xs">${time}</td>
+                <td class="p-2 text-xs font-semibold">${creator}</td>
+                <td class="p-2 text-xs">${labelMap[it.entity_type] || it.entity_type}</td>
+                <td class="p-2 text-xs"><span class="px-2 py-0.5 rounded ${it.action === 'delete' ? 'bg-red-100 text-red-700' : it.action === 'create' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">${actionMap[it.action] || it.action}</span></td>
+                <td class="p-2 text-xs">${it.entity_id ?? '신규'}</td>
+                <td class="p-2 text-xs max-w-md whitespace-pre-wrap break-all">${summary}</td>
+                <td class="p-2 text-center whitespace-nowrap">
+                    <button data-action="approve" data-id="${it.id}" class="px-2 py-1 bg-green-500 text-white text-xs rounded">✅ 승인</button>
+                    <button data-action="reject" data-id="${it.id}" class="px-2 py-1 bg-red-500 text-white text-xs rounded ml-1">❌ 반려</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[1100px] max-w-full max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 class="text-xl font-bold">매니저 임시저장 검토 (${items.length}건)</h2>
+                <button id="close-review-modal" class="text-2xl">&times;</button>
+            </div>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b bg-gray-50">
+                        <th class="p-2 text-left">시각</th>
+                        <th class="p-2 text-left">제출자</th>
+                        <th class="p-2 text-left">메뉴</th>
+                        <th class="p-2 text-left">작업</th>
+                        <th class="p-2 text-left">대상</th>
+                        <th class="p-2 text-left">변경 요약</th>
+                        <th class="p-2 text-center">처리</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('close-review-modal').onclick = () => modal.remove();
+
+    modal.addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const id = parseInt(btn.dataset.id, 10);
+        const action = btn.dataset.action;
+
+        if (action === 'approve') {
+            if (!confirm('이 변경을 승인하여 실제 데이터에 반영하시겠습니까?')) return;
+            const r = await approvePendingChange(id);
+            if (!r.ok) return alert('승인 실패: ' + r.error);
+        } else if (action === 'reject') {
+            const reason = prompt('반려 사유를 입력하세요:');
+            if (!reason) return;
+            const r = await rejectPendingChange(id, reason);
+            if (!r.ok) return alert('반려 실패: ' + r.error);
+        }
+        modal.remove();
+        await window.loadAndRenderManagement?.();
+        await renderApprovalBanner();
+    });
+}
+
+function summarizeChange(item) {
+    if (!item.payload) return '-';
+    const keys = Object.keys(item.payload).slice(0, 6);
+    return keys.map(k => {
+        const v = item.payload[k];
+        const s = (v && typeof v === 'object') ? JSON.stringify(v) : String(v ?? '');
+        return `${k}: ${s.length > 40 ? s.slice(0, 40) + '…' : s}`;
+    }).join(' / ');
+}
+
+// 다른 모듈(staging 승인 후, 매니저 페이지 등)에서 호출 가능
+window.refreshApprovalBanner = renderApprovalBanner;
 
 const handleManagementTabClick = (e) => {
     if (e.target.matches('.main-tab-btn')) {
@@ -254,8 +405,9 @@ async function checkAuth() {
                 state.management.activeTab = 'leaveList';
                 assignManagementEventHandlers();
             } else if (employee.role === 'manager' || employee.isManager) {
-                // 매니저는 직원 포털 + 매니저 탭
+                // 매니저는 직원 포털 + 매니저 탭. 5개 메뉴 핸들러는 staging 분기를 거쳐 동작.
                 state.userRole = 'employee';
+                assignManagementEventHandlers();
             } else {
                 // 일반 직원은 Supabase Auth 로그인 허용하지만 직원 포털
                 state.userRole = 'employee';
@@ -301,6 +453,10 @@ async function handleEmployeeLogin(e) {
         }
         state.currentUser = employee;
         state.userRole = 'employee';
+        // 매니저는 5개 메뉴 inline onclick 핸들러를 위해 글로벌 등록 필요
+        if (employee.isManager) {
+            assignManagementEventHandlers();
+        }
         render();
     } catch (error) {
         console.error('직원 로그인 오류:', error);
