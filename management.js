@@ -1,6 +1,7 @@
 import { state, db } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
+import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -218,19 +219,28 @@ async function handleUpdateEmployee(id) {
     const returnInput = _(`#return-${id}`);
     const return_date = returnInput ? (returnInput.value || null) : null;
 
-
-    const { data, error } = await db.from('employees').update({
+    const payload = {
         name,
         entry_date: entryDate,
         email,
         department_id,
-        isManager,
+        // 매니저 토글/role 변경은 admin만 가능 — staging payload에서 isManager 제외
+        ...(isStagingMode() ? {} : { isManager }),
         resignation_date,
         schedule_visible,
         leave_start_date,
         return_date
-    }).eq('id', id).select();
+    };
 
+    if (isStagingMode()) {
+        const original = state.management.employees.find(e => e.id === id) || null;
+        const r = await stageChange('employee', id, 'update', payload, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
+    const { data, error } = await db.from('employees').update(payload).eq('id', id).select();
 
     if (error) {
         alert('직원 정보 업데이트 실패: ' + error.message);
@@ -241,14 +251,22 @@ async function handleUpdateEmployee(id) {
 }
 
 async function handleDeleteEmployee(id) {
-    if (confirm("정말로 이 직원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) {
-        const { error } = await db.from('employees').delete().eq('id', id);
-        if (error) {
-            alert('직원 삭제 실패: ' + error.message);
-        } else {
-            alert('직원이 성공적으로 삭제되었습니다.');
-            await window.loadAndRenderManagement();
-        }
+    if (!confirm("정말로 이 직원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
+
+    if (isStagingMode()) {
+        const original = state.management.employees.find(e => e.id === id) || null;
+        const r = await stageChange('employee', id, 'delete', { id }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
+    const { error } = await db.from('employees').delete().eq('id', id);
+    if (error) {
+        alert('직원 삭제 실패: ' + error.message);
+    } else {
+        alert('직원이 성공적으로 삭제되었습니다.');
+        await window.loadAndRenderManagement();
     }
 }
 
@@ -297,22 +315,33 @@ window.handleRegisterNewEmployee = async function (btnElement) {
         return;
     }
 
-    // Insert with explicit default for regular_holiday_rules
-    const { error } = await db.from('employees').insert([{
+    const newEmpPayload = {
         name,
         entry_date: entryDate,
         email,
         password,
         department_id,
-        regular_holiday_rules: [] // Explicit empty array
-    }]).select();
+        regular_holiday_rules: []
+    };
+
+    if (isStagingMode()) {
+        const r = await stageChange('employee', null, 'create', newEmpPayload, null);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        _('#newName').value = '';
+        _('#newEmail').value = '';
+        _('#newEmployeePassword_v2').value = '';
+        _('#newDepartment').value = '';
+        notifyStaged();
+        return;
+    }
+
+    const { error } = await db.from('employees').insert([newEmpPayload]).select();
 
     if (error) {
         console.error('직원 추가 오류:', error);
         alert('직원 추가에 실패했습니다: ' + error.message);
     } else {
         alert(`${name} 직원이 성공적으로 추가되었습니다.`);
-        // 입력 필드 초기화
         _('#newName').value = '';
         _('#newEmail').value = '';
         _('#newEmployeePassword_v2').value = '';
@@ -671,6 +700,15 @@ async function handleAddNewDepartment() {
         alert('부서명을 입력하세요.');
         return;
     }
+
+    if (isStagingMode()) {
+        const r = await stageChange('department', null, 'create', { name }, null);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        nameInput.value = '';
+        notifyStaged();
+        return;
+    }
+
     const { error } = await db.from('departments').insert({ name });
     if (error) {
         alert('부서 추가 실패: ' + error.message);
@@ -686,6 +724,15 @@ async function handleUpdateDepartment(id) {
         alert('부서명을 입력하세요.');
         return;
     }
+
+    if (isStagingMode()) {
+        const original = state.management.departments.find(d => d.id === id) || null;
+        const r = await stageChange('department', id, 'update', { name }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     const { error } = await db.from('departments').update({ name }).eq('id', id);
     if (error) {
         alert('부서명 변경 실패: ' + error.message);
@@ -696,18 +743,26 @@ async function handleUpdateDepartment(id) {
 }
 
 async function handleDeleteDepartment(id) {
-    if (confirm(`정말로 이 부서를 삭제하시겠습니까 ? 해당 부서의 직원들은 '부서 미지정' 상태가 됩니다.`)) {
-        const { error: updateError } = await db.from('employees').update({ department_id: null }).eq('department_id', id);
-        if (updateError) {
-            alert('소속 직원 정보 변경 실패: ' + updateError.message);
-            return;
-        }
-        const { error: deleteError } = await db.from('departments').delete().eq('id', id);
-        if (deleteError) {
-            alert('부서 삭제 실패: ' + deleteError.message);
-        } else {
-            await window.loadAndRenderManagement();
-        }
+    if (!confirm(`정말로 이 부서를 삭제하시겠습니까 ? 해당 부서의 직원들은 '부서 미지정' 상태가 됩니다.`)) return;
+
+    if (isStagingMode()) {
+        const original = state.management.departments.find(d => d.id === id) || null;
+        const r = await stageChange('department', id, 'delete', { id }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
+    const { error: updateError } = await db.from('employees').update({ department_id: null }).eq('department_id', id);
+    if (updateError) {
+        alert('소속 직원 정보 변경 실패: ' + updateError.message);
+        return;
+    }
+    const { error: deleteError } = await db.from('departments').delete().eq('id', id);
+    if (deleteError) {
+        alert('부서 삭제 실패: ' + deleteError.message);
+    } else {
+        await window.loadAndRenderManagement();
     }
 }
 

@@ -1,5 +1,6 @@
 import { state, db } from './state.js';
 import { _, show, hide } from './utils.js';
+import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
 
 // =========================================================================================
 // 서류 검토 탭 (관리자용)
@@ -274,31 +275,38 @@ function closeRequestModal() {
 
 async function handleCreateRequest(e) {
     e.preventDefault();
-    
+
     const employeeId = parseInt(_('#req-employee-id').value);
     const employee = state.management.employees.find(emp => emp.id === employeeId);
     const type = _('#req-type').value;
     const message = _('#req-message').value.trim();
-    
+
     if (!employee) {
         alert('직원을 선택해주세요.');
         return;
     }
-    
+
+    const payload = {
+        employeeId: employeeId,
+        employeeName: employee.name,
+        type: type,
+        message: message,
+        status: 'pending',
+        created_at: new Date().toISOString()
+    };
+
+    if (isStagingMode()) {
+        const r = await stageChange('document_request', null, 'create', payload, null);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        closeRequestModal();
+        notifyStaged();
+        return;
+    }
+
     try {
-        const { error } = await db.from('document_requests').insert({
-            employeeId: employeeId,
-            employeeName: employee.name,
-            type: type,
-            message: message,
-            status: 'pending',
-            created_at: new Date().toISOString()
-        });
-        
+        const { error } = await db.from('document_requests').insert(payload);
         if (error) throw error;
-        
         alert(`${employee.name} 직원에게 서류 제출 요청이 전송되었습니다.`);
-        
         closeRequestModal();
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -313,21 +321,29 @@ async function handleCreateRequest(e) {
 
 window.approveDocument = async function(docId) {
     if (!confirm('이 서류를 승인하시겠습니까?')) return;
-    
+
+    if (isStagingMode()) {
+        const original = state.management.submittedDocs.find(d => d.id === docId) || null;
+        const r = await stageChange('document', docId, 'update', { status: 'approved' }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     try {
         const { error: docError } = await db.from('submitted_documents')
             .update({ status: 'approved' })
             .eq('id', docId);
-        
+
         if (docError) throw docError;
-        
+
         const doc = state.management.submittedDocs.find(d => d.id === docId);
         if (doc && doc.related_issue_id) {
             await db.from('document_requests')
                 .update({ status: 'approved' })
                 .eq('id', doc.related_issue_id);
         }
-        
+
         alert('서류가 승인되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -339,24 +355,32 @@ window.approveDocument = async function(docId) {
 window.rejectDocument = async function(docId) {
     const feedback = prompt('반려 사유를 입력해주세요:');
     if (!feedback) return;
-    
+
+    if (isStagingMode()) {
+        const original = state.management.submittedDocs.find(d => d.id === docId) || null;
+        const r = await stageChange('document', docId, 'update', { status: 'rejected', rejection_reason: feedback }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     try {
         const { error: docError } = await db.from('submitted_documents')
             .update({ status: 'rejected' })
             .eq('id', docId);
-        
+
         if (docError) throw docError;
-        
+
         const doc = state.management.submittedDocs.find(d => d.id === docId);
         if (doc && doc.related_issue_id) {
             await db.from('document_requests')
-                .update({ 
+                .update({
                     status: 'pending',
                     message: `${doc.message || ''}\n\n[반려 사유: ${feedback}]`
                 })
                 .eq('id', doc.related_issue_id);
         }
-        
+
         alert('서류가 반려되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -367,14 +391,22 @@ window.rejectDocument = async function(docId) {
 
 window.cancelDocumentRequest = async function(requestId) {
     if (!confirm('이 요청을 취소하시겠습니까?')) return;
-    
+
+    if (isStagingMode()) {
+        const original = state.management.documentRequests?.find(d => d.id === requestId) || null;
+        const r = await stageChange('document_request', requestId, 'delete', { id: requestId }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     try {
         const { error } = await db.from('document_requests')
             .delete()
             .eq('id', requestId);
-        
+
         if (error) throw error;
-        
+
         alert('요청이 취소되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -617,46 +649,58 @@ async function renderTemplatesList() {
 
 async function handleSaveTemplate(e) {
     e.preventDefault();
-    
+
     const templateId = _('#template-id').value;
     const name = _('#templateName').value.trim();
     const description = _('#templateDescription').value.trim() || '';
     const content = _('#templateContent').value.trim();
     const requires_attachment = _('#requiresAttachment').checked;
-    
+
     if (!name || !content) {
         alert('서식 이름과 본문은 필수입니다.');
         return;
     }
-    
-    try {
-        const data = {
-            template_name: name,
-            template_fields: {
-                description: description,
-                content: content
-            },
-            requires_attachment: requires_attachment
-        };
-        
-        let result;
-        
+
+    const data = {
+        template_name: name,
+        template_fields: {
+            description: description,
+            content: content
+        },
+        requires_attachment: requires_attachment
+    };
+
+    if (isStagingMode()) {
         if (templateId && templateId !== '') {
-            // 수정
+            const original = state.management.templates?.find(t => t.id === parseInt(templateId)) || null;
+            const r = await stageChange('form_template', parseInt(templateId), 'update', data, original);
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        } else {
+            data.created_at = new Date().toISOString();
+            const r = await stageChange('form_template', null, 'create', data, null);
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        }
+        resetTemplateForm();
+        notifyStaged();
+        return;
+    }
+
+    try {
+        let result;
+        if (templateId && templateId !== '') {
             result = await db.from('document_templates')
                 .update(data)
                 .eq('id', parseInt(templateId))
                 .select();
             alert('서식이 수정되었습니다.');
         } else {
-            // 신규 생성
             data.created_at = new Date().toISOString();
             result = await db.from('document_templates').insert(data).select();
             alert('서식이 저장되었습니다.');
         }
-        
+
         if (result.error) throw result.error;
-        
+
         resetTemplateForm();
         await window.loadAndRenderManagement();
     } catch (error) {
@@ -748,14 +792,22 @@ window.previewTemplate = function(templateId) {
 
 window.deleteTemplate = async function(templateId) {
     if (!confirm('이 서식을 삭제하시겠습니까?')) return;
-    
+
+    if (isStagingMode()) {
+        const original = state.management.templates?.find(t => t.id === templateId) || null;
+        const r = await stageChange('form_template', templateId, 'delete', { id: templateId }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     try {
         const { error } = await db.from('document_templates')
             .delete()
             .eq('id', templateId);
-        
+
         if (error) throw error;
-        
+
         alert('서식이 삭제되었습니다.');
         await window.loadAndRenderManagement();
     } catch (error) {
