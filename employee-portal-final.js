@@ -1,4 +1,4 @@
-import { state, db } from './state.js';
+import { state, db } from './state.js?v=20260501c';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260501c';

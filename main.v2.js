@@ -1,4 +1,4 @@
-import { state, db } from './state.js';
+import { state, db } from './state.js?v=20260501c';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260501c';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260501c';
