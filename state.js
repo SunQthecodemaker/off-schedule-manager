@@ -142,12 +142,12 @@ export function isVisibleIn(context, emp, viewer) {
             return true;
         }
         case 'schedule_grid': {
-            // 스케줄 그리드 메인 layout — 슬롯 차지 대상.
-            // - retired flag (legacy) 격리. resignation_date 자체 격리는 안 함 (per-date isActiveOnDate 처리)
-            // - 휴직(on_leave) 격리 → 슬롯 안 차지
-            // - test 노출 → 메인 그리드 cell 에 테스트 직원 연차 신청 반영 (사용자 검증용)
+            // 스케줄 관리 전체 (메인 그리드·sidebar 배치·cell) — active 만 노출.
+            // alba/test/휴직/퇴사/hidden 모두 격리.
             if (emp.retired) return false;
+            if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
             if (emp.schedule_visible === false) return false;
+            if (isTestEmployee(emp)) return false;
             if (onLeave) return false;
             return true;
         }
