@@ -1,8 +1,8 @@
-import { state, db } from './state.js?v=20260501j';
+import { state, db } from './state.js?v=20260502a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260501j';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260501j';
+import { renderScheduleManagement } from './schedule.js?v=20260502a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260502a';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260426a';
 
 // =========================================================================================
