@@ -23,6 +23,7 @@ if (db) {
 export const state = {
     currentUser: null,
     userRole: 'none',
+    viewAs: 'employee',
     employee: {
         activeFilters: new Set(['pending', 'approved']),
         issues: [],

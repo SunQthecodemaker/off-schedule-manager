@@ -3,7 +3,7 @@ import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260422b';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260501a';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260426a';
-import { renderEmployeePortal } from './employee-portal-final.js?v=20260426a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260501b';
 import { getLeaveDetails } from './leave-utils.js';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260426a';
 
@@ -71,41 +71,61 @@ function renderManagementContent() {
                 if (typeof window.renderLeaveCalendar === 'function') {
                     window.renderLeaveCalendar();
                 }
+                applyEditPermissionForManagerView();
             }, 100);
             break;
         case 'schedule':
             renderScheduleManagement(container);
+            setTimeout(applyEditPermissionForManagerView, 100);
             break;
         case 'leaveStatus':
             container.innerHTML = getLeaveStatusHTML();
             addLeaveStatusEventListeners();
+            applyEditPermissionForManagerView();
             break;
         case 'submittedDocs':
             renderDocumentReviewTab(container);
+            setTimeout(applyEditPermissionForManagerView, 100);
             break;
         case 'management':
             container.innerHTML = getManagementHTML();
+            applyEditPermissionForManagerView();
             break;
         case 'leaveManagement':
             container.innerHTML = getLeaveManagementHTML();
+            applyEditPermissionForManagerView();
             break;
         case 'department':
             container.innerHTML = getDepartmentManagementHTML();
+            applyEditPermissionForManagerView();
             break;
         case 'templates':
             renderTemplatesManagement(container);
+            setTimeout(applyEditPermissionForManagerView, 100);
             break;
         default:
             container.innerHTML = `<p>${activeTab} 탭의 콘텐츠가 준비되지 않았습니다.</p>`;
     }
 }
 
+// admin-portal 탭 ↔ manager_permissions 메뉴 키 매핑
+const TAB_TO_PERM_KEY = {
+    leaveList: 'leave_request_list',
+    schedule: 'schedule',
+    submittedDocs: 'document_review',
+    leaveManagement: 'leave_management',
+    leaveStatus: 'leave_status',
+    management: 'employee_management',
+    department: 'department',
+    templates: 'form',
+};
+
 function renderManagementTabs() {
     const { activeTab } = state.management;
     const container = _('#admin-tabs');
     if (!container) return;
 
-    const tabs = [
+    const allTabs = [
         { id: 'leaveList', text: '연차 신청 목록' },
         { id: 'schedule', text: '스케줄 관리' },
         { id: 'submittedDocs', text: '서류 검토' },
@@ -116,9 +136,40 @@ function renderManagementTabs() {
         { id: 'templates', text: '서식 관리' },
     ];
 
+    // 매니저 화면이면 perm.view=true 인 탭만
+    const isManagerView = state.userRole !== 'admin' && state.currentUser?.isManager;
+    const tabs = isManagerView
+        ? allTabs.filter(t => getManagerPerm(TAB_TO_PERM_KEY[t.id]).view)
+        : allTabs;
+
+    // 활성 탭이 노출 목록에 없으면 첫 노출 탭으로 보정
+    if (isManagerView && !tabs.find(t => t.id === activeTab) && tabs.length) {
+        state.management.activeTab = tabs[0].id;
+    }
+
     container.innerHTML = tabs.map(tab => `
-        <button data-tab="${tab.id}" class="main-tab-btn px-3 py-2 text-sm ${tab.id === activeTab ? 'active' : ''}">${tab.text}</button>
+        <button data-tab="${tab.id}" class="main-tab-btn px-3 py-2 text-sm ${tab.id === state.management.activeTab ? 'active' : ''}">${tab.text}</button>
     `).join('');
+}
+
+/** 매니저 화면에서 perm.edit=false 인 탭의 input/button 비활성화 */
+function applyEditPermissionForManagerView() {
+    const isManagerView = state.userRole !== 'admin' && state.currentUser?.isManager;
+    if (!isManagerView) return;
+    const { activeTab } = state.management;
+    const perm = getManagerPerm(TAB_TO_PERM_KEY[activeTab]);
+    if (perm.edit) return;
+    const container = _('#admin-content');
+    if (!container) return;
+    container.querySelectorAll('input, select, textarea, button').forEach(el => {
+        if (el.matches('[data-keep-enabled]')) return;
+        if (el.tagName === 'BUTTON') {
+            el.style.display = 'none';
+        } else {
+            el.disabled = true;
+            el.classList.add('bg-gray-100', 'cursor-not-allowed');
+        }
+    });
 }
 
 function renderAdminSummary() {
@@ -140,13 +191,22 @@ function renderAdminSummary() {
 
 async function renderAdminPortal() {
     const portal = _('#admin-portal');
+    const isManagerView = state.userRole !== 'admin' && state.currentUser?.isManager;
+    const title = isManagerView ? '매니저 화면' : '최고 관리자 포털';
+    const backBtn = isManagerView
+        ? `<button id="exitManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">← 직원 화면으로</button>`
+        : '';
+
     portal.innerHTML = `
         <div class="max-w-full mx-auto">
              <div class="flex justify-between items-center mb-4">
-                <h1 class="text-3xl font-bold">최고 관리자 포털</h1>
+                <h1 class="text-3xl font-bold">${title}</h1>
                 <div class="text-right">
-                    <p id="admin-welcome-msg" class="text-gray-700 text-sm font-semibold">${state.currentUser.name}님, 환영합니다.</p>
-                    <button id="adminLogoutBtn" class="mt-1 px-3 py-1 text-sm bg-gray-300 rounded">로그아웃</button>
+                    <p id="admin-welcome-msg" class="text-gray-700 text-sm font-semibold">${state.currentUser.name}님${isManagerView ? '' : ', 환영합니다.'}</p>
+                    <div class="mt-1 flex gap-2 justify-end flex-wrap">
+                        ${backBtn}
+                        <button id="adminLogoutBtn" class="px-3 py-1 text-sm bg-gray-300 rounded">로그아웃</button>
+                    </div>
                 </div>
              </div>
             <div id="approval-banner-container"></div>
@@ -157,6 +217,11 @@ async function renderAdminPortal() {
 
     _('#adminLogoutBtn').addEventListener('click', handleLogout);
     _('#admin-tabs').addEventListener('click', handleManagementTabClick);
+    _('#exitManagerViewBtn')?.addEventListener('click', () => {
+        state.viewAs = 'employee';
+        sessionStorage.setItem('viewAs', 'employee');
+        window.dispatchEvent(new CustomEvent('viewAs:change'));
+    });
     portal.addEventListener('click', (e) => {
         if (e.target.id === 'open-bulk-register-btn') {
             _('#bulk-employee-data').value = '';
@@ -169,7 +234,7 @@ async function renderAdminPortal() {
     renderAdminSummary();
     renderManagementTabs();
     renderManagementContent();
-    await renderApprovalBanner();
+    if (!isManagerView) await renderApprovalBanner();
 }
 
 // =========================================================================================
@@ -359,21 +424,41 @@ async function handleLogout() {
     await db.auth.signOut();
     state.currentUser = null;
     state.userRole = 'none';
+    state.viewAs = 'employee';
+    sessionStorage.removeItem('viewAs');
     await checkAuth();
 }
 
 function render() {
     _all('.page-section').forEach(el => el.classList.add('hidden'));
+
+    // body 배경 클래스 — 페르소나 인지용
+    document.body.classList.remove('mode-employee', 'mode-admin');
+
+    const user = state.currentUser;
+    const isManager = !!(user && user.isManager);
+    const viewAs = state.viewAs || 'employee';
+
     if (state.userRole === 'admin') {
+        document.body.classList.add('mode-admin');
+        show('#admin-portal');
+        renderAdminPortal();
+    } else if (state.userRole === 'employee' && isManager && viewAs === 'admin') {
+        // 매니저가 매니저 화면 진입 → admin-portal 재사용 + perm 필터
+        document.body.classList.add('mode-admin');
         show('#admin-portal');
         renderAdminPortal();
     } else if (state.userRole === 'employee') {
+        document.body.classList.add('mode-employee');
         show('#employee-portal');
         renderEmployeePortal();
     } else {
         show('#login-screen');
     }
 }
+
+// 매니저가 진입/복귀 버튼 클릭 시 발화 — render() 만 다시 돌리면 됨
+window.addEventListener('viewAs:change', () => render());
 
 async function checkAuth() {
     const { data: { session } } = await db.auth.getSession();
@@ -402,15 +487,18 @@ async function checkAuth() {
             // role에 따라 포털 분기
             if (employee.role === 'admin') {
                 state.userRole = 'admin';
+                state.viewAs = 'admin';
                 state.management.activeTab = 'leaveList';
                 assignManagementEventHandlers();
             } else if (employee.role === 'manager' || employee.isManager) {
-                // 매니저는 직원 포털 + 매니저 탭. 5개 메뉴 핸들러는 staging 분기를 거쳐 동작.
+                // 매니저는 직원 포털 디폴트, "매니저 화면 보기" 버튼으로 admin-portal 진입
                 state.userRole = 'employee';
+                state.viewAs = sessionStorage.getItem('viewAs') === 'admin' ? 'admin' : 'employee';
                 assignManagementEventHandlers();
             } else {
                 // 일반 직원은 Supabase Auth 로그인 허용하지만 직원 포털
                 state.userRole = 'employee';
+                state.viewAs = 'employee';
             }
         } else {
             console.warn('인증된 사용자의 이메일이 직원 목록에 없습니다.');
