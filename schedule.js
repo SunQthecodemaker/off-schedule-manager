@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501h';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501i';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -1705,6 +1705,8 @@ function getOffEmployeesOnDate(dateStr) {
             if (excludedIds.has(schedule.employee_id)) return;
             const emp = state.management.employees.find(e => e.id === schedule.employee_id);
             if (emp) {
+                // 스케줄 관리 격리 대상 (alba/test/휴직/퇴사/hidden) 은 cell 에 표시 안 함
+                if (!isVisibleIn('schedule_grid', emp)) return;
                 // 이미 연차로 등록된 직원은 중복 표시 방지
                 if (!leaveEmployees.has(emp.id) && !offEmps.some(item => item.employee.id === emp.id)) {
                     offEmps.push({ employee: emp, schedule: schedule, type: '휴무' });
