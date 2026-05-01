@@ -93,10 +93,11 @@ export async function renderEmployeePortal() {
     portal.innerHTML = `
         <div class="max-w-full mx-auto">
             <div class="flex justify-between items-center mb-6">
-                <h1 class="text-xl sm:text-3xl font-bold">${user.isManager ? '매니저 포털' : '직원 포털'}</h1>
+                <h1 class="text-xl sm:text-3xl font-bold">직원 포털</h1>
                 <div class="text-right">
                     <p class="text-gray-700 text-sm font-semibold">${user.name}님 (${departmentName})</p>
-                    <div class="mt-1 flex gap-2 justify-end">
+                    <div class="mt-1 flex gap-2 justify-end flex-wrap">
+                        ${user.isManager ? `<button id="enterManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">🛠️ 매니저 화면 보기</button>` : ''}
                         <button id="changePasswordBtn" class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors">비밀번호 변경</button>
                         <button id="employeeLogoutBtn" class="px-3 py-1 text-sm bg-gray-300 hover:bg-gray-400 rounded transition-colors">로그아웃</button>
                     </div>
@@ -146,20 +147,6 @@ export async function renderEmployeePortal() {
                 <button id="tab-work-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
                     📅 근무 스케줄
                 </button>
-                ${user.isManager ? (() => {
-                    const perms = user.manager_permissions || DEFAULT_MANAGER_PERMS;
-                    const btnCls = 'employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0';
-                    const tabs = [];
-                    if (perms.leave_request_list?.view) tabs.push(`<button id="tab-leave-list-btn" class="${btnCls}">연차 신청 목록</button>`);
-                    if (perms.leave_status?.view) tabs.push(`<button id="tab-leave-status-btn" class="${btnCls}">연차 현황</button>`);
-                    if (perms.schedule?.view) tabs.push(`<button id="tab-schedule-btn" class="${btnCls}">스케줄 관리</button>`);
-                    if (perms.document_review?.view) tabs.push(`<button id="tab-document-review-btn" class="${btnCls}">서류 검토</button>`);
-                    if (perms.leave_management?.view) tabs.push(`<button id="tab-leave-management-btn" class="${btnCls}">연차 관리</button>`);
-                    if (perms.employee_management?.view) tabs.push(`<button id="tab-employee-management-btn" class="${btnCls}">직원 관리</button>`);
-                    if (perms.department?.view) tabs.push(`<button id="tab-department-btn" class="${btnCls}">부서 관리</button>`);
-                    if (perms.form?.view) tabs.push(`<button id="tab-form-btn" class="${btnCls}">서식 관리</button>`);
-                    return tabs.join('');
-                })() : ''}
             </div>
 
             <!-- 매니저 전용: 스케줄 승인 요청 반려 알림 배너 -->
@@ -204,19 +191,6 @@ export async function renderEmployeePortal() {
                 <!-- 모바일 친화적 주간 스케줄 -->
             </div>
 
-            ${user.isManager ? (() => {
-                const perms = user.manager_permissions || DEFAULT_MANAGER_PERMS;
-                const containers = [];
-                if (perms.leave_request_list?.view) containers.push(`<div id="employee-leave-list-tab" class="tab-content hidden"></div>`);
-                if (perms.leave_status?.view) containers.push(`<div id="employee-leave-status-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
-                if (perms.schedule?.view) containers.push(`<div id="employee-schedule-tab" class="tab-content hidden"></div>`);
-                if (perms.document_review?.view) containers.push(`<div id="employee-document-review-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
-                if (perms.leave_management?.view) containers.push(`<div id="employee-leave-management-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
-                if (perms.employee_management?.view) containers.push(`<div id="employee-management-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
-                if (perms.department?.view) containers.push(`<div id="employee-department-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
-                if (perms.form?.view) containers.push(`<div id="employee-form-tab" class="tab-content hidden bg-white shadow rounded p-4"></div>`);
-                return containers.join('');
-            })() : ''}
         </div>
     `;
 
@@ -232,14 +206,11 @@ export async function renderEmployeePortal() {
     _('#tab-work-schedule-btn').addEventListener('click', () => switchEmployeeTab('workSchedule'));
 
     if (user.isManager) {
-        _('#tab-leave-list-btn')?.addEventListener('click', () => switchEmployeeTab('leaveList'));
-        _('#tab-leave-status-btn')?.addEventListener('click', () => switchEmployeeTab('leaveStatus'));
-        _('#tab-schedule-btn')?.addEventListener('click', () => switchEmployeeTab('schedule'));
-        _('#tab-document-review-btn')?.addEventListener('click', () => switchEmployeeTab('documentReview'));
-        _('#tab-leave-management-btn')?.addEventListener('click', () => switchEmployeeTab('leaveManagement'));
-        _('#tab-employee-management-btn')?.addEventListener('click', () => switchEmployeeTab('employeeManagement'));
-        _('#tab-department-btn')?.addEventListener('click', () => switchEmployeeTab('department'));
-        _('#tab-form-btn')?.addEventListener('click', () => switchEmployeeTab('form'));
+        _('#enterManagerViewBtn')?.addEventListener('click', () => {
+            state.viewAs = 'admin';
+            sessionStorage.setItem('viewAs', 'admin');
+            window.dispatchEvent(new CustomEvent('viewAs:change'));
+        });
 
         await loadManagerRejectionBanner();
         _('#manager-rejection-dismiss')?.addEventListener('click', () => {

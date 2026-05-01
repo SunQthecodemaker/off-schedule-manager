@@ -71,7 +71,12 @@ body {
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 200ms ease;
 }
+
+/* 페르소나별 배경색 — 같은 매니저가 두 화면 오갈 때 모드 인지용 */
+body.mode-employee { background-color: #fbf9f5; }   /* 직원 화면: 따뜻한 아이보리 */
+body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화면: 차분한 슬레이트 */
 
 .hidden {
     display: none !important;
