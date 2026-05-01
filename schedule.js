@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501e';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501f';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -2840,6 +2840,9 @@ async function renderScheduleSidebar() {
 
     const deptGroups = {};
     activeRegular.forEach(emp => {
+        // 휴직/퇴사 직원은 별도 풀로만 (sidebar 부서 풀에 중복 표시 방지)
+        const status = getEmployeeStatus(emp);
+        if (status === 'retired' || status === 'on_leave') return;
         const deptName = deptNameMap[emp.department_id] || '기타';
         if (!deptGroups[deptName]) deptGroups[deptName] = [];
         deptGroups[deptName].push(emp);
