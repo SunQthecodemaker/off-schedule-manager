@@ -79,9 +79,12 @@ export function isTestEmployee(emp, departments) {
     return false;
 }
 
-// 연차 시스템에서 admin 외 사용자에게 직원이 보여야 하는지
+// 연차 시스템에서 직원이 노출되어야 하는지
+// - 알바: 항상 격리
+// - 테스트 직원: admin 사용자 또는 매니저 화면(viewAs='admin') 에서만 노출 (검수 가능해야 하므로)
 export function isVisibleForLeaveContext(emp) {
     if (isAlbaEmployee(emp)) return false;
-    if (state.userRole !== 'admin' && isTestEmployee(emp)) return false;
+    const isAdminView = state.userRole === 'admin' || state.viewAs === 'admin';
+    if (!isAdminView && isTestEmployee(emp)) return false;
     return true;
 }
