@@ -1,4 +1,4 @@
-import { state, db } from './state.js';
+import { state, db, isVisibleForLeaveContext } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
@@ -811,15 +811,15 @@ export function getLeaveListHTML() {
     const { leaveRequests, employees } = state.management;
 
     const employeeNameMap = employees.reduce((map, emp) => {
-        // 임시직원 제외 (혹시 섞여있을 경우)
-        if (emp.is_temp) return map;
+        // 알바(스케줄용 임시직원)는 항상 격리. 테스트 직원은 admin 외에 격리.
+        if (!isVisibleForLeaveContext(emp)) return map;
 
         const suffix = emp.resignation_date ? ' (퇴사)' : '';
         map[emp.id] = emp.name + suffix;
         return map;
     }, {});
 
-    // 모든 신청 내역 표시 (반려 포함) - 임시직원 등 이름 없는 경우 제외
+    // 신청 내역 — 위 정책에 따라 이름 없는(=노출 대상 아님) 직원 신청은 제외
     const filteredRequests = leaveRequests.filter(req => employeeNameMap[req.employee_id]);
 
     let rows = '';
@@ -1194,12 +1194,15 @@ window.renderLeaveCalendar = function (containerSelector) {
     const { leaveRequests, employees } = state.management;
 
     const employeeNameMap = employees.reduce((map, emp) => {
-        map[emp.id] = emp.name;
+        // 알바(스케줄용 임시직원)는 항상 격리. 테스트 직원은 admin 외에 격리.
+        if (!isVisibleForLeaveContext(emp)) return map;
+        const suffix = emp.resignation_date ? ' (퇴사)' : '';
+        map[emp.id] = emp.name + suffix;
         return map;
     }, {});
 
-    // 필터링
-    let filteredRequests = [...leaveRequests];
+    // 필터링 — 노출 대상이 아닌 직원의 신청은 events 자체를 만들지 않음
+    let filteredRequests = [...leaveRequests].filter(req => employeeNameMap[req.employee_id]);
 
     if (currentCalendarFilter !== 'all') {
         filteredRequests = filteredRequests.filter(req => (req.final_manager_status || req.status) === currentCalendarFilter);
