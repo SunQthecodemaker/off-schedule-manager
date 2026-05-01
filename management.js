@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn } from './state.js?v=20260501j';
+import { state, db, isVisibleIn } from './state.js?v=20260502a';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
@@ -898,7 +898,7 @@ export function getLeaveListHTML() {
             const datesText = (req.dates || []).join(', ');
             const dateCount = req.dates?.length || 0;
             // 날짜 데이터 속성 추가 for 필터링
-            return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
+            return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}' style="height:116px;">
             <td class="p-2 text-sm">${employeeName}</td>
             <td class="p-2 text-sm">${datesText}</td>
             <td class="p-2 text-sm text-center">${dateCount}일</td>
