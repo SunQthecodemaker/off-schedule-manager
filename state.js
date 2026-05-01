@@ -142,13 +142,13 @@ export function isVisibleIn(context, emp, viewer) {
             return true;
         }
         case 'schedule_grid': {
-            // 스케줄 그리드 메인 layout — active 직원만. test/휴직/퇴사는 별도 풀에서 처리.
-            // resignation_date 자체 격리는 안 함 (per-date isActiveOnDate 가 cell 단위 처리)
-            // → 퇴사자도 슬롯 차지하되 cell 은 isActiveOnDate=false 라 비움
+            // 스케줄 그리드 메인 layout — 슬롯 차지 대상.
+            // - retired flag (legacy) 격리. resignation_date 자체 격리는 안 함 (per-date isActiveOnDate 처리)
+            // - 휴직(on_leave) 격리 → 슬롯 안 차지
+            // - test 노출 → 메인 그리드 cell 에 테스트 직원 연차 신청 반영 (사용자 검증용)
             if (emp.retired) return false;
             if (emp.schedule_visible === false) return false;
-            if (isTestEmployee(emp)) return false; // 테스트 풀로
-            if (onLeave) return false; // 휴직 풀로
+            if (onLeave) return false;
             return true;
         }
         case 'employee_list_active': {
