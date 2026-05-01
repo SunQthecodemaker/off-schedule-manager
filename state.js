@@ -128,20 +128,28 @@ export function isVisibleIn(context, emp, viewer) {
     const isAdminView = v.userRole === 'admin' || v.viewAs === 'admin';
     const today = dayjs().format('YYYY-MM-DD');
 
+    const onLeave = emp.leave_start_date
+        && today >= emp.leave_start_date
+        && (!emp.return_date || today < emp.return_date);
+
     switch (context) {
         case 'leave_review': {
-            // 연차 검수·연차 관리·연차 현황 (메인 화면)
+            // 연차 검수·연차 관리·연차 현황 — active 직원만 노출
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
-            if (isTestEmployee(emp) && !isAdminView) return false;
+            if (isTestEmployee(emp)) return false; // viewer 무관 격리
+            if (onLeave) return false; // 휴직 직원도 검수칸에서 격리
             return true;
         }
         case 'schedule_grid': {
-            // 스케줄 그리드 (메인 화면) — 기존 isGridEmployee 동작 + resignation_date 다음달 1일 cutoff
+            // 스케줄 그리드 메인 layout — active 직원만. test/휴직/퇴사는 별도 풀에서 처리.
+            // resignation_date 자체 격리는 안 함 (per-date isActiveOnDate 가 cell 단위 처리)
+            // → 퇴사자도 슬롯 차지하되 cell 은 isActiveOnDate=false 라 비움
             if (emp.retired) return false;
-            if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
             if (emp.schedule_visible === false) return false;
-            return true; // test 직원은 그리드에 노출 (현행 동작 유지)
+            if (isTestEmployee(emp)) return false; // 테스트 풀로
+            if (onLeave) return false; // 휴직 풀로
+            return true;
         }
         case 'employee_list_active': {
             // 직원 관리 [활성] 탭 — 즉시 cutoff
