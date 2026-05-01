@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn } from './state.js?v=20260502g';
+import { state, db, isVisibleIn } from './state.js?v=20260502h';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
@@ -1214,9 +1214,9 @@ window.renderLeaveCalendar = function (containerSelector) {
     filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
         const st = req.final_manager_status || req.status;
-        // 글자(흰색) 가독성 위해 진한 색 사용. approved 는 슬레이트 톤.
-        const color = st === 'approved' ? '#475569' : st === 'pending' ? '#d97706' : '#dc2626';
-        const borderColor = st === 'approved' ? '#334155' : st === 'pending' ? '#b45309' : '#b91c1c';
+        // approved=골드(#b8860b)+검은글자, pending=주황+흰글자, rejected=빨강+흰글자
+        const color = st === 'approved' ? '#b8860b' : st === 'pending' ? '#d97706' : '#dc2626';
+        const borderColor = st === 'approved' ? '#8b6508' : st === 'pending' ? '#b45309' : '#b91c1c';
 
         req.dates?.forEach(date => {
             events.push({
@@ -1225,6 +1225,7 @@ window.renderLeaveCalendar = function (containerSelector) {
                 allDay: true,
                 backgroundColor: color,
                 borderColor: borderColor,
+                classNames: [`fc-leave-${st}`],
                 extendedProps: {
                     requestId: req.id,
                     employeeId: req.employee_id,
