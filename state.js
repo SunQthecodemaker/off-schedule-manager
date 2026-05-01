@@ -79,12 +79,87 @@ export function isTestEmployee(emp, departments) {
     return false;
 }
 
-// 연차 시스템에서 직원이 노출되어야 하는지
-// - 알바: 항상 격리
-// - 테스트 직원: admin 사용자 또는 매니저 화면(viewAs='admin') 에서만 노출 (검수 가능해야 하므로)
+// 다음달 1일 cutoff 계산 (메인 화면 격리용)
+function startOfNextMonth(dateStr) {
+    if (!dateStr) return null;
+    return dayjs(dateStr).add(1, 'month').startOf('month').format('YYYY-MM-DD');
+}
+
+/**
+ * 직원 상태 분류 — 단일 헬퍼.
+ * 우선순위: alba > test > retired > on_leave > hidden > active
+ *
+ * 퇴사 판정: emp.retired===true 즉시 retired,
+ *           또는 emp.resignation_date <= dateStr 면 retired
+ *           (다음달 1일 cutoff 정책은 isVisibleIn 컨텍스트별로 적용)
+ *
+ * @param {Object} emp - 직원 객체
+ * @param {string} [dateStr] - 기준일 (YYYY-MM-DD), 미지정 시 오늘
+ * @returns {'alba'|'test'|'retired'|'on_leave'|'hidden'|'active'|'unknown'}
+ */
+export function getEmployeeStatus(emp, dateStr) {
+    if (!emp) return 'unknown';
+    const d = dateStr || dayjs().format('YYYY-MM-DD');
+    if (isAlbaEmployee(emp)) return 'alba';
+    if (isTestEmployee(emp)) return 'test';
+    if (emp.retired) return 'retired';
+    if (emp.resignation_date && d >= emp.resignation_date) return 'retired';
+    if (emp.leave_start_date && d >= emp.leave_start_date) {
+        if (!emp.return_date || d < emp.return_date) return 'on_leave';
+    }
+    if (emp.schedule_visible === false) return 'hidden';
+    return 'active';
+}
+
+/**
+ * 컨텍스트별 직원 노출 여부 — 단일 진입점.
+ * 메인 화면(leave_review·schedule_grid)은 퇴사 다음달 1일까지 노출, 그 후 격리.
+ * 직원 관리 테이블(employee_list_*)은 즉시 cutoff.
+ *
+ * @param {'leave_review'|'schedule_grid'|'employee_list_active'|'employee_list_retired'} context
+ * @param {Object} emp
+ * @param {Object} [viewer] - viewer state (userRole, viewAs). 미지정 시 전역 state.
+ */
+export function isVisibleIn(context, emp, viewer) {
+    if (!emp) return false;
+    if (isAlbaEmployee(emp)) return false; // 알바는 모든 컨텍스트에서 격리
+
+    const v = viewer || state;
+    const isAdminView = v.userRole === 'admin' || v.viewAs === 'admin';
+    const today = dayjs().format('YYYY-MM-DD');
+
+    switch (context) {
+        case 'leave_review': {
+            // 연차 검수·연차 관리·연차 현황 (메인 화면)
+            if (emp.retired) return false;
+            if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
+            if (isTestEmployee(emp) && !isAdminView) return false;
+            return true;
+        }
+        case 'schedule_grid': {
+            // 스케줄 그리드 (메인 화면) — 기존 isGridEmployee 동작 + resignation_date 다음달 1일 cutoff
+            if (emp.retired) return false;
+            if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
+            if (emp.schedule_visible === false) return false;
+            return true; // test 직원은 그리드에 노출 (현행 동작 유지)
+        }
+        case 'employee_list_active': {
+            // 직원 관리 [활성] 탭 — 즉시 cutoff
+            if (emp.retired) return false;
+            if (emp.resignation_date && emp.resignation_date <= today) return false;
+            return true;
+        }
+        case 'employee_list_retired': {
+            // 직원 관리 [퇴사자] 탭 — 즉시 cutoff
+            if (emp.retired) return true;
+            return !!(emp.resignation_date && emp.resignation_date <= today);
+        }
+        default:
+            return true;
+    }
+}
+
+// 호환 래퍼 (기존 호출부가 있다면 동작 유지). 신규 코드는 isVisibleIn('leave_review', ...) 사용.
 export function isVisibleForLeaveContext(emp) {
-    if (isAlbaEmployee(emp)) return false;
-    const isAdminView = state.userRole === 'admin' || state.viewAs === 'admin';
-    if (!isAdminView && isTestEmployee(emp)) return false;
-    return true;
+    return isVisibleIn('leave_review', emp);
 }

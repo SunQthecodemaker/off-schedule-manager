@@ -1,4 +1,4 @@
-import { state, db, isVisibleForLeaveContext } from './state.js';
+import { state, db, isVisibleIn } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
@@ -555,16 +555,11 @@ export function getManagementHTML() {
     const { employees } = state.management;
     const filter = currentEmployeeFilter; // 'active' or 'retired'
 
-    // Filter employees
+    // Filter employees — 단일 헬퍼 isVisibleIn 위임 (alba 격리 + 즉시 cutoff)
     const filteredEmployees = employees.filter(emp => {
-        // ✨ 임시직원(is_temp 또는 temp- 이메일)은 관리 목록에서 제외
-        if (emp.is_temp || (emp.email && emp.email.startsWith('temp-'))) return false;
-
-        const today = dayjs().format('YYYY-MM-DD');
-        const isResigned = emp.resignation_date && emp.resignation_date <= today;
-        if (filter === 'active') return !isResigned;
-        if (filter === 'retired') return isResigned;
-        return true;
+        if (filter === 'active') return isVisibleIn('employee_list_active', emp);
+        if (filter === 'retired') return isVisibleIn('employee_list_retired', emp);
+        return false;
     });
 
     const headerHtml = `
@@ -812,7 +807,8 @@ export function getLeaveListHTML() {
 
     const employeeNameMap = employees.reduce((map, emp) => {
         // 알바(스케줄용 임시직원)는 항상 격리. 테스트 직원은 admin 외에 격리.
-        if (!isVisibleForLeaveContext(emp)) return map;
+        // 퇴사자는 다음달 1일부터 격리 (isVisibleIn('leave_review') 가 처리)
+        if (!isVisibleIn('leave_review', emp)) return map;
 
         const suffix = emp.resignation_date ? ' (퇴사)' : '';
         map[emp.id] = emp.name + suffix;
@@ -1195,7 +1191,8 @@ window.renderLeaveCalendar = function (containerSelector) {
 
     const employeeNameMap = employees.reduce((map, emp) => {
         // 알바(스케줄용 임시직원)는 항상 격리. 테스트 직원은 admin 외에 격리.
-        if (!isVisibleForLeaveContext(emp)) return map;
+        // 퇴사자는 다음달 1일부터 격리 (isVisibleIn('leave_review') 가 처리)
+        if (!isVisibleIn('leave_review', emp)) return map;
         const suffix = emp.resignation_date ? ' (퇴사)' : '';
         map[emp.id] = emp.name + suffix;
         return map;
