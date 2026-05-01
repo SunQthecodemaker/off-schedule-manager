@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn } from './state.js?v=20260502e';
+import { state, db, isVisibleIn } from './state.js?v=20260502f';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
@@ -1214,8 +1214,9 @@ window.renderLeaveCalendar = function (containerSelector) {
     filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
         const st = req.final_manager_status || req.status;
-        const color = st === 'approved' ? '#10b981' : st === 'pending' ? '#fbbf24' : '#ef4444';
-        const borderColor = st === 'approved' ? '#059669' : st === 'pending' ? '#f59e0b' : '#dc2626';
+        // 글자(흰색) 가독성 위해 진한 색 사용
+        const color = st === 'approved' ? '#059669' : st === 'pending' ? '#d97706' : '#dc2626';
+        const borderColor = st === 'approved' ? '#047857' : st === 'pending' ? '#b45309' : '#b91c1c';
 
         req.dates?.forEach(date => {
             events.push({
