@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501f';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501g';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -2840,9 +2840,9 @@ async function renderScheduleSidebar() {
 
     const deptGroups = {};
     activeRegular.forEach(emp => {
-        // 휴직/퇴사 직원은 별도 풀로만 (sidebar 부서 풀에 중복 표시 방지)
+        // 휴직/퇴사/테스트는 sidebar 부서 풀에서 제외 (메인 그리드 슬롯·cell 은 별개로 처리)
         const status = getEmployeeStatus(emp);
-        if (status === 'retired' || status === 'on_leave') return;
+        if (status === 'retired' || status === 'on_leave' || status === 'test') return;
         const deptName = deptNameMap[emp.department_id] || '기타';
         if (!deptGroups[deptName]) deptGroups[deptName] = [];
         deptGroups[deptName].push(emp);
@@ -2927,9 +2927,6 @@ async function renderScheduleSidebar() {
                     ${deptListHtml}
                     ${tempEmployees.length > 0 ? `<div class="layout-dept-row">
                         <span class="layout-dept-label" style="color:#7c3aed;">임시</span>${tempCards}
-                    </div>` : ''}
-                    ${testEmployees.length > 0 ? `<div class="layout-dept-row">
-                        <span class="layout-dept-label" style="color:#9ca3af;">테스트</span>${testCards}
                     </div>` : ''}
                 </div>
             </div>
