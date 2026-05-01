@@ -171,3 +171,34 @@ export function isVisibleIn(context, emp, viewer) {
 export function isVisibleForLeaveContext(emp) {
     return isVisibleIn('leave_review', emp);
 }
+
+// ═══════════════════════════════════════════════════════
+// 부서 순서 — 단일 source of truth
+// 모든 화면 (검수칸·사이드바 부서 풀·연차 dropdown 등) 이 이 순서대로 직원 표시
+// ═══════════════════════════════════════════════════════
+export const DEPT_ORDER = ['원장', '진료실', '경영지원실', '기공실'];
+
+/**
+ * 직원 배열을 부서 순서 + 같은 부서 내 ID 순으로 정렬한 새 배열 반환.
+ * @param {Array} employees - 정렬할 직원 배열
+ * @param {Array} [departments] - 부서 배열 (id→name 매핑용). 미지정 시 state.management.departments
+ * @returns {Array} 정렬된 새 배열 (원본 변경 안 함)
+ */
+export function sortByDeptOrder(employees, departments) {
+    if (!Array.isArray(employees)) return [];
+    const depts = departments || (state.management && state.management.departments) || [];
+    const deptNameMap = {};
+    depts.forEach(d => { deptNameMap[d.id] = d.name; });
+
+    const deptIdx = (emp) => {
+        const name = deptNameMap[emp.department_id] || '';
+        const idx = DEPT_ORDER.indexOf(name);
+        return idx === -1 ? 99 : idx; // 미지정 부서는 끝으로
+    };
+
+    return employees.slice().sort((a, b) => {
+        const di = deptIdx(a) - deptIdx(b);
+        if (di !== 0) return di;
+        return (a.id || 0) - (b.id || 0); // 같은 부서 내 ID 순
+    });
+}

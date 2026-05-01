@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260502c';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260502d';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -2827,23 +2827,29 @@ async function renderScheduleSidebar() {
     const currentMonth = dayjs(state.schedule.currentDate).format('YYYY년 M월');
 
     // ═══ 부서별 직원 목록 HTML (우측 패널) ═══
+    // 단일 헬퍼 sortByDeptOrder 로 정렬 후 부서별 그룹화 — 검수칸과 동일 순서 보장
     const departments = state.management?.departments || [];
     const deptNameMap = {};
     departments.forEach(d => { deptNameMap[d.id] = d.name; });
-    const deptOrder = ['원장', '진료실', '경영지원실', '기공실'];
+
+    // 휴직/퇴사/테스트는 sidebar 부서 풀에서 제외
+    const sidebarPoolEmps = activeRegular.filter(emp => {
+        const status = getEmployeeStatus(emp);
+        return status !== 'retired' && status !== 'on_leave' && status !== 'test';
+    });
+    const sortedPoolEmps = sortByDeptOrder(sidebarPoolEmps, departments);
 
     const deptGroups = {};
-    activeRegular.forEach(emp => {
-        // 휴직/퇴사/테스트는 sidebar 부서 풀에서 제외 (메인 그리드 슬롯·cell 은 별개로 처리)
-        const status = getEmployeeStatus(emp);
-        if (status === 'retired' || status === 'on_leave' || status === 'test') return;
+    sortedPoolEmps.forEach(emp => {
         const deptName = deptNameMap[emp.department_id] || '기타';
         if (!deptGroups[deptName]) deptGroups[deptName] = [];
         deptGroups[deptName].push(emp);
     });
 
-    const allDeptNames = [...deptOrder];
-    Object.keys(deptGroups).forEach(name => {
+    // sortByDeptOrder 의 부서 순서 그대로 사용 (DEPT_ORDER + 미지정 부서 끝)
+    const allDeptNames = [];
+    sortedPoolEmps.forEach(emp => {
+        const name = deptNameMap[emp.department_id] || '기타';
         if (!allDeptNames.includes(name)) allDeptNames.push(name);
     });
 
@@ -4476,7 +4482,7 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const leaveRequests = state.management?.leaveRequests || [];
     const approvedLeaves = leaveRequests.filter(r => r.final_manager_status === 'approved');
 
-    // 활성 직원 필터링
+    // 활성 직원 필터링 + 부서 순서 정렬 (단일 헬퍼 sortByDeptOrder 위임)
     const employees = state.management?.employees || [];
     let targetEmployees = employees.filter(emp => isGridEmployee(emp));
 
@@ -4485,6 +4491,9 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
         const activeMembers = new Set(savedLayout.members.filter(id => id > 0));
         targetEmployees = targetEmployees.filter(emp => activeMembers.has(emp.id));
     }
+
+    // 검수칸 표시 순서 = 사이드바 부서 풀과 동일 (부서 순서 + 부서 내 ID 순)
+    targetEmployees = sortByDeptOrder(targetEmployees);
 
     // 직원별 검수
     const rows = targetEmployees.map(emp => {
