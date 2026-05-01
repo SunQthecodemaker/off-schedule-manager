@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501d';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501e';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -2753,14 +2753,19 @@ async function renderScheduleSidebar() {
     const allEmployees = state.management.employees || [];
     const isTemp = (e) => e.is_temp || (e.email && e.email.startsWith('temp-'));
 
-    const isTest = (e) => isTemp(e) && /^테스트/.test(e.name);
-    // 정규 활성 직원 — isGridEmployee 기준 (schedule_visible=false 제외)
+    // 테스트 직원 — state.js 헬퍼 사용 (이름 OR 부서명에 "테스트")
+    const isTest = (e) => isTestEmployee(e);
+    // 정규 활성 직원 — isGridEmployee 기준 (test/휴직/퇴사/hidden 모두 격리됨)
     const activeRegular = allEmployees.filter(e => isGridEmployee(e));
-    // 임시 직원 (알바용, 테스트 제외)
+    // 임시 직원 (알바). test 제외해서 풀 분리.
     const tempEmployees = allEmployees.filter(e => isTemp(e) && !isTest(e));
-    // 테스트 직원
+    // 테스트 직원 — 모두 별도 풀로
     const testEmployees = allEmployees.filter(e => isTest(e));
-    // 휴직/퇴사 직원 — getEmployeeStatus 기반 (legacy retired 플래그 + resignation_date 다음달 1일 cutoff)
+    // 휴직 직원 (on_leave) — 별도 풀
+    const onLeaveEmployees = allEmployees.filter(e =>
+        !isTemp(e) && !isTest(e) && getEmployeeStatus(e) === 'on_leave'
+    );
+    // 퇴사 직원 (retired) — 별도 풀 (legacy retired 플래그 + resignation_date 다음달 1일 cutoff)
     const retiredEmployees = allEmployees.filter(e =>
         !isTemp(e) && !isTest(e) && getEmployeeStatus(e) === 'retired'
     );
@@ -2873,6 +2878,15 @@ async function renderScheduleSidebar() {
     }).join('');
 
     // 휴직 직원
+    const onLeaveCards = onLeaveEmployees.map(emp => {
+        const c = getDepartmentColor(emp.departments?.id);
+        return `<div class="layout-slot layout-filled layout-retired layout-pool-card" data-employee-id="${emp.id}">
+            <span class="layout-dot" style="background-color:${c};"></span>
+            <span class="layout-name">${emp.name}</span>
+        </div>`;
+    }).join('');
+
+    // 퇴사 직원
     const retiredCards = retiredEmployees.map(emp => {
         const c = getDepartmentColor(emp.departments?.id);
         return `<div class="layout-slot layout-filled layout-retired layout-pool-card" data-employee-id="${emp.id}">
@@ -2911,8 +2925,11 @@ async function renderScheduleSidebar() {
                     ${tempEmployees.length > 0 ? `<div class="layout-dept-row">
                         <span class="layout-dept-label" style="color:#7c3aed;">임시</span>${tempCards}
                     </div>` : ''}
+                    ${onLeaveEmployees.length > 0 ? `<div class="layout-dept-row">
+                        <span class="layout-dept-label" style="color:#9ca3af;">휴직</span>${onLeaveCards}
+                    </div>` : ''}
                     ${retiredEmployees.length > 0 ? `<div class="layout-dept-row">
-                        <span class="layout-dept-label" style="color:#9ca3af;">휴직</span>${retiredCards}
+                        <span class="layout-dept-label" style="color:#9ca3af;">퇴사</span>${retiredCards}
                     </div>` : ''}
                     ${testEmployees.length > 0 ? `<div class="layout-dept-row">
                         <span class="layout-dept-label" style="color:#9ca3af;">테스트</span>${testCards}
