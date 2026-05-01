@@ -61,3 +61,26 @@ export const state = {
         currentRequestId: null,
     }
 };
+
+// 알바(스케줄러 자유배치용 임시직원) — 항상 연차/관리 시스템에서 격리
+export function isAlbaEmployee(emp) {
+    if (!emp) return false;
+    return !!(emp.is_temp && emp.email && emp.email.startsWith('temp-'));
+}
+
+// 테스트 직원 — 이름 또는 부서 이름에 "테스트" 포함. admin 한테만 표시
+export function isTestEmployee(emp, departments) {
+    if (!emp) return false;
+    if (emp.name && emp.name.includes('테스트')) return true;
+    const depts = departments || (state.management && state.management.departments) || [];
+    const dept = depts.find(d => d.id === emp.department_id);
+    if (dept && dept.name && dept.name.includes('테스트')) return true;
+    return false;
+}
+
+// 연차 시스템에서 admin 외 사용자에게 직원이 보여야 하는지
+export function isVisibleForLeaveContext(emp) {
+    if (isAlbaEmployee(emp)) return false;
+    if (state.userRole !== 'admin' && isTestEmployee(emp)) return false;
+    return true;
+}
