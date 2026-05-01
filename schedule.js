@@ -1,4 +1,4 @@
-import { state, db } from './state.js';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -138,28 +138,18 @@ function rcToPos(row, col) {
     return row * GRID_COLS + col;
 }
 
-/** 직원이 그리드 표시 대상인지 (시간 무관 — schedule_visible 토글까지 반영) */
+/** 직원이 그리드 표시 대상인지 (시간 무관 — schedule_visible 토글까지 반영)
+ *  state.js 의 isVisibleIn('schedule_grid', ...) 단일 헬퍼 위임. */
 function isGridEmployee(e) {
-    if (!e) return false;
-    if (e.is_temp || e.retired || e.email?.startsWith('temp-')) return false;
-    if (e.schedule_visible === false) return false;
-    return true;
+    return isVisibleIn('schedule_grid', e);
 }
 
-/** 직원이 특정 날짜에 그리드에 표시되어야 하는지 판별
- *  - 임시직원/퇴사/표시제외 → false
- *  - 휴직 기간 내(leave_start_date 이후, return_date 이전) → false
- *  - 퇴사일 이후 → false
- */
+/** 직원이 특정 날짜에 그리드에 표시되어야 하는지 판별 (날짜별 휴직·퇴사 고려)
+ *  state.js 의 getEmployeeStatus 단일 헬퍼 위임. */
 function isActiveOnDate(emp, dateStr) {
-    if (emp.is_temp || emp.retired || emp.email?.startsWith('temp-')) return false;
-    if (emp.schedule_visible === false) return false;
-    // 휴직 기간: leave_start_date <= dateStr < return_date (return_date 없으면 무기한)
-    if (emp.leave_start_date && dateStr >= emp.leave_start_date) {
-        if (!emp.return_date || dateStr < emp.return_date) return false;
-    }
-    if (!emp.resignation_date) return true;
-    return dateStr < emp.resignation_date;
+    if (!emp) return false;
+    const s = getEmployeeStatus(emp, dateStr);
+    return s === 'active' || s === 'test'; // 알바·퇴사·휴직·hidden 격리
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2770,8 +2760,10 @@ async function renderScheduleSidebar() {
     const tempEmployees = allEmployees.filter(e => isTemp(e) && !isTest(e));
     // 테스트 직원
     const testEmployees = allEmployees.filter(e => isTest(e));
-    // 휴직/퇴사 직원
-    const retiredEmployees = allEmployees.filter(e => e.retired && !isTemp(e));
+    // 휴직/퇴사 직원 — getEmployeeStatus 기반 (legacy retired 플래그 + resignation_date 다음달 1일 cutoff)
+    const retiredEmployees = allEmployees.filter(e =>
+        !isTemp(e) && !isTest(e) && getEmployeeStatus(e) === 'retired'
+    );
 
     // ✅ 32칸 그리드 슬롯 생성
     const gridSlots = new Array(GRID_SIZE).fill(null);
