@@ -2928,12 +2928,6 @@ async function renderScheduleSidebar() {
                     ${tempEmployees.length > 0 ? `<div class="layout-dept-row">
                         <span class="layout-dept-label" style="color:#7c3aed;">임시</span>${tempCards}
                     </div>` : ''}
-                    ${onLeaveEmployees.length > 0 ? `<div class="layout-dept-row">
-                        <span class="layout-dept-label" style="color:#9ca3af;">휴직</span>${onLeaveCards}
-                    </div>` : ''}
-                    ${retiredEmployees.length > 0 ? `<div class="layout-dept-row">
-                        <span class="layout-dept-label" style="color:#9ca3af;">퇴사</span>${retiredCards}
-                    </div>` : ''}
                     ${testEmployees.length > 0 ? `<div class="layout-dept-row">
                         <span class="layout-dept-label" style="color:#9ca3af;">테스트</span>${testCards}
                     </div>` : ''}
