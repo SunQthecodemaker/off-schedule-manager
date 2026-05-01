@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501i';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee } from './state.js?v=20260501j';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
@@ -2014,18 +2014,8 @@ function renderCalendar() {
             };
         });
 
-        // 임시직원 스케줄 배치 (근무만 존재)
-        state.schedule.schedules.forEach(s => {
-            if (s.date !== dateStr || s.employee_id <= 0) return;
-            const emp = (state.management.employees || []).find(e => e.id === s.employee_id);
-            if (!emp || !emp.is_temp) return;
-            if (s.status !== '근무') return;
-            let pos = (s.grid_position != null && s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
-            if (pos == null) { for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } } }
-            if (pos != null && !gridSlots[pos]) {
-                gridSlots[pos] = { ...s, _empStatus: 'working' };
-            }
-        });
+        // 임시직원 스케줄 배치는 제거 (alba/test 모두 schedule_grid 격리 정책)
+        // 일반 직원은 위 activeEmps 루프에서 처리됨
 
         // ═══════════════════════════════════════════
         // 그리드 슬롯 → HTML 변환 (공통)
