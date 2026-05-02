@@ -1214,17 +1214,13 @@ window.renderLeaveCalendar = function (containerSelector) {
     filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
         const st = req.final_manager_status || req.status;
-        // approved=골드(#b8860b)+검은글자, pending=주황+흰글자, rejected=빨강+흰글자
-        const color = st === 'approved' ? '#b8860b' : st === 'pending' ? '#d97706' : '#dc2626';
-        const borderColor = st === 'approved' ? '#8b6508' : st === 'pending' ? '#b45309' : '#b91c1c';
+        // 색상은 style.css 의 .fc-leave-{pending|approved|rejected} 가 처리 (cream 톤)
 
         req.dates?.forEach(date => {
             events.push({
                 title: employeeName,
                 start: date,
                 allDay: true,
-                backgroundColor: color,
-                borderColor: borderColor,
                 classNames: [`fc-leave-${st}`],
                 extendedProps: {
                     requestId: req.id,
