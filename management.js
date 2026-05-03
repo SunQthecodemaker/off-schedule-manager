@@ -975,15 +975,15 @@ export function getLeaveListHTML() {
         }
         const datesText = (req.dates || []).join(', ');
         const dateCount = req.dates?.length || 0;
-        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}' style="height:116px;">
-            <td class="p-2 text-sm">${employeeName}</td>
-            <td class="p-2 text-sm">${datesText}</td>
-            <td class="p-2 text-sm text-center">${dateCount}일</td>
-            <td class="p-2 text-sm text-center">
+        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
+            <td class="py-1 px-2 text-sm">${employeeName}</td>
+            <td class="py-1 px-2 text-sm">${datesText}</td>
+            <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
+            <td class="py-1 px-2 text-sm text-center">
                 <div class="text-xs"><span class="inline-block w-12">매니저:</span><span class="${middleColor} font-semibold">${middleText}</span></div>
                 <div class="text-xs mt-1"><span class="inline-block w-12">최종:</span><span class="${finalColor} font-semibold">${finalText}</span></div>
             </td>
-            <td class="p-2 text-center">${actions}</td>
+            <td class="py-1 px-2 text-center">${actions}</td>
         </tr>`;
     };
 
@@ -1025,9 +1025,9 @@ export function getLeaveListHTML() {
     return `
         <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
 
-        <div class="flex flex-col lg:flex-row gap-4">
-            <!-- 좌측: 달력 영역 (lg 480px 고정 — Tailwind v2 CDN 임의값 미지원으로 style.css 의 .leave-list-cal-pane 사용) -->
-            <div class="w-full lg:flex-shrink-0 leave-list-cal-pane">
+        <div class="leave-list-wrapper">
+            <!-- 좌측: 달력 영역 (lg grid 3fr 2fr 의 3fr) -->
+            <div>
                 <div class="flex flex-wrap gap-2 mb-2 items-center">
                     <div class="flex gap-2">
                         <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
@@ -1046,8 +1046,8 @@ export function getLeaveListHTML() {
                 <div id="leave-calendar-container"></div>
             </div>
 
-            <!-- 우측: 신청 목록 영역 (월별 아코디언). lg: prefix 로 모바일에서는 단순 stack -->
-            <div class="w-full lg:flex-1 lg:min-w-0">
+            <!-- 우측: 신청 목록 영역 (월별 아코디언). min-w-0 으로 grid track 보존 (콘텐츠가 track 폭 강제 X) -->
+            <div class="min-w-0">
                 <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
                     <div class="flex gap-2">
                         <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 보기</button>
