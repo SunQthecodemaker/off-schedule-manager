@@ -980,46 +980,66 @@ export function getLeaveListHTML() {
             <td class="py-1 px-2 text-sm">${datesText}</td>
             <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
             <td class="py-1 px-2 text-sm text-center">
-                <div class="text-xs"><span class="inline-block w-12">매니저:</span><span class="${middleColor} font-semibold">${middleText}</span></div>
-                <div class="text-xs mt-1"><span class="inline-block w-12">최종:</span><span class="${finalColor} font-semibold">${finalText}</span></div>
+                <div class="text-xs">
+                    <span>매니저:</span> <span class="${middleColor} font-semibold">${middleText}</span>
+                    <span class="ml-2">최종:</span> <span class="${finalColor} font-semibold">${finalText}</span>
+                </div>
             </td>
             <td class="py-1 px-2 text-center">${actions}</td>
         </tr>`;
     };
 
-    // 월별 아코디언 HTML 생성
+    // 월별 아코디언 HTML 생성 (최근 3개월 + 나머지는 "과거기록 보기" 토글)
+    const RECENT_MONTHS_VISIBLE = 3;
+
+    const buildMonthSection = (month, reqs, isOpen) => {
+        const pendingCount = reqs.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
+        const label = month === 'unknown' ? '날짜 없음' : `${month.replace('-', '년 ')}월`;
+        const pendingBadge = pendingCount > 0 ? `<span class="ml-2 bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">${pendingCount}건 대기</span>` : '';
+        return `
+            <div class="month-section mb-3 border rounded-lg overflow-hidden" data-month="${month}">
+                <button onclick="window.toggleMonthSection('${month}')" class="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 text-left font-semibold text-sm">
+                    <span>${label} (${reqs.length}건) ${pendingBadge}</span>
+                    <span class="month-toggle-icon text-gray-400">${isOpen ? '▲' : '▼'}</span>
+                </button>
+                <div class="month-content" style="display:${isOpen ? 'block' : 'none'}">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="p-2 text-left text-xs font-semibold">직원</th>
+                                <th class="p-2 text-left text-xs font-semibold">신청날짜</th>
+                                <th class="p-2 text-center text-xs font-semibold">일수</th>
+                                <th class="p-2 text-center text-xs font-semibold">결재현황</th>
+                                <th class="p-2 text-center text-xs font-semibold">처리</th>
+                            </tr>
+                        </thead>
+                        <tbody>${reqs.map(buildRow).join('')}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    };
+
     let monthSections = '';
     if (sortedMonths.length === 0) {
         monthSections = '<p class="text-center text-gray-500 py-8">표시할 연차 신청 기록이 없습니다.</p>';
     } else {
-        sortedMonths.forEach((month, idx) => {
-            const reqs = monthGroups[month];
-            const pendingCount = reqs.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
-            const label = month === 'unknown' ? '날짜 없음' : `${month.replace('-', '년 ')}월`;
-            const pendingBadge = pendingCount > 0 ? `<span class="ml-2 bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">${pendingCount}건 대기</span>` : '';
-            const isOpen = idx === 0; // 최신 월만 펼침
+        const recentMonths = sortedMonths.slice(0, RECENT_MONTHS_VISIBLE);
+        const oldMonths = sortedMonths.slice(RECENT_MONTHS_VISIBLE);
+
+        // 최근 3개월: 첫 번째만 펼침, 나머지 접힘
+        monthSections += recentMonths.map((month, idx) => buildMonthSection(month, monthGroups[month], idx === 0)).join('');
+
+        // 과거기록 보기 토글
+        if (oldMonths.length > 0) {
+            const oldSections = oldMonths.map(month => buildMonthSection(month, monthGroups[month], false)).join('');
             monthSections += `
-                <div class="month-section mb-3 border rounded-lg overflow-hidden" data-month="${month}">
-                    <button onclick="window.toggleMonthSection('${month}')" class="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 text-left font-semibold text-sm">
-                        <span>${label} (${reqs.length}건) ${pendingBadge}</span>
-                        <span class="month-toggle-icon text-gray-400">${isOpen ? '▲' : '▼'}</span>
-                    </button>
-                    <div class="month-content" style="display:${isOpen ? 'block' : 'none'}">
-                        <table class="min-w-full text-sm">
-                            <thead class="bg-gray-100">
-                                <tr>
-                                    <th class="p-2 text-left text-xs font-semibold">직원</th>
-                                    <th class="p-2 text-left text-xs font-semibold">신청날짜</th>
-                                    <th class="p-2 text-center text-xs font-semibold">일수</th>
-                                    <th class="p-2 text-center text-xs font-semibold">결재현황</th>
-                                    <th class="p-2 text-center text-xs font-semibold">처리</th>
-                                </tr>
-                            </thead>
-                            <tbody>${reqs.map(buildRow).join('')}</tbody>
-                        </table>
-                    </div>
+                <button onclick="window.toggleOldLeaveHistory()" id="leave-old-history-toggle" class="w-full text-center text-sm text-gray-600 hover:bg-gray-100 py-2 mb-2 border rounded-lg">
+                    과거기록 보기 (${oldMonths.length}개월) ▼
+                </button>
+                <div id="leave-old-history-container" style="display:none">
+                    ${oldSections}
                 </div>`;
-        });
+        }
     }
 
     return `
@@ -1089,6 +1109,16 @@ window.toggleMonthSection = function (month) {
         content.style.display = 'none';
         icon.textContent = '▼';
     }
+};
+
+// 과거기록 (3개월 이전) 토글 — 펼침 시 모든 과거 월 섹션이 한꺼번에 보임 (각자 접힌 채)
+window.toggleOldLeaveHistory = function () {
+    const container = document.getElementById('leave-old-history-container');
+    const btn = document.getElementById('leave-old-history-toggle');
+    if (!container || !btn) return;
+    const isHidden = container.style.display === 'none';
+    container.style.display = isHidden ? 'block' : 'none';
+    btn.innerHTML = btn.innerHTML.replace(isHidden ? '▼' : '▲', isHidden ? '▲' : '▼');
 };
 
 // 목록 필터
@@ -1274,7 +1304,7 @@ window.renderLeaveCalendar = function (containerSelector) {
                 window.handleLeaveApproval(props.requestId, 'approved');
             }
         },
-        height: 'auto'
+        aspectRatio: 1.0  // 정사각형 (목록 길이에 맞게 세로로 길게)
     });
 
     calendar.render();
