@@ -1382,7 +1382,7 @@ window.renderLeaveCalendar = function (containerSelector) {
         },
         height: '100%',     // 부모 (#leave-calendar-container) 높이를 그대로 따라감
         expandRows: true,   // 6주 row 를 부모 높이 안에서 균등 분배
-        dayMaxEvents: 2     // cell 안 이벤트 최대 2개 → 자연 height 일정 → expandRows 가 균등 분배 작동
+        dayMaxEvents: false // 셀 안 모든 이벤트 표시 (2열 레이아웃은 CSS .fc-daygrid-event-harness 에서 처리)
     });
 
     calendar.render();
