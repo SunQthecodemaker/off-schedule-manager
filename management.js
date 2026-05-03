@@ -1025,47 +1025,49 @@ export function getLeaveListHTML() {
     return `
         <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
 
-        <!-- 달력을 상단에 배치 -->
-        <div class="mb-6">
-            <div class="flex flex-wrap gap-2 mb-2 items-center">
-                <div class="flex gap-2">
-                    <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
-                    <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
-                    <button onclick="window.filterLeaveCalendar('approved')" id="cal-filter-approved" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
-                    <button onclick="window.filterLeaveCalendar('rejected')" id="cal-filter-rejected" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려</button>
+        <div class="flex flex-col lg:flex-row gap-4">
+            <!-- 좌측: 달력 영역 (lg 480px 고정) -->
+            <div class="w-full lg:w-[480px] lg:flex-shrink-0">
+                <div class="flex flex-wrap gap-2 mb-2 items-center">
+                    <div class="flex gap-2">
+                        <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
+                        <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
+                        <button onclick="window.filterLeaveCalendar('approved')" id="cal-filter-approved" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
+                        <button onclick="window.filterLeaveCalendar('rejected')" id="cal-filter-rejected" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려</button>
+                    </div>
+                    <div class="flex gap-2 items-center ml-4">
+                        <label class="text-sm font-semibold">직원:</label>
+                        <select id="calendar-employee-filter" onchange="window.filterCalendarByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
+                            <option value="all">전체 직원</option>
+                            ${employeeOptions}
+                        </select>
+                    </div>
                 </div>
-                <div class="flex gap-2 items-center ml-4">
-                    <label class="text-sm font-semibold">직원:</label>
-                    <select id="calendar-employee-filter" onchange="window.filterCalendarByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
-                        <option value="all">전체 직원</option>
-                        ${employeeOptions}
-                    </select>
+                <div id="leave-calendar-container"></div>
+            </div>
+
+            <!-- 우측: 신청 목록 영역 (월별 아코디언) -->
+            <div class="flex-1 min-w-0">
+                <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
+                    <div class="flex gap-2">
+                        <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 보기</button>
+                        <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
+                        <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
+                        <button onclick="window.filterLeaveList('rejected')" id="filter-rejected" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려됨</button>
+                    </div>
+                    <div class="flex gap-2 items-center ml-4">
+                        <label class="text-sm font-semibold ml-2">직원:</label>
+                        <select id="employee-filter" onchange="window.filterByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
+                            <option value="all">전체 직원</option>
+                            ${employeeOptions}
+                        </select>
+                    </div>
+                </div>
+
+                <div id="leave-month-sections">
+                    ${monthSections}
                 </div>
             </div>
-            <div id="leave-calendar-container"></div>
-        </div>
-
-        <hr class="my-4">
-
-        <!-- 신청 목록 (월별 아코디언) -->
-        <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
-            <div class="flex gap-2">
-                <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 보기</button>
-                <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
-                <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
-                <button onclick="window.filterLeaveList('rejected')" id="filter-rejected" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려됨</button>
-            </div>
-            <div class="flex gap-2 items-center ml-4">
-                <label class="text-sm font-semibold ml-2">직원:</label>
-                <select id="employee-filter" onchange="window.filterByEmployee(this.value)" class="text-sm border rounded px-2 py-1">
-                    <option value="all">전체 직원</option>
-                    ${employeeOptions}
-                </select>
-            </div>
-        </div>
-
-        <div id="leave-month-sections">
-            ${monthSections}
         </div>
 `;
 }
