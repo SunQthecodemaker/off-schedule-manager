@@ -135,9 +135,10 @@ export function isVisibleIn(context, emp, viewer) {
     switch (context) {
         case 'leave_review': {
             // 연차 검수·연차 관리·연차 현황 — active 직원만 노출
+            // 테스트 직원은 admin 또는 매니저뷰(viewAs=admin)에게만 노출 (PR #17 정책)
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
-            if (isTestEmployee(emp)) return false; // viewer 무관 격리
+            if (isTestEmployee(emp) && !isAdminView) return false;
             if (onLeave) return false; // 휴직 직원도 검수칸에서 격리
             return true;
         }
