@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn } from './state.js?v=20260502h';
+import { state, db, isVisibleIn } from './state.js?v=20260502r';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
@@ -975,7 +975,11 @@ export function getLeaveListHTML() {
         }
         const datesText = (req.dates || []).join(', ');
         const dateCount = req.dates?.length || 0;
+        const checkboxCell = isAdmin
+            ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
+            : '';
         return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
+            ${checkboxCell}
             <td class="py-1 px-2 text-sm">${employeeName}</td>
             <td class="py-1 px-2 text-sm">${datesText}</td>
             <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
@@ -991,6 +995,8 @@ export function getLeaveListHTML() {
 
     // 월별 아코디언 HTML 생성 (최근 3개월 + 나머지는 "과거기록 보기" 토글)
     const RECENT_MONTHS_VISIBLE = 3;
+    const isAdmin = state.currentUser?.role === 'admin';
+    const totalPending = filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
 
     const buildMonthSection = (month, reqs, isOpen) => {
         const pendingCount = reqs.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
@@ -1006,11 +1012,12 @@ export function getLeaveListHTML() {
                     <table class="min-w-full text-sm">
                         <thead class="bg-gray-100">
                             <tr>
-                                <th class="p-2 text-left text-xs font-semibold">직원</th>
-                                <th class="p-2 text-left text-xs font-semibold">신청날짜</th>
-                                <th class="p-2 text-center text-xs font-semibold">일수</th>
-                                <th class="p-2 text-center text-xs font-semibold">결재현황</th>
-                                <th class="p-2 text-center text-xs font-semibold">처리</th>
+                                ${isAdmin ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
+                                <th class="py-1 px-2 text-left text-xs font-semibold">직원</th>
+                                <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold">일수</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold">결재현황</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold">처리</th>
                             </tr>
                         </thead>
                         <tbody>${reqs.map(buildRow).join('')}</tbody>
@@ -1068,7 +1075,7 @@ export function getLeaveListHTML() {
 
             <!-- 우측: 신청 목록 영역 (월별 아코디언). min-w-0 으로 grid track 보존 (콘텐츠가 track 폭 강제 X) -->
             <div class="min-w-0">
-                <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
+                <div class="flex flex-wrap gap-2 mb-2 items-center justify-between">
                     <div class="flex gap-2">
                         <button onclick="window.filterLeaveList('all')" id="filter-all" class="filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체 보기</button>
                         <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
@@ -1083,6 +1090,16 @@ export function getLeaveListHTML() {
                         </select>
                     </div>
                 </div>
+
+                ${isAdmin ? `
+                <div class="flex flex-wrap gap-2 mb-3 items-center bg-yellow-50 border border-yellow-200 p-2 rounded text-sm">
+                    <span class="font-semibold mr-1">대기 ${totalPending}건:</span>
+                    <button onclick="window.toggleAllLeaveSelection(true)" class="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-xs">전체선택</button>
+                    <button onclick="window.toggleAllLeaveSelection(false)" class="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-xs">해제</button>
+                    <button onclick="window.bulkApproveLeaves('selected')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">선택 승인</button>
+                    <button onclick="window.bulkApproveLeaves('all')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">전체 승인 (대기 ${totalPending}건)</button>
+                </div>
+                ` : ''}
 
                 <div id="leave-month-sections">
                     ${monthSections}
@@ -1119,6 +1136,65 @@ window.toggleOldLeaveHistory = function () {
     const isHidden = container.style.display === 'none';
     container.style.display = isHidden ? 'block' : 'none';
     btn.innerHTML = btn.innerHTML.replace(isHidden ? '▼' : '▲', isHidden ? '▲' : '▼');
+};
+
+// 연차 신청 일괄 선택 토글 (admin)
+window.toggleAllLeaveSelection = function (checked) {
+    document.querySelectorAll('.leave-select-check').forEach(cb => { cb.checked = checked; });
+};
+
+// 일괄 최종 승인 helper (handleFinalApproval 의 confirm 우회 + db 직접 update)
+async function bulkApproveLeavesHelper(ids) {
+    const currentUser = state.currentUser;
+    let success = 0, fail = 0;
+    for (const id of ids) {
+        try {
+            // 매니저 단계 미처리면 skipped 로 표기
+            const { data: req } = await db.from('leave_requests')
+                .select('middle_manager_status')
+                .eq('id', id)
+                .single();
+            const updateData = {
+                final_manager_id: currentUser.id,
+                final_manager_status: 'approved',
+                final_approved_at: new Date().toISOString(),
+                status: 'approved'
+            };
+            if (req && req.middle_manager_status !== 'approved' && req.middle_manager_status !== 'rejected') {
+                updateData.middle_manager_status = 'skipped';
+            }
+            const { error } = await db.from('leave_requests').update(updateData).eq('id', id);
+            if (error) throw error;
+            await syncLeaveToSchedules(id);
+            success++;
+        } catch (e) {
+            console.error('일괄 승인 실패:', id, e);
+            fail++;
+        }
+    }
+    return { success, fail };
+}
+
+// 연차 신청 일괄 승인 (admin) — scope: 'selected' | 'all'
+window.bulkApproveLeaves = async function (scope) {
+    if (state.currentUser?.role !== 'admin') {
+        alert('관리자 권한이 없습니다.');
+        return;
+    }
+    const checks = document.querySelectorAll('.leave-select-check');
+    const ids = scope === 'all'
+        ? Array.from(checks).map(cb => parseInt(cb.dataset.requestId, 10))
+        : Array.from(checks).filter(cb => cb.checked).map(cb => parseInt(cb.dataset.requestId, 10));
+    if (ids.length === 0) {
+        alert(scope === 'selected' ? '선택된 신청이 없습니다.' : '대기 중인 신청이 없습니다.');
+        return;
+    }
+    if (!confirm(`${ids.length}건을 일괄 최종 승인합니다. 계속할까요?`)) return;
+    const { success, fail } = await bulkApproveLeavesHelper(ids);
+    alert(`승인 완료: ${success}건` + (fail > 0 ? ` / 실패: ${fail}건` : ''));
+    if (typeof window.loadAndRenderManagement === 'function') {
+        await window.loadAndRenderManagement();
+    }
 };
 
 // 목록 필터
