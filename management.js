@@ -1304,7 +1304,8 @@ window.renderLeaveCalendar = function (containerSelector) {
                 window.handleLeaveApproval(props.requestId, 'approved');
             }
         },
-        aspectRatio: 1.0  // 정사각형 (목록 길이에 맞게 세로로 길게)
+        height: '100%',     // 부모 (#leave-calendar-container) 높이를 그대로 따라감
+        expandRows: true    // 6주 row 를 부모 높이 안에서 균등 분배 → 모든 cell 높이 동일
     });
 
     calendar.render();
