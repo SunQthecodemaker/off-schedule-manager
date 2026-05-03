@@ -1305,7 +1305,8 @@ window.renderLeaveCalendar = function (containerSelector) {
             }
         },
         height: '100%',     // 부모 (#leave-calendar-container) 높이를 그대로 따라감
-        expandRows: true    // 6주 row 를 부모 높이 안에서 균등 분배 → 모든 cell 높이 동일
+        expandRows: true,   // 6주 row 를 부모 높이 안에서 균등 분배
+        dayMaxEvents: 2     // cell 안 이벤트 최대 2개 → 자연 height 일정 → expandRows 가 균등 분배 작동
     });
 
     calendar.render();
