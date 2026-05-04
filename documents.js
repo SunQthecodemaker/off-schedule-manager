@@ -1,6 +1,6 @@
-import { state, db } from './state.js?v=20260504b';
+import { state, db } from './state.js?v=20260504c';
 import { _, show, hide } from './utils.js';
-import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260504b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260504c';
 
 // =========================================================================================
 // 서류 검토 탭 (관리자용)
@@ -295,7 +295,7 @@ async function handleCreateRequest(e) {
         created_at: new Date().toISOString()
     };
 
-    if (isStagingMode()) {
+    if (shouldStage('document_review')) {
         const r = await stageChange('document_request', null, 'create', payload, null);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
         closeRequestModal();
@@ -322,7 +322,7 @@ async function handleCreateRequest(e) {
 window.approveDocument = async function(docId) {
     if (!confirm('이 서류를 승인하시겠습니까?')) return;
 
-    if (isStagingMode()) {
+    if (shouldStage('document_review')) {
         const original = state.management.submittedDocs.find(d => d.id === docId) || null;
         const r = await stageChange('document', docId, 'update', { status: 'approved' }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
@@ -356,7 +356,7 @@ window.rejectDocument = async function(docId) {
     const feedback = prompt('반려 사유를 입력해주세요:');
     if (!feedback) return;
 
-    if (isStagingMode()) {
+    if (shouldStage('document_review')) {
         const original = state.management.submittedDocs.find(d => d.id === docId) || null;
         const r = await stageChange('document', docId, 'update', { status: 'rejected', rejection_reason: feedback }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
@@ -392,7 +392,7 @@ window.rejectDocument = async function(docId) {
 window.cancelDocumentRequest = async function(requestId) {
     if (!confirm('이 요청을 취소하시겠습니까?')) return;
 
-    if (isStagingMode()) {
+    if (shouldStage('document_review')) {
         const original = state.management.documentRequests?.find(d => d.id === requestId) || null;
         const r = await stageChange('document_request', requestId, 'delete', { id: requestId }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
@@ -670,7 +670,7 @@ async function handleSaveTemplate(e) {
         requires_attachment: requires_attachment
     };
 
-    if (isStagingMode()) {
+    if (shouldStage('form')) {
         if (templateId && templateId !== '') {
             const original = state.management.templates?.find(t => t.id === parseInt(templateId)) || null;
             const r = await stageChange('form_template', parseInt(templateId), 'update', data, original);
@@ -793,7 +793,7 @@ window.previewTemplate = function(templateId) {
 window.deleteTemplate = async function(templateId) {
     if (!confirm('이 서식을 삭제하시겠습니까?')) return;
 
-    if (isStagingMode()) {
+    if (shouldStage('form')) {
         const original = state.management.templates?.find(t => t.id === templateId) || null;
         const r = await stageChange('form_template', templateId, 'delete', { id: templateId }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
