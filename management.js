@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260504a';
+import { state, db, isVisibleIn } from './state.js?v=20260504b';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260504a';
+import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260504b';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -54,18 +54,24 @@ async function openManagerPermissionModal(employeeId) {
                 <h2 class="text-xl font-bold">${emp.name} 매니저 권한 설정</h2>
                 <button id="mgr-perm-close" class="text-2xl">&times;</button>
             </div>
-            <p class="text-sm text-gray-600 mb-4">메뉴별로 열람·수정 권한을 설정하세요. 둘 다 끄면 매니저에게 메뉴 자체가 숨겨집니다.</p>
+            <p class="text-sm text-gray-600 mb-2">메뉴별로 열람·수정·확정 권한을 설정하세요.</p>
+            <ul class="text-xs text-gray-500 mb-4 list-disc list-inside leading-relaxed">
+                <li><b>열람</b> 끄면 메뉴가 매니저에게 숨겨집니다.</li>
+                <li><b>수정</b> 끄면 보기 전용. 입력·버튼 비활성.</li>
+                <li><b>확정</b> 켜면 매니저가 [저장] 하면 즉시 반영. 끄면 임시저장 → 관리자 결재.</li>
+            </ul>
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b bg-gray-50">
                         <th class="p-2 text-left">메뉴</th>
-                        <th class="p-2 text-center w-20">열람</th>
-                        <th class="p-2 text-center w-20">수정</th>
+                        <th class="p-2 text-center w-16">열람</th>
+                        <th class="p-2 text-center w-16">수정</th>
+                        <th class="p-2 text-center w-16">확정</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${MANAGER_MENU_LIST.map(m => {
-                        const p = perms[m.key] || { view: false, edit: false };
+                        const p = perms[m.key] || { view: false, edit: false, commit: false };
                         return `
                             <tr class="border-b hover:bg-gray-50">
                                 <td class="p-2">${m.label}</td>
@@ -74,6 +80,9 @@ async function openManagerPermissionModal(employeeId) {
                                 </td>
                                 <td class="p-2 text-center">
                                     <input type="checkbox" data-perm-key="${m.key}" data-perm-type="edit" ${p.edit ? 'checked' : ''}>
+                                </td>
+                                <td class="p-2 text-center">
+                                    <input type="checkbox" data-perm-key="${m.key}" data-perm-type="commit" ${p.commit ? 'checked' : ''}>
                                 </td>
                             </tr>
                         `;
@@ -95,7 +104,12 @@ async function openManagerPermissionModal(employeeId) {
         MANAGER_MENU_LIST.forEach(m => {
             const viewEl = modal.querySelector(`[data-perm-key="${m.key}"][data-perm-type="view"]`);
             const editEl = modal.querySelector(`[data-perm-key="${m.key}"][data-perm-type="edit"]`);
-            newPerms[m.key] = { view: !!viewEl?.checked, edit: !!editEl?.checked };
+            const commitEl = modal.querySelector(`[data-perm-key="${m.key}"][data-perm-type="commit"]`);
+            newPerms[m.key] = {
+                view: !!viewEl?.checked,
+                edit: !!editEl?.checked,
+                commit: !!commitEl?.checked
+            };
         });
         const { error } = await db.from('employees')
             .update({ manager_permissions: newPerms })
