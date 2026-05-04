@@ -1,35 +1,48 @@
-import { state, db } from './state.js?v=20260504a';
+import { state, db } from './state.js?v=20260504b';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260504a';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260504a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260504a';
+import { renderScheduleManagement } from './schedule.js?v=20260504b';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260504b';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260504b';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
 // 8개 메뉴: schedule, leave_request_list, leave_status, document_review,
 //           leave_management, employee_management, department, form
-// 각 메뉴: { view: bool, edit: bool }
-// 관리자가 직원 관리 모달에서 토글 가능, 기본값 전부 view+edit on
+// 각 메뉴: { view: bool, edit: bool, commit: bool }
+//   view   = 메뉴 노출
+//   edit   = 입력·버튼 활성 (수정 가능)
+//   commit = 매니저가 직접 최종 반영 (off 면 매니저 [저장] = 임시저장 → 관리자 결재)
+// 관리자가 직원 관리 모달에서 토글 가능. default 는 사용자 정책:
+//   평소 끔(view=false): 연차관리·직원관리·부서관리 (초기 세팅 시만 켬)
+//   조회만(edit=false):  연차 현황
+//   매니저 즉시 확정(commit=true): 서식 관리 (그 외엔 결재 필요)
 // =========================================================================================
 const DEFAULT_MANAGER_PERMS = {
-    schedule:            { view: true,  edit: true },
-    leave_request_list:  { view: true,  edit: true },
-    leave_status:        { view: true,  edit: false },
-    document_review:     { view: true,  edit: true },
-    leave_management:    { view: true,  edit: true },
-    employee_management: { view: true,  edit: true },
-    department:          { view: true,  edit: true },
-    form:                { view: true,  edit: true }
+    schedule:            { view: true,  edit: true,  commit: false },
+    leave_request_list:  { view: true,  edit: true,  commit: false },
+    leave_status:        { view: true,  edit: false, commit: false },
+    document_review:     { view: true,  edit: true,  commit: false },
+    leave_management:    { view: false, edit: false, commit: false },
+    employee_management: { view: false, edit: false, commit: false },
+    department:          { view: false, edit: false, commit: false },
+    form:                { view: true,  edit: true,  commit: true  }
 };
 
 /** 현재 로그인 직원의 메뉴 권한 (관리자는 모두 true, 매니저는 DB 값, 일반 직원은 모두 false) */
 export function getManagerPerm(menuKey) {
-    if (state.userRole === 'admin') return { view: true, edit: true };
+    if (state.userRole === 'admin') return { view: true, edit: true, commit: true };
     const u = state.currentUser;
-    if (!u || !u.isManager) return { view: false, edit: false };
-    const p = (u.manager_permissions && u.manager_permissions[menuKey]) || DEFAULT_MANAGER_PERMS[menuKey];
-    return p || { view: false, edit: false };
+    if (!u || !u.isManager) return { view: false, edit: false, commit: false };
+    const stored = u.manager_permissions && u.manager_permissions[menuKey];
+    const dflt = DEFAULT_MANAGER_PERMS[menuKey];
+    if (!stored) return dflt || { view: false, edit: false, commit: false };
+    // 저장값이 옛 schema (commit 키 없음) 인 경우 default 의 commit 으로 보강
+    return {
+        view: !!stored.view,
+        edit: !!stored.edit,
+        commit: stored.commit !== undefined ? !!stored.commit : !!(dflt && dflt.commit)
+    };
 }
 
 // =========================================================================================
