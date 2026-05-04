@@ -5,7 +5,7 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20260502s';
+import { state, db } from './state.js?v=20260504a';
 
 // ---------- 매니저 측: 임시저장 ----------
 
@@ -146,6 +146,8 @@ async function applyChange(change) {
                 return await applyDepartment(action, entity_id, payload);
             case 'leave_management':
                 return await applyLeaveManagement(action, entity_id, payload);
+            case 'leave_approval':
+                return await applyLeaveApproval(action, entity_id, payload, change.reviewed_by);
             case 'document_request':
                 return await applyDocumentRequest(action, entity_id, payload);
             case 'document':
@@ -210,6 +212,62 @@ async function applyLeaveManagement(action, id, payload) {
         return error ? { ok: false, error: error.message } : { ok: true };
     }
     return { ok: false, error: 'unknown action' };
+}
+
+// 매니저의 [중간 승인]/[중간 반려] 의사를 관리자가 staging 승인 시 처리.
+// approved 면 middle + final 동시 도장 (관리자가 본 것 자체가 최종 승인) + schedules 휴무 동기화.
+// rejected 면 middle/final 모두 rejected + rejection_reason 저장.
+async function applyLeaveApproval(action, id, payload, reviewerId) {
+    const decision = payload?.decision;
+    const reason = payload?.reason || null;
+    const me = state.currentUser;
+    const adminId = me?.id || reviewerId || null;
+
+    if (decision === 'approved') {
+        const nowIso = new Date().toISOString();
+        const updateData = {
+            middle_manager_status: 'approved',
+            middle_approved_at: nowIso,
+            final_manager_id: adminId,
+            final_manager_status: 'approved',
+            final_approved_at: nowIso,
+            status: 'approved'
+        };
+        const { error } = await db.from('leave_requests').update(updateData).eq('id', id);
+        if (error) return { ok: false, error: error.message };
+
+        // schedules 휴무 동기화 (handleFinalApproval 의 syncLeaveToSchedules 와 동일 로직)
+        try {
+            const { data: req } = await db.from('leave_requests')
+                .select('employee_id, dates').eq('id', id).single();
+            if (req?.dates?.length) {
+                for (const date of req.dates) {
+                    const { data: existing } = await db.from('schedules')
+                        .select('id').eq('employee_id', req.employee_id).eq('date', date);
+                    if (existing && existing.length > 0) {
+                        await db.from('schedules').update({ status: '휴무' })
+                            .eq('employee_id', req.employee_id).eq('date', date);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('schedules 동기화 실패 (비치명적):', e);
+        }
+        return { ok: true };
+    }
+
+    if (decision === 'rejected') {
+        const updateData = {
+            middle_manager_status: 'rejected',
+            final_manager_status: 'rejected',
+            status: 'rejected'
+        };
+        if (reason) updateData.rejection_reason = reason;
+        const { error } = await db.from('leave_requests').update(updateData).eq('id', id);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+
+    return { ok: false, error: `unknown decision: ${decision}` };
 }
 
 async function applyDocumentRequest(action, id, payload) {
