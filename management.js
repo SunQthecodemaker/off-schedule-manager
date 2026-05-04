@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260502s';
+import { state, db, isVisibleIn } from './state.js?v=20260504a';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260426a';
+import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260504a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1398,13 +1398,23 @@ window.handleMiddleApproval = async function (requestId, status) {
         return;
     }
 
+    let reason = null;
     if (status === 'rejected') {
-        const reason = prompt('반려 사유를 입력해주세요:');
+        reason = prompt('반려 사유를 입력해주세요:');
         if (!reason) return;
     }
 
     const confirmed = confirm(status === 'approved' ? '중간 승인하시겠습니까?' : '반려하시겠습니까?');
     if (!confirmed) return;
+
+    if (isStagingMode()) {
+        const original = state.management.leaveRequests.find(r => r.id === requestId) || null;
+        const r = await stageChange('leave_approval', requestId, 'update',
+            { decision: status, reason: reason || null }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
 
     try {
         const updateData = {
@@ -1417,6 +1427,7 @@ window.handleMiddleApproval = async function (requestId, status) {
         if (status === 'rejected') {
             updateData.final_manager_status = 'rejected';
             updateData.status = 'rejected';
+            if (reason) updateData.rejection_reason = reason;
         }
 
         const { error } = await db.from('leave_requests')
@@ -1917,6 +1928,16 @@ window.handleSettlementSubmit = async function (e) {
             const currentCarriedOver = emp.carried_over_leave || 0;
             const newCarriedOver = currentCarriedOver + addAmount;
 
+            if (isStagingMode()) {
+                const r = await stageChange('leave_management', empId, 'update',
+                    { table: 'employees', data: { carried_over_leave: newCarriedOver } },
+                    { carried_over_leave: currentCarriedOver });
+                if (!r.ok) return alert('임시저장 실패: ' + r.error);
+                window.closeSettlementModal();
+                notifyStaged();
+                return;
+            }
+
             const { error } = await db.from('employees')
                 .update({ carried_over_leave: newCarriedOver })
                 .eq('id', empId);
@@ -2040,6 +2061,16 @@ window.addAdjustmentDetail = async function (empId, periodStartStr) {
     const leaveMgmtOffset = window.leaveMgmtOffsets?.[empId] || 0;
     if (leaveMgmtOffset === 0) updateData.leave_adjustment = total;
 
+    if (isStagingMode()) {
+        const original = { adjustments: emp.adjustments || {}, leave_adjustment: emp.leave_adjustment };
+        const r = await stageChange('leave_management', empId, 'update',
+            { table: 'employees', data: updateData }, original);
+        if (!r.ok) { alert('임시저장 실패: ' + r.error); return; }
+        document.getElementById('adjustment-detail-modal')?.remove();
+        notifyStaged();
+        return;
+    }
+
     const { error } = await db.from('employees').update(updateData).eq('id', empId);
     if (error) { alert('저장 실패: ' + error.message); return; }
 
@@ -2078,6 +2109,16 @@ window.removeAdjustmentDetail = async function (empId, periodStartStr, index) {
     const updateData = { adjustments };
     const leaveMgmtOffset = window.leaveMgmtOffsets?.[empId] || 0;
     if (leaveMgmtOffset === 0) updateData.leave_adjustment = total;
+
+    if (isStagingMode()) {
+        const original = { adjustments: emp.adjustments || {}, leave_adjustment: emp.leave_adjustment };
+        const r = await stageChange('leave_management', empId, 'update',
+            { table: 'employees', data: updateData }, original);
+        if (!r.ok) { alert('임시저장 실패: ' + r.error); return; }
+        document.getElementById('adjustment-detail-modal')?.remove();
+        notifyStaged();
+        return;
+    }
 
     const { error } = await db.from('employees').update(updateData).eq('id', empId);
     if (error) { alert('삭제 실패: ' + error.message); return; }
@@ -2122,6 +2163,20 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
         updateData.weekly_work_days = weekly_work_days;
     }
 
+    if (isStagingMode()) {
+        const original = {
+            adjustments: emp.adjustments || {},
+            leave_adjustment: emp.leave_adjustment,
+            carried_over_leave: emp.carried_over_leave,
+            leave_renewal_date: emp.leave_renewal_date,
+            weekly_work_days: emp.weekly_work_days
+        };
+        const r = await stageChange('leave_management', id, 'update',
+            { table: 'employees', data: updateData }, original);
+        if (!r.ok) { alert('임시저장 실패: ' + r.error); return; }
+        notifyStaged();
+        return;
+    }
 
     let { data, error } = await db.from('employees').update(updateData).eq('id', id).select();
 
