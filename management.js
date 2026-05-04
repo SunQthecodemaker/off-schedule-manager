@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260504b';
+import { state, db, isVisibleIn } from './state.js?v=20260504c';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, notifyStaged } from './staging.js?v=20260504b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260504c';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -161,6 +161,19 @@ function addManagementEventListeners() {
             return;
         }
 
+        if (shouldStage('employee_management')) {
+            if (!confirm(`선택된 ${idsToDelete.length}명을 삭제 요청하시겠습니까? (관리자 승인 후 반영)`)) return;
+            let staged = 0, failed = 0;
+            for (const id of idsToDelete) {
+                const original = state.management.employees.find(e => e.id === id) || null;
+                const r = await stageChange('employee', id, 'delete', { id }, original);
+                if (r.ok) staged++; else failed++;
+            }
+            if (failed > 0) alert(`${staged}건 임시저장 / ${failed}건 실패`);
+            else notifyStaged();
+            return;
+        }
+
         if (confirm(`정말로 선택된 ${idsToDelete.length}명의 직원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
             const { error } = await db.from('employees').delete().in('id', idsToDelete);
 
@@ -239,14 +252,14 @@ async function handleUpdateEmployee(id) {
         email,
         department_id,
         // 매니저 토글/role 변경은 admin만 가능 — staging payload에서 isManager 제외
-        ...(isStagingMode() ? {} : { isManager }),
+        ...(shouldStage('employee_management') ? {} : { isManager }),
         resignation_date,
         schedule_visible,
         leave_start_date,
         return_date
     };
 
-    if (isStagingMode()) {
+    if (shouldStage('employee_management')) {
         const original = state.management.employees.find(e => e.id === id) || null;
         const r = await stageChange('employee', id, 'update', payload, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
@@ -265,9 +278,8 @@ async function handleUpdateEmployee(id) {
 }
 
 async function handleDeleteEmployee(id) {
-    if (!confirm("정말로 이 직원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
-
-    if (isStagingMode()) {
+    if (shouldStage('employee_management')) {
+        if (!confirm('이 직원을 삭제 요청하시겠습니까? (관리자 승인 후 반영)')) return;
         const original = state.management.employees.find(e => e.id === id) || null;
         const r = await stageChange('employee', id, 'delete', { id }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
@@ -275,6 +287,7 @@ async function handleDeleteEmployee(id) {
         return;
     }
 
+    if (!confirm('정말로 이 직원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
     const { error } = await db.from('employees').delete().eq('id', id);
     if (error) {
         alert('직원 삭제 실패: ' + error.message);
@@ -338,7 +351,7 @@ window.handleRegisterNewEmployee = async function (btnElement) {
         regular_holiday_rules: []
     };
 
-    if (isStagingMode()) {
+    if (shouldStage('employee_management')) {
         const r = await stageChange('employee', null, 'create', newEmpPayload, null);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
         _('#newName').value = '';
@@ -426,6 +439,25 @@ window.handleIssueSubmit = async function (e) {
             }
         }
 
+        const requestPayload = {
+            employee_id: employeeId,
+            document_name: employee ? employee.name : '알 수 없음',
+            type: docType,
+            message: details,
+            note: details,
+            status: 'pending',
+            created_at: new Date().toISOString()
+        };
+
+        if (shouldStage('employee_management')) {
+            const r = await stageChange('document_request', null, 'create', requestPayload, null);
+            if (!r.ok) { alert('임시저장 실패: ' + r.error); return; }
+            document.querySelector('#issue-modal').classList.add('hidden');
+            _('#issue-form').reset();
+            notifyStaged();
+            return;
+        }
+
         const { error } = await db.from('document_requests').insert({
             employee_id: employeeId,
             document_name: employee ? employee.name : '알 수 없음',
@@ -488,6 +520,15 @@ window.handleRetireEmployee = async function (id) {
         return;
     }
 
+    if (shouldStage('employee_management')) {
+        if (!confirm('해당 직원을 퇴사 처리 요청하시겠습니까? (관리자 승인 후 반영)')) return;
+        const original = state.management.employees.find(e => e.id === id) || null;
+        const r = await stageChange('employee', id, 'update', { resignation_date: date }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     if (confirm("해당 직원을 퇴사 처리하시겠습니까? 퇴사 처리 된 직원은 [퇴사자] 탭에서 확인할 수 있습니다.")) {
         const { error } = await db.from('employees').update({ resignation_date: date }).eq('id', id);
         if (error) {
@@ -519,6 +560,13 @@ window.handleResetPassword = async function (id) {
 
         if (!confirm(`${empName}님의 비밀번호를 임시 비밀번호로 초기화하고\n이메일(${empEmail})로 발송하시겠습니까?`)) return;
 
+        if (shouldStage('employee_management')) {
+            const r = await stageChange('employee', id, 'update', { password: tempPassword }, { id });
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+            alert(`비밀번호 초기화 요청이 임시저장되었습니다. 관리자 승인 후 반영됩니다.\n\n예정 임시 비밀번호: ${tempPassword}\n(승인 후 직원에게 전달)`);
+            return;
+        }
+
         const { error } = await db.from('employees').update({ password: tempPassword }).eq('id', id);
         if (error) {
             alert('비밀번호 초기화 실패: ' + error.message);
@@ -539,6 +587,13 @@ window.handleResetPassword = async function (id) {
 
         if (!confirm(`${empName}님은 이메일이 등록되어 있지 않아\n비밀번호를 "${defaultPassword}"로 초기화합니다.\n\n⚠️ 보안을 위해 직원에게 이메일 등록을 권장해주세요.\n\n진행하시겠습니까?`)) return;
 
+        if (shouldStage('employee_management')) {
+            const r = await stageChange('employee', id, 'update', { password: defaultPassword }, { id });
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+            alert(`비밀번호 초기화 요청이 임시저장되었습니다. 관리자 승인 후 반영됩니다.`);
+            return;
+        }
+
         const { error } = await db.from('employees').update({ password: defaultPassword }).eq('id', id);
         if (error) {
             alert('비밀번호 초기화 실패: ' + error.message);
@@ -549,6 +604,15 @@ window.handleResetPassword = async function (id) {
 };
 
 window.handleRestoreEmployee = async function (id) {
+    if (shouldStage('employee_management')) {
+        if (!confirm('해당 직원을 복직 처리 요청하시겠습니까? (관리자 승인 후 반영)')) return;
+        const original = state.management.employees.find(e => e.id === id) || null;
+        const r = await stageChange('employee', id, 'update', { resignation_date: null }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     if (confirm("해당 직원을 복직 처리하시겠습니까? 다시 [재직자] 탭으로 이동됩니다.")) {
         const { error } = await db.from('employees').update({ resignation_date: null }).eq('id', id);
         if (error) {
@@ -710,7 +774,7 @@ async function handleAddNewDepartment() {
         return;
     }
 
-    if (isStagingMode()) {
+    if (shouldStage('department')) {
         const r = await stageChange('department', null, 'create', { name }, null);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
         nameInput.value = '';
@@ -734,7 +798,7 @@ async function handleUpdateDepartment(id) {
         return;
     }
 
-    if (isStagingMode()) {
+    if (shouldStage('department')) {
         const original = state.management.departments.find(d => d.id === id) || null;
         const r = await stageChange('department', id, 'update', { name }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
@@ -752,15 +816,16 @@ async function handleUpdateDepartment(id) {
 }
 
 async function handleDeleteDepartment(id) {
-    if (!confirm(`정말로 이 부서를 삭제하시겠습니까 ? 해당 부서의 직원들은 '부서 미지정' 상태가 됩니다.`)) return;
-
-    if (isStagingMode()) {
+    if (shouldStage('department')) {
+        if (!confirm('이 부서를 삭제 요청하시겠습니까? (관리자 승인 후 반영)')) return;
         const original = state.management.departments.find(d => d.id === id) || null;
         const r = await stageChange('department', id, 'delete', { id }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
         notifyStaged();
         return;
     }
+
+    if (!confirm(`정말로 이 부서를 삭제하시겠습니까 ? 해당 부서의 직원들은 '부서 미지정' 상태가 됩니다.`)) return;
 
     const { error: updateError } = await db.from('employees').update({ department_id: null }).eq('department_id', id);
     if (updateError) {
@@ -1421,7 +1486,7 @@ window.handleMiddleApproval = async function (requestId, status) {
     const confirmed = confirm(status === 'approved' ? '중간 승인하시겠습니까?' : '반려하시겠습니까?');
     if (!confirmed) return;
 
-    if (isStagingMode()) {
+    if (shouldStage('leave_request_list')) {
         const original = state.management.leaveRequests.find(r => r.id === requestId) || null;
         const r = await stageChange('leave_approval', requestId, 'update',
             { decision: status, reason: reason || null }, original);
@@ -1544,8 +1609,17 @@ async function syncLeaveToSchedules(requestId) {
     }
 }
 
-// 기존 함수 (하위 호환성)
+// 달력 이벤트 클릭 즉시 승인 (legacy 호환). 매니저는 staging 으로.
 window.handleLeaveApproval = async function (requestId, status) {
+    if (shouldStage('leave_request_list')) {
+        const original = state.management.leaveRequests.find(r => r.id === requestId) || null;
+        const r = await stageChange('leave_approval', requestId, 'update',
+            { decision: status, reason: null }, original);
+        if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        notifyStaged();
+        return;
+    }
+
     try {
         const { error } = await db.from('leave_requests')
             .update({ status })
@@ -1607,6 +1681,18 @@ export async function handleBulkRegister() {
     });
 
     if (employeesToInsert.length > 0) {
+        if (shouldStage('employee_management')) {
+            let staged = 0;
+            for (const emp of employeesToInsert) {
+                const r = await stageChange('employee', null, 'create', emp, null);
+                if (r.ok) staged++; else errors.push(`임시저장 실패 (${emp.name}): ${r.error}`);
+            }
+            const stageMsg = `총 ${lines.length}건 중 ${staged}건 임시저장 / ${errors.length}건 실패\n관리자 승인 후 반영됩니다.`;
+            resultDiv.textContent = errors.length > 0 ? stageMsg + '\n\n실패 사유:\n' + errors.join('\n') : stageMsg;
+            registerBtn.disabled = false;
+            return;
+        }
+
         const { error } = await db.from('employees').insert(employeesToInsert);
         if (error) {
             errors.push(`데이터베이스 저장 실패: ${error.message} `);
@@ -1942,7 +2028,7 @@ window.handleSettlementSubmit = async function (e) {
             const currentCarriedOver = emp.carried_over_leave || 0;
             const newCarriedOver = currentCarriedOver + addAmount;
 
-            if (isStagingMode()) {
+            if (shouldStage('leave_management')) {
                 const r = await stageChange('leave_management', empId, 'update',
                     { table: 'employees', data: { carried_over_leave: newCarriedOver } },
                     { carried_over_leave: currentCarriedOver });
@@ -2075,7 +2161,7 @@ window.addAdjustmentDetail = async function (empId, periodStartStr) {
     const leaveMgmtOffset = window.leaveMgmtOffsets?.[empId] || 0;
     if (leaveMgmtOffset === 0) updateData.leave_adjustment = total;
 
-    if (isStagingMode()) {
+    if (shouldStage('leave_management')) {
         const original = { adjustments: emp.adjustments || {}, leave_adjustment: emp.leave_adjustment };
         const r = await stageChange('leave_management', empId, 'update',
             { table: 'employees', data: updateData }, original);
@@ -2124,7 +2210,7 @@ window.removeAdjustmentDetail = async function (empId, periodStartStr, index) {
     const leaveMgmtOffset = window.leaveMgmtOffsets?.[empId] || 0;
     if (leaveMgmtOffset === 0) updateData.leave_adjustment = total;
 
-    if (isStagingMode()) {
+    if (shouldStage('leave_management')) {
         const original = { adjustments: emp.adjustments || {}, leave_adjustment: emp.leave_adjustment };
         const r = await stageChange('leave_management', empId, 'update',
             { table: 'employees', data: updateData }, original);
@@ -2177,7 +2263,7 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
         updateData.weekly_work_days = weekly_work_days;
     }
 
-    if (isStagingMode()) {
+    if (shouldStage('leave_management')) {
         const original = {
             adjustments: emp.adjustments || {},
             leave_adjustment: emp.leave_adjustment,
@@ -2692,6 +2778,13 @@ async function handleLeaveBoxClick(e) {
     );
 
     if (action === '2') {
+        if (shouldStage('leave_request_list')) {
+            if (!confirm(`삭제 요청하시겠습니까? (관리자 승인 후 반영)\n\n${empName} - ${dateStr}`)) return;
+            const r = await stageChange('leave_request', parseInt(requestId, 10), 'delete', { id: parseInt(requestId, 10) }, request);
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+            notifyStaged();
+            return;
+        }
         if (confirm(`정말 삭제하시겠습니까?\n\n${empName} - ${dateStr}`)) {
             try {
                 const { error } = await db.from('leave_requests').delete().eq('id', requestId);
@@ -2845,6 +2938,13 @@ export async function cancelManualLeave(employeeId, date) {
 
     if (isManual) {
         // 1. 관리자 수동 등록 건 -> 삭제
+        if (shouldStage('leave_request_list')) {
+            if (!confirm(`${empName}님의 ${date} 연차 삭제 요청하시겠습니까? (관리자 승인 후 반영)`)) return;
+            const r = await stageChange('leave_request', targetLeave.id, 'delete', { id: targetLeave.id }, targetLeave);
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+            notifyStaged();
+            return;
+        }
         if (!confirm(`${empName}님의 ${date} 연차(관리자 등록)를 삭제하시겠습니까?\n(기록이 완전히 삭제됩니다)`)) return;
 
         try {
@@ -2867,6 +2967,14 @@ export async function cancelManualLeave(employeeId, date) {
 
     } else {
         // 2. 직원 신청 건 -> 반려 처리
+        if (shouldStage('leave_request_list')) {
+            if (!confirm(`${empName}님의 ${date} 연차 반려 요청하시겠습니까? (관리자 승인 후 반영)`)) return;
+            const r = await stageChange('leave_approval', targetLeave.id, 'update',
+                { decision: 'rejected', reason: '스케줄 관리 화면에서 매니저 반려 요청' }, targetLeave);
+            if (!r.ok) return alert('임시저장 실패: ' + r.error);
+            notifyStaged();
+            return;
+        }
         if (!confirm(`${empName}님이 신청한 연차입니다.\n정말로 '반려(취소)' 처리하시겠습니까?\n(기록은 'rejected' 상태로 남습니다)`)) return;
 
         try {
@@ -2961,6 +3069,15 @@ export async function registerManualLeave(employeeId, employeeName = null, defau
                 final_manager_status: 'approved',
                 created_at: new Date().toISOString()
             };
+
+            if (shouldStage('leave_request_list')) {
+                // 매니저는 임시저장 — pending 상태로 보내고 관리자 승인 시 leave_request reducer 가 INSERT + 스케줄 동기화
+                const stagingPayload = { ...newRequest, status: 'pending', final_manager_id: null, final_manager_status: null };
+                const r = await stageChange('leave_request', null, 'create', stagingPayload, null);
+                if (!r.ok) return alert('임시저장 실패: ' + r.error);
+                notifyStaged();
+                return;
+            }
 
             const { error } = await db.from('leave_requests').insert(newRequest);
 

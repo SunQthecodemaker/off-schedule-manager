@@ -5,7 +5,7 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20260504b';
+import { state, db } from './state.js?v=20260504c';
 
 // ---------- 매니저 측: 임시저장 ----------
 
@@ -52,10 +52,28 @@ export async function getStagingForEntity(entityType, entityId) {
 
 /**
  * 매니저 모드인지 판단. 관리자(state.userRole==='admin')는 false 반환.
- * 5개 메뉴 핸들러 진입 시 이 함수로 분기 → true면 stageChange 후 return.
+ * @deprecated shouldStage(menuKey) 권장 — 메뉴별 [확정] 권한 분기 가능.
  */
 export function isStagingMode() {
     return state.userRole !== 'admin';
+}
+
+/**
+ * 핸들러가 임시저장(staging) 으로 가야 하는지 판단.
+ * - admin: 항상 false (즉시 반영)
+ * - 매니저: 해당 메뉴의 [확정] 권한 켜져 있으면 false (즉시), 꺼져 있으면 true (임시저장)
+ * - 일반 직원: true (안전하게 임시저장 — 사실 호출 자체가 잘못된 경로)
+ * @param {string} menuKey  manager_permissions 의 메뉴 키
+ *   (schedule | leave_request_list | leave_status | document_review |
+ *    leave_management | employee_management | department | form)
+ */
+export function shouldStage(menuKey) {
+    if (state.userRole === 'admin') return false;
+    const u = state.currentUser;
+    if (!u) return true;
+    const perm = u.manager_permissions && u.manager_permissions[menuKey];
+    if (!perm) return true;  // 권한 정보 없으면 안전쪽으로 staging
+    return !perm.commit;
 }
 
 /** 공통 토스트(없으면 alert) */
@@ -148,6 +166,8 @@ async function applyChange(change) {
                 return await applyLeaveManagement(action, entity_id, payload);
             case 'leave_approval':
                 return await applyLeaveApproval(action, entity_id, payload, change.reviewed_by);
+            case 'leave_request':
+                return await applyLeaveRequest(action, entity_id, payload);
             case 'document_request':
                 return await applyDocumentRequest(action, entity_id, payload);
             case 'document':
@@ -268,6 +288,38 @@ async function applyLeaveApproval(action, id, payload, reviewerId) {
     }
 
     return { ok: false, error: `unknown decision: ${decision}` };
+}
+
+// 매니저의 단일 연차 신청 CRUD (우클릭 삭제·취소·수동등록 등 leave_approval 외 경로).
+// payload 구조에 따라 적절히 처리.
+async function applyLeaveRequest(action, id, payload) {
+    if (action === 'create') {
+        const { error } = await db.from('leave_requests').insert([payload]);
+        if (error) return { ok: false, error: error.message };
+        // 휴무 동기화 (수동 등록 시 schedules 도 휴무로)
+        if (payload?.employee_id && Array.isArray(payload?.dates)) {
+            try {
+                for (const date of payload.dates) {
+                    const { data: existing } = await db.from('schedules')
+                        .select('id').eq('employee_id', payload.employee_id).eq('date', date);
+                    if (existing && existing.length > 0) {
+                        await db.from('schedules').update({ status: '휴무' })
+                            .eq('employee_id', payload.employee_id).eq('date', date);
+                    }
+                }
+            } catch (e) { console.warn('schedules 동기화 실패:', e); }
+        }
+        return { ok: true };
+    }
+    if (action === 'update') {
+        const { error } = await db.from('leave_requests').update(payload).eq('id', id);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+    if (action === 'delete') {
+        const { error } = await db.from('leave_requests').delete().eq('id', id);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+    return { ok: false, error: 'unknown action' };
 }
 
 async function applyDocumentRequest(action, id, payload) {
