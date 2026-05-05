@@ -881,6 +881,149 @@ export function getDepartmentManagementHTML() {
 // 연차 신청 목록
 // =========================================================================================
 
+// 월별 섹션 영역만 별도 빌드 — 달력 prev/next 시 syncLeaveListMonth 가 재호출.
+// 정렬: currentMonth + 직전 2개월 = recent (currentMonth 펼침), 그 외 모두 = 과거 토글.
+function buildLeaveMonthSectionsHTML(currentMonth) {
+    const { leaveRequests, employees } = state.management;
+    const isAdmin = state.currentUser?.role === 'admin';
+
+    const employeeNameMap = employees.reduce((map, emp) => {
+        if (!isVisibleIn('leave_review', emp)) return map;
+        const suffix = emp.resignation_date ? ' (퇴사)' : '';
+        map[emp.id] = emp.name + suffix;
+        return map;
+    }, {});
+
+    const filteredRequests = leaveRequests.filter(req => employeeNameMap[req.employee_id]);
+
+    // 월별 그룹핑 (한 신청이 월을 걸치면 각 월에 분해)
+    const monthGroups = {};
+    filteredRequests.forEach(req => {
+        const dates = req.dates || [];
+        if (dates.length === 0) {
+            if (!monthGroups['unknown']) monthGroups['unknown'] = [];
+            monthGroups['unknown'].push({ req, monthDates: [] });
+            return;
+        }
+        const datesByMonth = {};
+        dates.forEach(d => {
+            const m = d.substring(0, 7);
+            if (!datesByMonth[m]) datesByMonth[m] = [];
+            datesByMonth[m].push(d);
+        });
+        Object.entries(datesByMonth).forEach(([month, monthDates]) => {
+            if (!monthGroups[month]) monthGroups[month] = [];
+            monthGroups[month].push({ req, monthDates });
+        });
+    });
+
+    const buildRow = ({ req, monthDates }) => {
+        const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
+        const finalStatus = req.final_manager_status || 'pending';
+        const finalText = { pending: '대기', approved: '승인', rejected: '반려' }[finalStatus] || '대기';
+        const finalColor = { pending: 'text-yellow-600', approved: 'text-green-600', rejected: 'text-red-600' }[finalStatus] || 'text-yellow-600';
+        let middleStatus = req.middle_manager_status || 'pending';
+        let middleText = '대기', middleColor = 'text-yellow-600';
+        if (middleStatus === 'approved') { middleText = '승인'; middleColor = 'text-green-600'; }
+        else if (middleStatus === 'rejected') { middleText = '반려'; middleColor = 'text-red-600'; }
+        else if (middleStatus === 'skipped') { middleText = '생략'; middleColor = 'text-gray-400 line-through'; }
+        if (finalStatus !== 'pending' && middleStatus !== 'approved' && middleStatus !== 'rejected') {
+            middleText = '생략'; middleColor = 'text-gray-400 line-through'; middleStatus = 'skipped';
+        }
+        const currentUser = state.currentUser;
+        let actions = '';
+        if (finalStatus === 'rejected') {
+            actions = '<span class="text-xs text-red-400">반려됨</span>';
+        } else if (finalStatus === 'approved') {
+            actions = '<span class="text-xs text-green-600">승인완료</span>';
+        } else if (currentUser.role === 'admin') {
+            actions = `<button onclick="window.handleFinalApproval(${req.id}, 'approved')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">승인</button>
+                <button onclick="window.handleFinalApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>`;
+        } else if (currentUser.isManager) {
+            if (middleStatus === 'pending') {
+                actions = `<button onclick="window.handleMiddleApproval(${req.id}, 'approved')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">승인</button>
+                    <button onclick="window.handleMiddleApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>`;
+            } else {
+                actions = '<span class="text-xs text-gray-400">최종승인 대기</span>';
+            }
+        } else {
+            actions = '<span class="text-xs text-gray-400">-</span>';
+        }
+        const monthDatesArr = monthDates && monthDates.length > 0 ? monthDates : (req.dates || []);
+        const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ');
+        const dateCount = req.dates?.length || 0;
+        const checkboxCell = isAdmin
+            ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
+            : '';
+        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
+            ${checkboxCell}
+            <td class="py-1 px-2 text-sm">${employeeName}</td>
+            <td class="py-1 px-2 text-sm">${datesText}</td>
+            <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
+            <td class="py-1 px-2 text-sm text-center">
+                <div class="text-xs">
+                    <span>매니저:</span> <span class="${middleColor} font-semibold">${middleText}</span>
+                    <span class="ml-2">최종:</span> <span class="${finalColor} font-semibold">${finalText}</span>
+                </div>
+            </td>
+            <td class="py-1 px-2 text-center">${actions}</td>
+        </tr>`;
+    };
+
+    const buildMonthSection = (month, entries, isOpen) => {
+        const pendingCount = entries.filter(e => ((e.req.final_manager_status) || 'pending') === 'pending').length;
+        const label = month === 'unknown' ? '날짜 없음' : `${month.replace('-', '년 ')}월`;
+        const pendingBadge = pendingCount > 0 ? `<span class="ml-2 bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">${pendingCount}건 대기</span>` : '';
+        return `
+            <div class="month-section mb-3 border rounded-lg overflow-hidden" data-month="${month}">
+                <button onclick="window.toggleMonthSection('${month}')" class="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 text-left font-semibold text-sm">
+                    <span>${label} (${entries.length}건) ${pendingBadge}</span>
+                    <span class="month-toggle-icon text-gray-400">${isOpen ? '▲' : '▼'}</span>
+                </button>
+                <div class="month-content" style="display:${isOpen ? 'block' : 'none'}">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                ${isAdmin ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
+                                <th class="py-1 px-2 text-left text-xs font-semibold">직원</th>
+                                <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold">일수</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold">결재현황</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold">처리</th>
+                            </tr>
+                        </thead>
+                        <tbody>${entries.map(buildRow).join('')}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    };
+
+    const allMonths = Object.keys(monthGroups);
+    if (allMonths.length === 0) {
+        return '<p class="text-center text-gray-500 py-8">표시할 연차 신청 기록이 없습니다.</p>';
+    }
+
+    // 현재 표시 월 + 직전 2개월 = recent (currentMonth 만 펼침). 그 외 = 과거 토글.
+    const prev1 = dayjs(currentMonth + '-01').subtract(1, 'month').format('YYYY-MM');
+    const prev2 = dayjs(currentMonth + '-01').subtract(2, 'month').format('YYYY-MM');
+    const recentSet = new Set([currentMonth, prev1, prev2]);
+    const recentOrdered = [currentMonth, prev1, prev2].filter(m => monthGroups[m]);
+    const otherMonths = allMonths.filter(m => !recentSet.has(m)).sort((a, b) => b.localeCompare(a));
+
+    let html = recentOrdered.map(m => buildMonthSection(m, monthGroups[m], m === currentMonth)).join('');
+    if (otherMonths.length > 0) {
+        const oldSections = otherMonths.map(m => buildMonthSection(m, monthGroups[m], false)).join('');
+        html += `
+            <button onclick="window.toggleOldLeaveHistory()" id="leave-old-history-toggle" class="w-full text-center text-sm text-gray-600 hover:bg-gray-100 py-2 mb-2 border rounded-lg">
+                과거기록 보기 (${otherMonths.length}개월) ▼
+            </button>
+            <div id="leave-old-history-container" style="display:none">
+                ${oldSections}
+            </div>`;
+    }
+    return html;
+}
+
 export function getLeaveListHTML() {
     const { leaveRequests, employees } = state.management;
 
@@ -1006,142 +1149,9 @@ export function getLeaveListHTML() {
 
     // 오늘 날짜 기준 해당 월
     const currentMonthVal = state.management.currentListMonth || dayjs().format('YYYY-MM');
-
-    // 월별로 그룹핑 — 한 신청이 월을 걸치면 해당 월 섹션마다 행을 만듦
-    // monthGroups[month] = [{ req, monthDates: [...해당 월에 속한 날짜만] }, ...]
-    const monthGroups = {};
-    filteredRequests.forEach(req => {
-        const dates = req.dates || [];
-        if (dates.length === 0) {
-            if (!monthGroups['unknown']) monthGroups['unknown'] = [];
-            monthGroups['unknown'].push({ req, monthDates: [] });
-            return;
-        }
-        // 날짜를 월별로 분해
-        const datesByMonth = {};
-        dates.forEach(d => {
-            const m = d.substring(0, 7);
-            if (!datesByMonth[m]) datesByMonth[m] = [];
-            datesByMonth[m].push(d);
-        });
-        Object.entries(datesByMonth).forEach(([month, monthDates]) => {
-            if (!monthGroups[month]) monthGroups[month] = [];
-            monthGroups[month].push({ req, monthDates });
-        });
-    });
-
-    // 월 내림차순 정렬 (최신 월이 위)
-    const sortedMonths = Object.keys(monthGroups).sort((a, b) => b.localeCompare(a));
-
-    const buildRow = ({ req, monthDates }) => {
-        const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
-        const finalStatus = req.final_manager_status || 'pending';
-        const finalText = { pending: '대기', approved: '승인', rejected: '반려' }[finalStatus] || '대기';
-        const finalColor = { pending: 'text-yellow-600', approved: 'text-green-600', rejected: 'text-red-600' }[finalStatus] || 'text-yellow-600';
-        let middleStatus = req.middle_manager_status || 'pending';
-        let middleText = '대기', middleColor = 'text-yellow-600';
-        if (middleStatus === 'approved') { middleText = '승인'; middleColor = 'text-green-600'; }
-        else if (middleStatus === 'rejected') { middleText = '반려'; middleColor = 'text-red-600'; }
-        else if (middleStatus === 'skipped') { middleText = '생략'; middleColor = 'text-gray-400 line-through'; }
-        if (finalStatus !== 'pending' && middleStatus !== 'approved' && middleStatus !== 'rejected') {
-            middleText = '생략'; middleColor = 'text-gray-400 line-through'; middleStatus = 'skipped';
-        }
-        const currentUser = state.currentUser;
-        let actions = '';
-        if (finalStatus === 'rejected') {
-            actions = '<span class="text-xs text-red-400">반려됨</span>';
-        } else if (finalStatus === 'approved') {
-            actions = '<span class="text-xs text-green-600">승인완료</span>';
-        } else if (currentUser.role === 'admin') {
-            actions = `<button onclick="window.handleFinalApproval(${req.id}, 'approved')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">승인</button>
-                <button onclick="window.handleFinalApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>`;
-        } else if (currentUser.isManager) {
-            if (middleStatus === 'pending') {
-                actions = `<button onclick="window.handleMiddleApproval(${req.id}, 'approved')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">승인</button>
-                    <button onclick="window.handleMiddleApproval(${req.id}, 'rejected')" class="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 ml-1">반려</button>`;
-            } else {
-                actions = '<span class="text-xs text-gray-400">최종승인 대기</span>';
-            }
-        } else {
-            actions = '<span class="text-xs text-gray-400">-</span>';
-        }
-        // 월 섹션 행: 그 월에 속한 날짜만 일(day) 단위로 표시. 일수는 신청 전체 일수 유지.
-        const monthDatesArr = monthDates && monthDates.length > 0 ? monthDates : (req.dates || []);
-        const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ');
-        const dateCount = req.dates?.length || 0;
-        const checkboxCell = isAdmin
-            ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
-            : '';
-        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
-            ${checkboxCell}
-            <td class="py-1 px-2 text-sm">${employeeName}</td>
-            <td class="py-1 px-2 text-sm">${datesText}</td>
-            <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
-            <td class="py-1 px-2 text-sm text-center">
-                <div class="text-xs">
-                    <span>매니저:</span> <span class="${middleColor} font-semibold">${middleText}</span>
-                    <span class="ml-2">최종:</span> <span class="${finalColor} font-semibold">${finalText}</span>
-                </div>
-            </td>
-            <td class="py-1 px-2 text-center">${actions}</td>
-        </tr>`;
-    };
-
-    // 월별 아코디언 HTML 생성 (최근 3개월 + 나머지는 "과거기록 보기" 토글)
-    const RECENT_MONTHS_VISIBLE = 3;
     const isAdmin = state.currentUser?.role === 'admin';
     const totalPending = filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
-
-    const buildMonthSection = (month, entries, isOpen) => {
-        const pendingCount = entries.filter(e => ((e.req.final_manager_status) || 'pending') === 'pending').length;
-        const label = month === 'unknown' ? '날짜 없음' : `${month.replace('-', '년 ')}월`;
-        const pendingBadge = pendingCount > 0 ? `<span class="ml-2 bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">${pendingCount}건 대기</span>` : '';
-        return `
-            <div class="month-section mb-3 border rounded-lg overflow-hidden" data-month="${month}">
-                <button onclick="window.toggleMonthSection('${month}')" class="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 text-left font-semibold text-sm">
-                    <span>${label} (${entries.length}건) ${pendingBadge}</span>
-                    <span class="month-toggle-icon text-gray-400">${isOpen ? '▲' : '▼'}</span>
-                </button>
-                <div class="month-content" style="display:${isOpen ? 'block' : 'none'}">
-                    <table class="min-w-full text-sm">
-                        <thead class="bg-gray-100">
-                            <tr>
-                                ${isAdmin ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
-                                <th class="py-1 px-2 text-left text-xs font-semibold">직원</th>
-                                <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold">일수</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold">결재현황</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold">처리</th>
-                            </tr>
-                        </thead>
-                        <tbody>${entries.map(buildRow).join('')}</tbody>
-                    </table>
-                </div>
-            </div>`;
-    };
-
-    let monthSections = '';
-    if (sortedMonths.length === 0) {
-        monthSections = '<p class="text-center text-gray-500 py-8">표시할 연차 신청 기록이 없습니다.</p>';
-    } else {
-        const recentMonths = sortedMonths.slice(0, RECENT_MONTHS_VISIBLE);
-        const oldMonths = sortedMonths.slice(RECENT_MONTHS_VISIBLE);
-
-        // 최근 3개월: 첫 번째만 펼침, 나머지 접힘
-        monthSections += recentMonths.map((month, idx) => buildMonthSection(month, monthGroups[month], idx === 0)).join('');
-
-        // 과거기록 보기 토글
-        if (oldMonths.length > 0) {
-            const oldSections = oldMonths.map(month => buildMonthSection(month, monthGroups[month], false)).join('');
-            monthSections += `
-                <button onclick="window.toggleOldLeaveHistory()" id="leave-old-history-toggle" class="w-full text-center text-sm text-gray-600 hover:bg-gray-100 py-2 mb-2 border rounded-lg">
-                    과거기록 보기 (${oldMonths.length}개월) ▼
-                </button>
-                <div id="leave-old-history-container" style="display:none">
-                    ${oldSections}
-                </div>`;
-        }
-    }
+    const monthSections = buildLeaveMonthSectionsHTML(currentMonthVal);
 
     return `
         <h2 class="text-lg font-semibold mb-4">연차 신청 목록</h2>
@@ -1489,33 +1499,15 @@ window.renderLeaveCalendar = function (containerSelector) {
     calendar.render();
 };
 
-// 달력의 현재 월에 맞춰 목록 아코디언 펼침/접힘 동기화
+// 달력의 현재 월에 맞춰 목록을 재빌드 — 정렬 (현재 월 + 직전 2개월 = recent, 그 외 = 과거 토글) 도 다시 적용.
 window.syncLeaveListMonth = function (month) {
-    const sections = document.querySelectorAll('#leave-month-sections .month-section');
-    if (!sections.length) return;
-    let matched = false;
-    sections.forEach(section => {
-        const m = section.dataset.month;
-        const content = section.querySelector('.month-content');
-        const icon = section.querySelector('.month-toggle-icon');
-        if (!content || !icon) return;
-        const open = (m === month);
-        content.style.display = open ? 'block' : 'none';
-        icon.textContent = open ? '▲' : '▼';
-        if (open) matched = true;
-    });
-    // 해당 월 섹션이 과거기록 (3개월 이전) 컨테이너에 있다면 컨테이너를 펼침
-    if (matched) {
-        const oldContainer = document.getElementById('leave-old-history-container');
-        if (oldContainer) {
-            const targetSection = oldContainer.querySelector(`.month-section[data-month="${month}"]`);
-            if (targetSection && oldContainer.style.display === 'none') {
-                oldContainer.style.display = 'block';
-                const btn = document.getElementById('leave-old-history-toggle');
-                if (btn) btn.innerHTML = btn.innerHTML.replace('▼', '▲');
-            }
-        }
-    }
+    if (!month) return;
+    state.management.currentListMonth = month;
+    const container = document.getElementById('leave-month-sections');
+    if (!container) return;
+    container.innerHTML = buildLeaveMonthSectionsHTML(month);
+    // 기존 status/employee 필터 유지
+    if (typeof applyListFilters === 'function') applyListFilters();
 };
 
 
