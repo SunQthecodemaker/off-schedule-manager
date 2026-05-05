@@ -1007,20 +1007,33 @@ export function getLeaveListHTML() {
     // 오늘 날짜 기준 해당 월
     const currentMonthVal = state.management.currentListMonth || dayjs().format('YYYY-MM');
 
-    // 월별로 그룹핑
+    // 월별로 그룹핑 — 한 신청이 월을 걸치면 해당 월 섹션마다 행을 만듦
+    // monthGroups[month] = [{ req, monthDates: [...해당 월에 속한 날짜만] }, ...]
     const monthGroups = {};
     filteredRequests.forEach(req => {
         const dates = req.dates || [];
-        // 첫 번째 날짜의 월을 기준으로 그룹핑
-        const month = dates.length > 0 ? dates[0].substring(0, 7) : 'unknown';
-        if (!monthGroups[month]) monthGroups[month] = [];
-        monthGroups[month].push(req);
+        if (dates.length === 0) {
+            if (!monthGroups['unknown']) monthGroups['unknown'] = [];
+            monthGroups['unknown'].push({ req, monthDates: [] });
+            return;
+        }
+        // 날짜를 월별로 분해
+        const datesByMonth = {};
+        dates.forEach(d => {
+            const m = d.substring(0, 7);
+            if (!datesByMonth[m]) datesByMonth[m] = [];
+            datesByMonth[m].push(d);
+        });
+        Object.entries(datesByMonth).forEach(([month, monthDates]) => {
+            if (!monthGroups[month]) monthGroups[month] = [];
+            monthGroups[month].push({ req, monthDates });
+        });
     });
 
     // 월 내림차순 정렬 (최신 월이 위)
     const sortedMonths = Object.keys(monthGroups).sort((a, b) => b.localeCompare(a));
 
-    const buildRow = (req) => {
+    const buildRow = ({ req, monthDates }) => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
         const finalStatus = req.final_manager_status || 'pending';
         const finalText = { pending: '대기', approved: '승인', rejected: '반려' }[finalStatus] || '대기';
@@ -1052,7 +1065,9 @@ export function getLeaveListHTML() {
         } else {
             actions = '<span class="text-xs text-gray-400">-</span>';
         }
-        const datesText = (req.dates || []).join(', ');
+        // 월 섹션 행: 그 월에 속한 날짜만 일(day) 단위로 표시. 일수는 신청 전체 일수 유지.
+        const monthDatesArr = monthDates && monthDates.length > 0 ? monthDates : (req.dates || []);
+        const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ');
         const dateCount = req.dates?.length || 0;
         const checkboxCell = isAdmin
             ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
@@ -1077,14 +1092,14 @@ export function getLeaveListHTML() {
     const isAdmin = state.currentUser?.role === 'admin';
     const totalPending = filteredRequests.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
 
-    const buildMonthSection = (month, reqs, isOpen) => {
-        const pendingCount = reqs.filter(r => (r.final_manager_status || 'pending') === 'pending').length;
+    const buildMonthSection = (month, entries, isOpen) => {
+        const pendingCount = entries.filter(e => ((e.req.final_manager_status) || 'pending') === 'pending').length;
         const label = month === 'unknown' ? '날짜 없음' : `${month.replace('-', '년 ')}월`;
         const pendingBadge = pendingCount > 0 ? `<span class="ml-2 bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">${pendingCount}건 대기</span>` : '';
         return `
             <div class="month-section mb-3 border rounded-lg overflow-hidden" data-month="${month}">
                 <button onclick="window.toggleMonthSection('${month}')" class="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 text-left font-semibold text-sm">
-                    <span>${label} (${reqs.length}건) ${pendingBadge}</span>
+                    <span>${label} (${entries.length}건) ${pendingBadge}</span>
                     <span class="month-toggle-icon text-gray-400">${isOpen ? '▲' : '▼'}</span>
                 </button>
                 <div class="month-content" style="display:${isOpen ? 'block' : 'none'}">
@@ -1099,7 +1114,7 @@ export function getLeaveListHTML() {
                                 <th class="py-1 px-2 text-center text-xs font-semibold">처리</th>
                             </tr>
                         </thead>
-                        <tbody>${reqs.map(buildRow).join('')}</tbody>
+                        <tbody>${entries.map(buildRow).join('')}</tbody>
                     </table>
                 </div>
             </div>`;
@@ -1461,10 +1476,46 @@ window.renderLeaveCalendar = function (containerSelector) {
         },
         height: '100%',     // 부모 (#leave-calendar-container) 높이를 그대로 따라감
         expandRows: true,   // 6주 row 를 부모 높이 안에서 균등 분배
-        dayMaxEvents: false // 셀 안 모든 이벤트 표시 (2열 레이아웃은 CSS .fc-daygrid-event-harness 에서 처리)
+        dayMaxEvents: false, // 셀 안 모든 이벤트 표시 (2열 레이아웃은 CSS .fc-daygrid-event-harness 에서 처리)
+        datesSet: function (info) {
+            // 달력의 현재 표시 월에 맞춰 목록 아코디언을 동기화
+            // info.view.currentStart 는 현재 표시 월의 1일 (Date 객체)
+            const cs = info.view.currentStart;
+            const month = `${cs.getFullYear()}-${String(cs.getMonth() + 1).padStart(2, '0')}`;
+            window.syncLeaveListMonth && window.syncLeaveListMonth(month);
+        }
     });
 
     calendar.render();
+};
+
+// 달력의 현재 월에 맞춰 목록 아코디언 펼침/접힘 동기화
+window.syncLeaveListMonth = function (month) {
+    const sections = document.querySelectorAll('#leave-month-sections .month-section');
+    if (!sections.length) return;
+    let matched = false;
+    sections.forEach(section => {
+        const m = section.dataset.month;
+        const content = section.querySelector('.month-content');
+        const icon = section.querySelector('.month-toggle-icon');
+        if (!content || !icon) return;
+        const open = (m === month);
+        content.style.display = open ? 'block' : 'none';
+        icon.textContent = open ? '▲' : '▼';
+        if (open) matched = true;
+    });
+    // 해당 월 섹션이 과거기록 (3개월 이전) 컨테이너에 있다면 컨테이너를 펼침
+    if (matched) {
+        const oldContainer = document.getElementById('leave-old-history-container');
+        if (oldContainer) {
+            const targetSection = oldContainer.querySelector(`.month-section[data-month="${month}"]`);
+            if (targetSection && oldContainer.style.display === 'none') {
+                oldContainer.style.display = 'block';
+                const btn = document.getElementById('leave-old-history-toggle');
+                if (btn) btn.innerHTML = btn.innerHTML.replace('▼', '▲');
+            }
+        }
+    }
 };
 
 
