@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260505e';
+import { state, db, isVisibleIn } from './state.js?v=20260505f';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260505e';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260505f';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -912,8 +912,18 @@ function buildLeaveMonthSectionsHTML(currentMonth) {
             datesByMonth[m].push(d);
         });
         Object.entries(datesByMonth).forEach(([month, monthDates]) => {
+            monthDates.sort();
             if (!monthGroups[month]) monthGroups[month] = [];
             monthGroups[month].push({ req, monthDates });
+        });
+    });
+
+    // 월 내 행을 휴가 날짜 오름차순으로 정렬 (한 신청이 여러 날이면 그 월의 첫 날짜 기준)
+    Object.values(monthGroups).forEach(entries => {
+        entries.sort((a, b) => {
+            const aFirst = a.monthDates[0] || '';
+            const bFirst = b.monthDates[0] || '';
+            return aFirst.localeCompare(bFirst);
         });
     });
 
