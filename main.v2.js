@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260505f';
+import { state, db } from './state.js?v=20260505h';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260505f';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505f';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505f';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505f';
+import { renderScheduleManagement } from './schedule.js?v=20260505h';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505h';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505h';
 import { getLeaveDetails } from './leave-utils.js';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505f';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505h';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -199,11 +199,11 @@ async function renderAdminPortal() {
         ? `<button id="exitManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">← 직원 화면으로</button>`
         : '';
 
-    // 테스트 직원 보기 토글 — admin 만 노출. 매니저는 read-only (admin 결정에 따름)
+    // 테스트 직원 가시성 — admin 은 항상 본인 화면에서 보임. 이 토글은 "매니저에게도 노출할지" 만 제어. admin 화면에만 표시.
     const testToggle = !isManagerView
         ? `<label class="px-3 py-1 text-xs bg-yellow-50 border border-yellow-300 rounded flex items-center gap-1 cursor-pointer">
               <input type="checkbox" id="testEmpToggle" ${state.showTestEmployees ? 'checked' : ''}>
-              <span>테스트 직원 보기</span>
+              <span>매니저에게도 테스트 직원 노출</span>
            </label>`
         : '';
 
