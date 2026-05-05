@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260505a';
+import { state, db } from './state.js?v=20260505b';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260505a';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505a';
+import { renderScheduleManagement } from './schedule.js?v=20260505b';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505b';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505b';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505b';
 import { getLeaveDetails } from './leave-utils.js';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505a';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505b';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -552,11 +552,50 @@ async function handleEmployeeLogin(e) {
     }
 }
 
+async function handleForgotPassword() {
+    const rawName = prompt("등록된 이름을 입력해주세요:\n(임시 비밀번호를 등록된 이메일로 발송합니다)");
+    if (rawName === null) return;
+    const name = rawName.trim();
+    if (!name) {
+        alert("이름을 입력해주세요.");
+        return;
+    }
+
+    const btn = _('#forgotPasswordBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '발송 중...'; }
+
+    try {
+        const url = `${db.supabaseUrl}/functions/v1/send-password-reset`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'apikey': db.supabaseKey,
+                'Authorization': `Bearer ${db.supabaseKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name }),
+        });
+        const data = await resp.json().catch(() => ({}));
+
+        if (resp.ok && data.success) {
+            alert(`임시 비밀번호를 발송했습니다.\n\n등록된 이메일: ${data.masked_email}\n\n메일을 확인 후 임시 비밀번호로 로그인하시고,\n[비밀번호 변경] 버튼으로 본인 비밀번호로 바꿔주세요.`);
+        } else {
+            alert(data.error || `오류가 발생했습니다 (${resp.status}). 잠시 후 다시 시도해주세요.`);
+        }
+    } catch (e) {
+        console.error('비번 분실 발송 오류:', e);
+        alert("네트워크 오류. 잠시 후 다시 시도해주세요.");
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '비밀번호 잊으셨나요?'; }
+    }
+}
+
 function main() {
     _('#employeeLoginForm').addEventListener('submit', handleEmployeeLogin);
     _('#adminLoginForm').addEventListener('submit', handleAdminLogin);
     _('#goToOwnerLoginBtn').addEventListener('click', () => { hide('#employeeLoginContainer'); show('#ownerLoginContainer'); });
     _('#goToEmployeeLoginBtn').addEventListener('click', () => { show('#employeeLoginContainer'); hide('#ownerLoginContainer'); });
+    _('#forgotPasswordBtn')?.addEventListener('click', handleForgotPassword);
     _('#close-bulk-modal-btn').addEventListener('click', () => hide('#bulk-register-modal'));
     _('#cancel-bulk-submission-btn').addEventListener('click', () => hide('#bulk-register-modal'));
     _('#submit-bulk-register-btn').addEventListener('click', handleBulkRegister);
