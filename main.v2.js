@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260504c';
+import { state, db } from './state.js?v=20260505a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260504c';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260504c';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260504c';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260504c';
+import { renderScheduleManagement } from './schedule.js?v=20260505a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505a';
 import { getLeaveDetails } from './leave-utils.js';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260504c';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
