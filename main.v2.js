@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260505b';
+import { state, db } from './state.js?v=20260505e';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260505b';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505d';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505b';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505b';
+import { renderScheduleManagement } from './schedule.js?v=20260505e';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505e';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505e';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505e';
 import { getLeaveDetails } from './leave-utils.js';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505b';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505e';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -22,14 +22,15 @@ if (window.dayjs_plugin_isSameOrBefore) {
 
 async function loadManagementData() {
     try {
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
             db.from('submitted_documents').select('*').order('created_at', { ascending: false }),
             db.from('issues').select('*').order('created_at', { ascending: false }),
             db.from('departments').select('*').order('id'),
-            db.from('document_requests').select('*').order('created_at', { ascending: false })
+            db.from('document_requests').select('*').order('created_at', { ascending: false }),
+            db.from('app_settings').select('value').eq('key', 'show_test_employees').maybeSingle()
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -46,6 +47,7 @@ async function loadManagementData() {
         state.management.issues = issuesRes.data || [];
         state.management.departments = departmentsRes.data || [];
         state.management.documentRequests = docRequestsRes.data || [];
+        state.showTestEmployees = !!(settingsRes && settingsRes.data && settingsRes.data.value === true);
     } catch (error) {
         console.error("관리 데이터 로딩 중 에러:", error);
         alert("관리 데이터를 불러오는 데 실패했습니다: " + error.message);
@@ -197,13 +199,22 @@ async function renderAdminPortal() {
         ? `<button id="exitManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">← 직원 화면으로</button>`
         : '';
 
+    // 테스트 직원 보기 토글 — admin 만 노출. 매니저는 read-only (admin 결정에 따름)
+    const testToggle = !isManagerView
+        ? `<label class="px-3 py-1 text-xs bg-yellow-50 border border-yellow-300 rounded flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" id="testEmpToggle" ${state.showTestEmployees ? 'checked' : ''}>
+              <span>테스트 직원 보기</span>
+           </label>`
+        : '';
+
     portal.innerHTML = `
         <div class="max-w-full mx-auto">
              <div class="flex justify-between items-center mb-4">
                 <h1 class="text-3xl font-bold">${title}</h1>
                 <div class="text-right">
                     <p id="admin-welcome-msg" class="text-gray-700 text-sm font-semibold">${state.currentUser.name}님${isManagerView ? '' : ', 환영합니다.'}</p>
-                    <div class="mt-1 flex gap-2 justify-end flex-wrap">
+                    <div class="mt-1 flex gap-2 justify-end flex-wrap items-center">
+                        ${testToggle}
                         ${backBtn}
                         <button id="adminLogoutBtn" class="px-3 py-1 text-sm bg-gray-300 rounded">로그아웃</button>
                     </div>
@@ -221,6 +232,19 @@ async function renderAdminPortal() {
         state.viewAs = 'employee';
         sessionStorage.setItem('viewAs', 'employee');
         window.dispatchEvent(new CustomEvent('viewAs:change'));
+    });
+    _('#testEmpToggle')?.addEventListener('change', async (e) => {
+        const next = !!e.target.checked;
+        state.showTestEmployees = next;
+        try {
+            await db.from('app_settings')
+                .update({ value: next, updated_at: new Date().toISOString() })
+                .eq('key', 'show_test_employees');
+        } catch (err) {
+            console.error('app_settings update 실패:', err);
+            alert('설정 저장 실패. 콘솔 확인.');
+        }
+        renderManagementContent();
     });
     portal.addEventListener('click', (e) => {
         if (e.target.id === 'open-bulk-register-btn') {
