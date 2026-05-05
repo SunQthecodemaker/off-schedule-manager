@@ -24,6 +24,7 @@ export const state = {
     currentUser: null,
     userRole: 'none',
     viewAs: 'employee',
+    showTestEmployees: false, // app_settings.show_test_employees 부팅 시 fetch 로 갱신 (admin 토글이 source of truth)
     employee: {
         activeFilters: new Set(['pending', 'approved']),
         issues: [],
@@ -125,7 +126,6 @@ export function isVisibleIn(context, emp, viewer) {
     if (isAlbaEmployee(emp)) return false; // 알바는 모든 컨텍스트에서 격리
 
     const v = viewer || state;
-    const isAdminView = v.userRole === 'admin' || v.viewAs === 'admin';
     const today = dayjs().format('YYYY-MM-DD');
 
     const onLeave = emp.leave_start_date
@@ -135,10 +135,11 @@ export function isVisibleIn(context, emp, viewer) {
     switch (context) {
         case 'leave_review': {
             // 연차 검수·연차 관리·연차 현황 — active 직원만 노출
-            // 테스트 직원은 admin 또는 매니저뷰(viewAs=admin)에게만 노출 (PR #17 정책)
+            // 테스트 직원은 app_settings.show_test_employees 가 true 일 때만 admin/매니저(매니저뷰)에 노출.
+            // 단일 source of truth — admin 토글이 모두에게 적용 (매니저는 read-only).
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
-            if (isTestEmployee(emp) && !isAdminView) return false;
+            if (isTestEmployee(emp) && !state.showTestEmployees) return false;
             if (onLeave) return false; // 휴직 직원도 검수칸에서 격리
             return true;
         }
