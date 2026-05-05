@@ -1,9 +1,9 @@
-import { state, db } from './state.js?v=20260504c';
+import { state, db } from './state.js?v=20260505a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260504c';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260504c';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260504c';
+import { renderScheduleManagement } from './schedule.js?v=20260505a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260505a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -111,6 +111,7 @@ export async function renderEmployeePortal() {
                     <p class="text-gray-700 text-sm font-semibold">${user.name}님 (${departmentName})</p>
                     <div class="mt-1 flex gap-2 justify-end flex-wrap">
                         ${user.isManager ? `<button id="enterManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">🛠️ 매니저 화면 보기</button>` : ''}
+                        <button id="changeEmailBtn" class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors">이메일 변경</button>
                         <button id="changePasswordBtn" class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors">비밀번호 변경</button>
                         <button id="employeeLogoutBtn" class="px-3 py-1 text-sm bg-gray-300 hover:bg-gray-400 rounded transition-colors">로그아웃</button>
                     </div>
@@ -213,6 +214,7 @@ export async function renderEmployeePortal() {
     });
 
     _('#changePasswordBtn')?.addEventListener('click', handleChangePassword);
+    _('#changeEmailBtn')?.addEventListener('click', handleChangeEmail);
 
     _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
@@ -263,20 +265,35 @@ async function loadManagerRejectionBanner() {
     }
 }
 
+async function verifyCurrentPassword(inputPass) {
+    const { data, error } = await db.from('employees')
+        .select('password')
+        .eq('id', state.currentUser.id)
+        .single();
+    if (error || !data) return false;
+    return data.password === inputPass;
+}
+
 async function handleChangePassword() {
     const currentPass = prompt("현재 비밀번호를 입력해주세요:");
     if (currentPass === null) return;
 
-    if (currentPass !== state.currentUser.password) {
+    const ok = await verifyCurrentPassword(currentPass);
+    if (!ok) {
         alert("현재 비밀번호가 일치하지 않습니다.");
         return;
     }
 
-    const newPass = prompt("새로운 비밀번호를 입력해주세요:");
-    if (newPass === null) return;
+    const rawPass = prompt("새로운 비밀번호를 입력해주세요:");
+    if (rawPass === null) return;
+    const newPass = rawPass.trim();
 
-    if (!newPass.trim()) {
+    if (!newPass) {
         alert("비밀번호는 공백일 수 없습니다.");
+        return;
+    }
+    if (newPass.length < 4) {
+        alert("비밀번호는 4자 이상이어야 합니다.");
         return;
     }
 
@@ -288,6 +305,40 @@ async function handleChangePassword() {
         alert("비밀번호가 변경되었습니다. 다시 로그인해주세요.");
         sessionStorage.clear();
         window.location.reload();
+    }
+}
+
+async function handleChangeEmail() {
+    const currentPass = prompt("본인 확인을 위해 현재 비밀번호를 입력해주세요:");
+    if (currentPass === null) return;
+
+    const ok = await verifyCurrentPassword(currentPass);
+    if (!ok) {
+        alert("현재 비밀번호가 일치하지 않습니다.");
+        return;
+    }
+
+    const rawEmail = prompt(`새 이메일을 입력해주세요${state.currentUser.email ? `\n(현재: ${state.currentUser.email})` : ''}:`);
+    if (rawEmail === null) return;
+    const newEmail = rawEmail.trim().toLowerCase();
+
+    if (!newEmail) {
+        alert("이메일은 공백일 수 없습니다.");
+        return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+        alert("올바른 이메일 형식이 아닙니다. (예: name@example.com)");
+        return;
+    }
+
+    const { error } = await db.from('employees').update({ email: newEmail }).eq('id', state.currentUser.id);
+
+    if (error) {
+        alert("이메일 변경 실패: " + error.message);
+    } else {
+        state.currentUser.email = newEmail;
+        alert(`이메일이 변경되었습니다.\n새 이메일: ${newEmail}`);
     }
 }
 
