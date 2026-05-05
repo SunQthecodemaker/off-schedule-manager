@@ -135,11 +135,11 @@ export function isVisibleIn(context, emp, viewer) {
     switch (context) {
         case 'leave_review': {
             // 연차 검수·연차 관리·연차 현황 — active 직원만 노출
-            // 테스트 직원은 app_settings.show_test_employees 가 true 일 때만 admin/매니저(매니저뷰)에 노출.
-            // 단일 source of truth — admin 토글이 모두에게 적용 (매니저는 read-only).
+            // 테스트 직원: admin 은 토글 무관 항상 노출 (자기 시스템의 모든 신청 가시).
+            // 매니저(매니저뷰)는 admin 이 토글 ON 한 경우에만 노출. 그 외 viewer 는 격리.
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
-            if (isTestEmployee(emp) && !state.showTestEmployees) return false;
+            if (isTestEmployee(emp) && v.userRole !== 'admin' && !state.showTestEmployees) return false;
             if (onLeave) return false; // 휴직 직원도 검수칸에서 격리
             return true;
         }
