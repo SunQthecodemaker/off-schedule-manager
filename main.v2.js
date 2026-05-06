@@ -191,6 +191,11 @@ function applyEditPermissionForManagerView() {
 }
 
 function renderAdminSummary() {
+    // admin-summary 카드 영역은 관리자 포털 화면에만 존재. 직원 포털에서 schedule 탭이 데이터 갱신 시
+    // window.refreshAdminSummary 가 호출되더라도 element 가 없으면 무해하게 skip.
+    const summaryEl = _('#admin-summary');
+    if (!summaryEl) return;
+
     const { employees, leaveRequests, departments } = state.management;
     const schedules = state.schedule.schedules || [];
     const holidays = state.schedule.companyHolidays || new Set();
@@ -239,7 +244,7 @@ function renderAdminSummary() {
         });
     });
 
-    _('#admin-summary').innerHTML = `
+    summaryEl.innerHTML = `
         <div class="dash-card"><p>${monthLabel} 근무일수</p><p class="text-xl font-bold">${workDays}일</p></div>
         <div class="dash-card"><p>평균 직원수</p><p class="text-xl font-bold">${avgStaff}명</p></div>
         <div class="dash-card dash-card-accent"><p>평균 원장수</p><p class="text-xl font-bold">${avgDoctor}명</p></div>
