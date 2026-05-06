@@ -1,10 +1,9 @@
 import { state, db } from './state.js?v=20260505h';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260505h';
+import { renderScheduleManagement } from './schedule.js?v=20260506a';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505h';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505h';
-import { getLeaveDetails } from './leave-utils.js';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505h';
 
 // Safely initialize dayjs plugins
@@ -22,7 +21,10 @@ if (window.dayjs_plugin_isSameOrBefore) {
 
 async function loadManagementData() {
     try {
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes] = await Promise.all([
+        const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
+        const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
+
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -30,7 +32,8 @@ async function loadManagementData() {
             db.from('issues').select('*').order('created_at', { ascending: false }),
             db.from('departments').select('*').order('id'),
             db.from('document_requests').select('*').order('created_at', { ascending: false }),
-            db.from('app_settings').select('value').eq('key', 'show_test_employees').maybeSingle()
+            db.from('app_settings').select('value').eq('key', 'show_test_employees').maybeSingle(),
+            db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd)
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -48,6 +51,14 @@ async function loadManagementData() {
         state.management.departments = departmentsRes.data || [];
         state.management.documentRequests = docRequestsRes.data || [];
         state.showTestEmployees = !!(settingsRes && settingsRes.data && settingsRes.data.value === true);
+
+        // 보는 달 스케줄 미리 로드 (대시보드 평균 직원수/원장수 계산). 스케줄 탭 진입 시 populateMonthData 가 calendar-range 로 다시 채움.
+        if (!schedulesRes.error) {
+            state.schedule.schedules = (schedulesRes.data || []).map(r => ({
+                ...r,
+                is_annual_leave: r.is_annual_leave ?? false
+            }));
+        }
     } catch (error) {
         console.error("관리 데이터 로딩 중 에러:", error);
         alert("관리 데이터를 불러오는 데 실패했습니다: " + error.message);
@@ -175,21 +186,60 @@ function applyEditPermissionForManagerView() {
 }
 
 function renderAdminSummary() {
-    const { employees, leaveRequests } = state.management;
-    let total = 0, used = 0, pending = 0;
-    employees.forEach(emp => { total += getLeaveDetails(emp).final; });
-    leaveRequests.forEach(req => {
-        if (req.status === 'approved') used += (req.dates?.length || 0);
-        else if (req.status === 'pending') pending++;
+    const { employees, leaveRequests, departments } = state.management;
+    const schedules = state.schedule.schedules || [];
+    const currentDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
+    const monthStr = dayjs(currentDate).format('YYYY-MM');
+    const monthLabel = dayjs(currentDate).format('M월');
+
+    // 보는 달 근무 행 (status='근무' 이면서 연차 아님). 휴무·연차·일요일은 자연스럽게 빠짐 (해당 행이 없거나 status 가 '휴무').
+    const workSchedules = schedules.filter(s =>
+        typeof s.date === 'string' && s.date.startsWith(monthStr) &&
+        s.status === '근무' && !s.is_annual_leave
+    );
+
+    // 근무일수: 근무자가 1명 이상 있는 날의 distinct count → 일요일·공휴일·자체휴일 자동 제외
+    const workDays = new Set(workSchedules.map(s => s.date)).size;
+
+    // 부서명 매핑
+    const deptIdToName = {};
+    departments.forEach(d => { deptIdToName[d.id] = d.name; });
+    const empIdToDeptName = {};
+    employees.forEach(e => { empIdToDeptName[e.id] = deptIdToName[e.department_id] || ''; });
+
+    // 부서별 근무 사람-일 수 합계 (기공실 제외)
+    let staffCount = 0, doctorCount = 0;
+    workSchedules.forEach(s => {
+        const dept = empIdToDeptName[s.employee_id];
+        if (dept === '진료실' || dept === '경영지원실') staffCount++;
+        else if (dept === '원장') doctorCount++;
     });
+    const avgStaff = workDays > 0 ? (staffCount / workDays).toFixed(1) : '0.0';
+    const avgDoctor = workDays > 0 ? (doctorCount / workDays).toFixed(1) : '0.0';
+
+    // 승인 대기
+    const pending = leaveRequests.filter(r => r.status === 'pending').length;
+
+    // 이달 연차 사용일수: 승인된 신청의 dates 중 보는 달 일수
+    let monthLeaveUsed = 0;
+    leaveRequests.forEach(req => {
+        if (req.status !== 'approved') return;
+        (req.dates || []).forEach(d => {
+            if (typeof d === 'string' && d.startsWith(monthStr)) monthLeaveUsed++;
+        });
+    });
+
     _('#admin-summary').innerHTML = `
-        <div class="dash-card"><p>전체 확정 연차</p><p class="text-xl font-bold">${total}일</p></div>
-        <div class="dash-card"><p>전체 사용 연차</p><p class="text-xl font-bold">${used}일</p></div>
-        <div class="dash-card dash-card-accent"><p>전체 잔여 연차</p><p class="text-xl font-bold">${total - used}일</p></div>
+        <div class="dash-card"><p>${monthLabel} 근무일수</p><p class="text-xl font-bold">${workDays}일</p></div>
+        <div class="dash-card"><p>평균 직원수</p><p class="text-xl font-bold">${avgStaff}명</p></div>
+        <div class="dash-card dash-card-accent"><p>평균 원장수</p><p class="text-xl font-bold">${avgDoctor}명</p></div>
         <div class="dash-card dash-card-warn"><p>승인 대기</p><p class="text-xl font-bold">${pending}건</p></div>
-        <div class="dash-card dash-card-dark"><p>이 직원 수</p><p class="text-xl font-bold">${employees.length}명</p></div>
+        <div class="dash-card dash-card-dark"><p>${monthLabel} 연차 사용</p><p class="text-xl font-bold">${monthLeaveUsed}일</p></div>
     `;
 }
+
+// 다른 모듈(스케줄 탭 navigate 후 등)에서 호출 가능
+window.refreshAdminSummary = renderAdminSummary;
 
 async function renderAdminPortal() {
     const portal = _('#admin-portal');
@@ -414,6 +464,7 @@ const handleManagementTabClick = (e) => {
         state.management.activeTab = e.target.dataset.tab;
         renderManagementTabs();
         renderManagementContent();
+        renderAdminSummary();
     }
 }
 
