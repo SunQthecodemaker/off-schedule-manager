@@ -2593,6 +2593,9 @@ async function loadAndRenderScheduleData(date) {
             await checkScheduleConfirmationStatus();
         }
 
+        // 관리자 대시보드 카드(근무일수·평균 직원수·평균 원장수·이달 연차)는 보는 달 기준 → 달 navigate 마다 갱신
+        window.refreshAdminSummary?.();
+
     } catch (error) {
         console.error("스케줄 데이터 로딩 실패:", error);
         alert('스케줄 데이터를 불러오는 데 실패했습니다: ' + error.message);
