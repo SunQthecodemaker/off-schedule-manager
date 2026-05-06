@@ -2103,18 +2103,21 @@ function renderCalendar() {
     calendarHTML += '</div>';
     container.innerHTML = calendarHTML;
 
-    // ✨ 모든 날짜에 드래그 앤 드롭 초기화
-    document.querySelectorAll('.calendar-day').forEach(dayEl => {
-        const dateStr = dayEl.dataset.date;
-        initializeDayDragDrop(dayEl, dateStr);
-    });
+    // 직원 포털(isReadOnly)에서는 모든 수정 인터랙션 차단 — 드래그드롭·더블클릭(휴일토글/카드상태)·우클릭 메뉴 모두 등록 X
+    if (!state.schedule.isReadOnly) {
+        // 모든 날짜에 드래그 앤 드롭 초기화
+        document.querySelectorAll('.calendar-day').forEach(dayEl => {
+            const dateStr = dayEl.dataset.date;
+            initializeDayDragDrop(dayEl, dateStr);
+        });
 
-    // ✨ 이벤트 위임으로 클릭 처리
+        // 추가 이벤트 리스너 연결 (더블클릭, 컨텍스트 메뉴, 키보드)
+        initializeCalendarEvents();
+    }
+
+    // 클릭(선택 하이라이트만 발생, 데이터 변경 없음) — readonly 에서도 유지
     container.removeEventListener('click', handleCalendarClick);
     container.addEventListener('click', handleCalendarClick);
-
-    // ✨ 추가 이벤트 리스너 연결 (더블클릭, 컨텍스트 메뉴, 키보드)
-    initializeCalendarEvents();
 
 }
 

@@ -1,6 +1,6 @@
 import { state, db } from './state.js?v=20260505h';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260506a';
+import { renderScheduleManagement } from './schedule.js?v=20260506b';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505h';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505h';
@@ -24,7 +24,7 @@ async function loadManagementData() {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -33,7 +33,8 @@ async function loadManagementData() {
             db.from('departments').select('*').order('id'),
             db.from('document_requests').select('*').order('created_at', { ascending: false }),
             db.from('app_settings').select('value').eq('key', 'show_test_employees').maybeSingle(),
-            db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd)
+            db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd),
+            db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd)
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -58,6 +59,10 @@ async function loadManagementData() {
                 ...r,
                 is_annual_leave: r.is_annual_leave ?? false
             }));
+        }
+        // 보는 달 등록 휴일 로드 (대시보드 근무일수 계산용 — 일요일과 함께 제외)
+        if (!holidaysRes.error) {
+            state.schedule.companyHolidays = new Set((holidaysRes.data || []).map(h => h.date));
         }
     } catch (error) {
         console.error("관리 데이터 로딩 중 에러:", error);
@@ -188,17 +193,22 @@ function applyEditPermissionForManagerView() {
 function renderAdminSummary() {
     const { employees, leaveRequests, departments } = state.management;
     const schedules = state.schedule.schedules || [];
+    const holidays = state.schedule.companyHolidays || new Set();
     const currentDate = state.schedule.currentDate || dayjs().format('YYYY-MM-DD');
     const monthStr = dayjs(currentDate).format('YYYY-MM');
     const monthLabel = dayjs(currentDate).format('M월');
 
-    // 보는 달 근무 행 (status='근무' 이면서 연차 아님). 휴무·연차·일요일은 자연스럽게 빠짐 (해당 행이 없거나 status 가 '휴무').
-    const workSchedules = schedules.filter(s =>
-        typeof s.date === 'string' && s.date.startsWith(monthStr) &&
-        s.status === '근무' && !s.is_annual_leave
-    );
+    // 보는 달 근무 행. 일요일과 등록된 공휴일·자체휴일은 무조건 제외 (주간 검수 로직과 동일 기준).
+    // 잔존 일요일 데이터가 DB에 남아있어도 근무일수가 부풀려지지 않음.
+    const workSchedules = schedules.filter(s => {
+        if (typeof s.date !== 'string' || !s.date.startsWith(monthStr)) return false;
+        if (s.status !== '근무' || s.is_annual_leave) return false;
+        if (holidays.has(s.date)) return false;
+        if (dayjs(s.date).day() === 0) return false; // 일요일 제외
+        return true;
+    });
 
-    // 근무일수: 근무자가 1명 이상 있는 날의 distinct count → 일요일·공휴일·자체휴일 자동 제외
+    // 근무일수: 근무자가 1명 이상 있는 날의 distinct count
     const workDays = new Set(workSchedules.map(s => s.date)).size;
 
     // 부서명 매핑
