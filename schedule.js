@@ -2648,11 +2648,115 @@ function initializeSortableAndDraggable() {
                 isDragging = true;
                 dragStartTime = Date.now();
                 document.body.style.userSelect = 'none';
+
+                // 그룹 이동 / 선택 선행 검증을 위해 스냅샷 캡쳐
+                const grid = document.getElementById('layout-grid');
+                if (grid) {
+                    layoutDragSnapshot = grid.innerHTML;
+                    const draggedPos = parseInt(evt.item.dataset.position, 10);
+                    layoutDragMultiInfo = {
+                        draggedPos: isNaN(draggedPos) ? null : draggedPos,
+                        isInSelection: !isNaN(draggedPos) && layoutSelectedSlots.has(draggedPos),
+                        selectedPositions: [...layoutSelectedSlots]
+                    };
+                }
             },
 
             onUpdate(evt) {
-                // 그리드 내 순서 변경 → position 동기화
+                const grid = document.getElementById('layout-grid');
+                // 스냅샷 없거나 정보 없음 → 기본 동작
+                if (!grid || !layoutDragSnapshot || !layoutDragMultiInfo) {
+                    syncGridPositions();
+                    return;
+                }
+
+                const sel = layoutDragMultiInfo.selectedPositions;
+                const fromPos = layoutDragMultiInfo.draggedPos;
+                const restore = () => {
+                    grid.innerHTML = layoutDragSnapshot;
+                    layoutDragSnapshot = null;
+                    layoutDragMultiInfo = null;
+                    syncGridPositions();
+                };
+
+                // 🔒 CLAUDE.md: 선택 없는 상태에서 드래그 → 아무 일도 안 일어남
+                if (sel.length === 0) {
+                    restore();
+                    return;
+                }
+                // 🔒 CLAUDE.md: 선택에 포함되지 않은 카드를 드래그 → 선택 풀고 아무 일도 안 일어남
+                if (!layoutDragMultiInfo.isInSelection) {
+                    restore();
+                    clearLayoutSelection();
+                    return;
+                }
+
+                // 단일 선택은 SortableJS 의 swap 그대로 — 그룹 처리 안 함
+                if (sel.length === 1) {
+                    layoutDragSnapshot = null;
+                    layoutDragMultiInfo = null;
+                    syncGridPositions();
+                    return;
+                }
+
+                // 복수 선택 — 행/열 델타 기반 그룹 이동
+                const draggedEl = evt.item;
+                const newPos = [...grid.querySelectorAll('.event-card, .event-slot')].indexOf(draggedEl);
+                if (fromPos == null || newPos < 0) { restore(); return; }
+                if (newPos === fromPos) { restore(); return; }
+
+                const rowDelta = Math.floor(newPos / GRID_COLS) - Math.floor(fromPos / GRID_COLS);
+                const colDelta = (newPos % GRID_COLS) - (fromPos % GRID_COLS);
+                const TOTAL_ROWS = GRID_SIZE / GRID_COLS;
+
+                // 🔒 CLAUDE.md: OOB 전체 취소
+                let outOfBounds = false;
+                sel.forEach(p => {
+                    const r = Math.floor(p / GRID_COLS) + rowDelta;
+                    const c = (p % GRID_COLS) + colDelta;
+                    if (c < 0 || c >= GRID_COLS || r < 0 || r >= TOTAL_ROWS) outOfBounds = true;
+                });
+                if (outOfBounds) { restore(); return; }
+
+                // Sortable swap 되돌리고 multi-move 적용
+                grid.innerHTML = layoutDragSnapshot;
+                const restored = [...grid.querySelectorAll('.event-card, .event-slot')];
+
+                const sourceData = sel.map(p => {
+                    const s = restored[p];
+                    return {
+                        from: p,
+                        to: (Math.floor(p / GRID_COLS) + rowDelta) * GRID_COLS + ((p % GRID_COLS) + colDelta),
+                        isFilled: s.dataset.employeeId && s.dataset.employeeId !== 'empty',
+                        empId: s.dataset.employeeId,
+                        type: s.dataset.type,
+                        className: s.className,
+                        innerHTML: s.innerHTML
+                    };
+                });
+
+                // source → 빈자리
+                sourceData.forEach(s => {
+                    const slot = restored[s.from];
+                    slot.className = 'event-slot empty-slot';
+                    slot.dataset.employeeId = 'empty';
+                    slot.dataset.type = 'empty';
+                    slot.innerHTML = `<span class="slot-number">${s.from + 1}</span>`;
+                });
+                // 채워진 source → target 에 배치 (target 의 기존 점유자는 덮어쓰기)
+                sourceData.forEach(s => {
+                    if (!s.isFilled) return;
+                    const t = restored[s.to];
+                    t.className = s.className;
+                    t.dataset.employeeId = s.empId;
+                    t.dataset.type = s.type;
+                    t.innerHTML = s.innerHTML;
+                });
+
                 syncGridPositions();
+                clearLayoutSelection();
+                layoutDragSnapshot = null;
+                layoutDragMultiInfo = null;
             },
 
             onAdd(evt) {
@@ -2682,6 +2786,9 @@ function initializeSortableAndDraggable() {
             onEnd(evt) {
                 setTimeout(() => { isDragging = false; }, 100);
                 document.body.style.userSelect = '';
+                // onUpdate 가 안 불린 케이스(같은 자리 드롭 등) — 잔존 스냅샷 정리
+                layoutDragSnapshot = null;
+                layoutDragMultiInfo = null;
                 syncGridPositions();
             }
         });
@@ -2963,6 +3070,9 @@ let layoutLastClickedPos = null;
 let layoutClipboard = []; // [{employeeId, name, deptId, offset}]
 let layoutDragState = null; // 마우스 드래그 선택 상태
 let layoutDragSelectJustFinished = false;
+// SortableJS 그룹 이동 — onStart 에 캡쳐, onUpdate/onEnd 에 사용
+let layoutDragSnapshot = null; // 드래그 시작 시점의 grid.innerHTML
+let layoutDragMultiInfo = null; // { draggedPos, isInSelection, selectedPositions: number[] }
 
 function clearLayoutSelection() {
     layoutSelectedSlots.clear();
