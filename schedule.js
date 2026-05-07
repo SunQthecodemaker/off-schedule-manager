@@ -1074,15 +1074,17 @@ async function handleSaveEmployeeOrder(options = {}) {
     saveBtn.textContent = '저장중...';
 
     // ✅ 4×8 그리드에서 순서 수집 (달력과 동일한 event-card/event-slot 구조)
-    //    원칙 11단계: 스페이서(-1) 제거. 빈 슬롯은 저장하지 않고 실제 직원만 유지.
+    //    빈자리도 위치 보존 — members.length === GRID_SIZE positional 포맷.
+    //    빈자리 마커: 0 (실제 employee.id 는 양수이므로 충돌 없음).
     const employeeOrder = [];
     document.querySelectorAll('#layout-grid .event-card, #layout-grid .event-slot').forEach(slot => {
         const empId = slot.dataset.employeeId;
-        if (empId === 'empty') return;
-        const id = parseInt(empId, 10);
-        if (!isNaN(id) && id > 0) {
-            employeeOrder.push(id);
+        if (empId === 'empty') {
+            employeeOrder.push(0);
+            return;
         }
+        const id = parseInt(empId, 10);
+        employeeOrder.push((!isNaN(id) && id > 0) ? id : 0);
     });
 
 
@@ -2892,17 +2894,30 @@ async function renderScheduleSidebar() {
 
     const savedLayout = state.schedule.teamLayout?.data?.[0];
     if (savedLayout && savedLayout.members && savedLayout.members.length > 0) {
-        // 저장된 배치 순서대로 그리드 채우기 (스페이서 -1 값은 무시 — 원칙 11단계)
-        let slotIdx = 0;
-        savedLayout.members.forEach(memberId => {
-            if (slotIdx >= GRID_SIZE) return;
-            if (memberId < 0) return; // 레거시 스페이서 skip
-            const emp = activeRegular.find(e => e.id === memberId);
-            if (emp) {
-                gridSlots[slotIdx] = emp;
-                slotIdx++;
-            }
-        });
+        // 포맷 감지: 길이 == GRID_SIZE → positional (0=빈자리), 아니면 레거시 컴팩트
+        const isPositional = savedLayout.members.length === GRID_SIZE;
+
+        if (isPositional) {
+            // ✅ 위치 보존 포맷: members[pos] = empId (양수) 또는 0(빈자리)
+            savedLayout.members.forEach((memberId, pos) => {
+                if (pos >= GRID_SIZE) return;
+                if (!memberId || memberId <= 0) return; // 빈자리 / 레거시 스페이서 skip
+                const emp = activeRegular.find(e => e.id === memberId);
+                if (emp) gridSlots[pos] = emp;
+            });
+        } else {
+            // 레거시 컴팩트 포맷: 채워진 직원만 순차 나열 (빈자리 정보 없음)
+            let slotIdx = 0;
+            savedLayout.members.forEach(memberId => {
+                if (slotIdx >= GRID_SIZE) return;
+                if (memberId < 0) return;
+                const emp = activeRegular.find(e => e.id === memberId);
+                if (emp) {
+                    gridSlots[slotIdx] = emp;
+                    slotIdx++;
+                }
+            });
+        }
 
         // 저장된 배치에 없는 신규 직원 → 미배치 영역으로
         activeRegular.forEach(emp => {
