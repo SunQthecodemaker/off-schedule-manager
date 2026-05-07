@@ -3956,6 +3956,13 @@ function handleDragSelectStart(e) {
 
 function handleDragSelectMove(e) {
     if (!dragSelectState) return;
+    // 방어: 마우스 버튼이 안 눌린 상태에서 mousemove → mouseup 누락 등으로 stale state. 즉시 정리.
+    if (e.buttons === 0) {
+        dragSelectState = null;
+        document.body.style.userSelect = '';
+        document.querySelectorAll('.drag-select-highlight').forEach(el => el.classList.remove('drag-select-highlight'));
+        return;
+    }
     if (isDragging) { dragSelectState = null; return; }
 
     // 최소 이동 거리 (12px) 초과 시 드래그 선택 활성화 — 살짝 클릭+흔들림으로 오발동 방지
