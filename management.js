@@ -1510,14 +1510,47 @@ window.renderLeaveCalendar = function (containerSelector) {
 };
 
 // 달력의 현재 월에 맞춰 목록을 재빌드 — 정렬 (현재 월 + 직전 2개월 = recent, 그 외 = 과거 토글) 도 다시 적용.
-window.syncLeaveListMonth = function (month) {
+// + 표시 월을 state.schedule.currentDate 에도 동기화하고 그 월의 schedules·holidays 를 재조회 →
+//   대시보드 카드(근무일수·평균 직원수·평균 원장수·이달 연차) 가 표시 월 기준이 되도록 함.
+window.syncLeaveListMonth = async function (month) {
     if (!month) return;
     state.management.currentListMonth = month;
     const container = document.getElementById('leave-month-sections');
-    if (!container) return;
-    container.innerHTML = buildLeaveMonthSectionsHTML(month);
-    // 기존 status/employee 필터 유지
-    if (typeof applyListFilters === 'function') applyListFilters();
+    if (container) {
+        container.innerHTML = buildLeaveMonthSectionsHTML(month);
+        if (typeof applyListFilters === 'function') applyListFilters();
+    }
+
+    // 대시보드 카드를 표시 월 기준으로 갱신
+    const monthStart = month + '-01';
+    const monthEnd = (window.dayjs ? window.dayjs(monthStart).endOf('month').format('YYYY-MM-DD') : monthStart);
+    const targetDate = monthStart;
+
+    if (state.schedule) {
+        state.schedule.currentDate = targetDate;
+    }
+
+    try {
+        const [schedulesRes, holidaysRes] = await Promise.all([
+            db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd),
+            db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd)
+        ]);
+        if (!schedulesRes.error && state.schedule) {
+            state.schedule.schedules = (schedulesRes.data || []).map(r => ({
+                ...r,
+                is_annual_leave: r.is_annual_leave ?? false
+            }));
+        }
+        if (!holidaysRes.error && state.schedule) {
+            state.schedule.companyHolidays = new Set((holidaysRes.data || []).map(h => h.date));
+        }
+    } catch (err) {
+        console.error('대시보드용 월 데이터 재조회 실패:', err);
+    }
+
+    if (typeof window.refreshAdminSummary === 'function') {
+        window.refreshAdminSummary();
+    }
 };
 
 

@@ -2,7 +2,7 @@ import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmploy
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260505h';
+import { registerManualLeave } from './management.js?v=20260507a';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
