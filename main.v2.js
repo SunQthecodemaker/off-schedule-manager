@@ -1,6 +1,6 @@
 import { state, db } from './state.js?v=20260505h';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260507i';
+import { renderScheduleManagement } from './schedule.js?v=20260507j';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260505h';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505h';
@@ -300,14 +300,31 @@ async function renderAdminPortal() {
     });
     _('#testEmpToggle')?.addEventListener('change', async (e) => {
         const next = !!e.target.checked;
+        const prev = state.showTestEmployees;
         state.showTestEmployees = next;
         try {
-            await db.from('app_settings')
-                .update({ value: next, updated_at: new Date().toISOString() })
-                .eq('key', 'show_test_employees');
+            // upsert 로 변경 — UPDATE 실패(키 없음/RLS) 시 즉시 가시화
+            const { data, error } = await db.from('app_settings')
+                .upsert({ key: 'show_test_employees', value: next, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+                .select();
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                throw new Error('UPDATE 가 0 행에 영향 — RLS 또는 키 미존재 의심');
+            }
+            // 영속화 확인 — 즉시 재조회로 더블 체크
+            const { data: verify, error: verr } = await db.from('app_settings')
+                .select('value').eq('key', 'show_test_employees').maybeSingle();
+            if (verr) throw verr;
+            if (!verify || verify.value !== next) {
+                throw new Error(`저장 후 재조회 값 불일치 — 기대 ${next}, 실제 ${verify?.value}`);
+            }
         } catch (err) {
             console.error('app_settings update 실패:', err);
-            alert('설정 저장 실패. 콘솔 확인.');
+            alert('설정 저장 실패: ' + (err.message || err) + '\n콘솔 확인 후 다시 시도해주세요.');
+            // 토글 상태 원복
+            state.showTestEmployees = prev;
+            e.target.checked = prev;
+            return;
         }
         renderManagementContent();
     });
