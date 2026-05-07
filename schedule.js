@@ -2548,7 +2548,8 @@ async function loadAndRenderScheduleData(date) {
         if (holidayRes.error) throw holidayRes.error;
 
         const latestLayout = layoutRes.data?.[0];
-        // ✅ 단순 직원 순서만 저장 (DB 없으면 기본 배치 사용)
+        // ✅ 직원 배치 — positional 포맷(length===GRID_SIZE, 0=빈자리)을 우선 보존.
+        //    레거시 컴팩트 포맷(length<GRID_SIZE)도 호환 유지.
         let employeeOrder = [];
         if (latestLayout && latestLayout.layout_data && latestLayout.layout_data.length > 0) {
             employeeOrder = [...(latestLayout.layout_data[0].members || [])];
@@ -2556,12 +2557,19 @@ async function loadAndRenderScheduleData(date) {
         if (employeeOrder.length === 0) {
             employeeOrder = [...DEFAULT_TEAM_MEMBERS];
         }
-        // ✅ 활성 직원 중 members에 없는 직원 자동 추가 (신규 입사 등)
+
         const activeEmployeeIds = (state.management?.employees || [])
             .filter(e => isGridEmployee(e))
             .map(e => e.id);
-        if (employeeOrder.length > 0) {
-            // 레거시 -1 스페이서 값이 남아 있다면 전부 정리 (원칙 11단계)
+
+        const isPositional = employeeOrder.length === GRID_SIZE;
+        if (isPositional) {
+            // positional: 0(빈자리)·음수(레거시 스페이서) 그대로 유지 — 위치 보존이 핵심.
+            // 신규 활성 직원은 자동 push 하지 않음 (renderScheduleSidebar 가 unplaced 패널로 분기).
+            // 단, 레거시 -1 스페이서가 섞여 있을 수 있어 0 으로 정규화.
+            employeeOrder = employeeOrder.map(id => (typeof id === 'number' && id > 0) ? id : 0);
+        } else if (employeeOrder.length > 0) {
+            // 컴팩트: -1 스페이서 제거 + 신규 활성 직원 끝에 추가 (기존 동작 유지).
             employeeOrder = employeeOrder.filter(id => id > 0);
             const memberSet = new Set(employeeOrder);
             activeEmployeeIds.forEach(id => {
