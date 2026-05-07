@@ -1140,11 +1140,20 @@ function getLayoutPositionMap() {
     return positionMap;
 }
 
-// 지정된 날짜들의 스케줄에 배치(grid_position)만 적용 (상태는 건드리지 않음)
-// 레코드 없는 직원도 신규 레코드 생성하여 배치 적용
-function applyLayoutToSchedules(positionMap, targetDates) {
+// 지정된 날짜들의 스케줄에 배치(grid_position) 적용
+// options.applyRegularOff (default: false)
+//   - true: 정기 휴무 자동 반영
+//     · 기존 근무 + 정기 휴무 요일 → '휴무' 전환
+//     · 신규 레코드 + 정기 휴무 요일 → '휴무' 로 생성
+//     · 연차/기존 휴무 는 항상 보존
+//   - false: 위치만 적용, 상태는 건드리지 않음 (기존 동작)
+// 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
+function applyLayoutToSchedules(positionMap, targetDates, options = {}) {
+    const { applyRegularOff = false } = options;
     const dateSet = targetDates ? new Set(targetDates) : null;
     let updateCount = 0;
+
+    const empById = new Map((state.management.employees || []).map(e => [e.id, e]));
 
     // 기존 레코드 업데이트
     state.schedule.schedules.forEach(s => {
@@ -1152,15 +1161,35 @@ function applyLayoutToSchedules(positionMap, targetDates) {
         if (dateSet && !dateSet.has(s.date)) return;
         if (!positionMap.has(s.employee_id)) return;
 
+        let touched = false;
         const newPos = positionMap.get(s.employee_id);
         if (s.grid_position !== newPos) {
             setSchedulePosFlat(s, newPos);
+            touched = true;
+        }
+
+        if (applyRegularOff) {
+            // 정기 휴무 자동 반영 (연차·기존 휴무는 보존)
+            const isLeave = s.is_annual_leave === true || s.status === '연차';
+            if (!isLeave && s.status === '근무') {
+                const emp = empById.get(s.employee_id);
+                if (emp) {
+                    const dow = dayjs(s.date).day();
+                    if (isFixedOffDay(emp.regular_holiday_rules, dow, s.date)) {
+                        s.status = '휴무';
+                        touched = true;
+                    }
+                }
+            }
+        }
+
+        if (touched) {
             unsavedChanges.set(s.id, { type: 'update', data: s });
             updateCount++;
         }
     });
 
-    // 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
+    // 레코드 없는 직원 → 신규 레코드 생성
     if (dateSet) {
         const activeEmps = (state.management.employees || []).filter(
             e => isGridEmployee(e)
@@ -1169,14 +1198,16 @@ function applyLayoutToSchedules(positionMap, targetDates) {
             const existingEmpIds = new Set(
                 state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0).map(s => s.employee_id)
             );
+            const dow = dayjs(dateStr).day();
             activeEmps.forEach(emp => {
                 if (existingEmpIds.has(emp.id) || !positionMap.has(emp.id)) return;
                 const newPos = positionMap.get(emp.id);
+                const isOff = applyRegularOff && isFixedOffDay(emp.regular_holiday_rules, dow, dateStr);
                 const newSched = {
                     id: `layout-${Date.now()}-${emp.id}-${dateStr}`,
                     date: dateStr,
                     employee_id: emp.id,
-                    status: '근무',
+                    status: isOff ? '휴무' : '근무',
                     grid_position: newPos,
                     sort_order: newPos,
                     created_at: new Date().toISOString()
@@ -1193,7 +1224,7 @@ function applyLayoutToSchedules(positionMap, targetDates) {
 
 async function handleApplyLayoutToAll() {
     const btn = _('#apply-layout-btn');
-    if (!confirm('현재 배치를 이번 달 모든 날짜에 적용하시겠습니까?\n(각 날짜의 휴무/연차 상태는 유지됩니다)')) return;
+    if (!confirm('현재 배치를 이번 달 모든 날짜에 적용하시겠습니까?\n\n• 위치(grid_position) 일괄 적용\n• 정기 휴무 요일은 자동으로 휴무 전환\n• 기존 연차·휴무는 그대로 유지')) return;
 
     btn.disabled = true;
     btn.textContent = '적용중...';
@@ -1203,7 +1234,7 @@ async function handleApplyLayoutToAll() {
         await handleSaveEmployeeOrder({ skipReload: true });
 
         const positionMap = getLayoutPositionMap();
-        const updateCount = applyLayoutToSchedules(positionMap, null); // null = 전체 날짜
+        const updateCount = applyLayoutToSchedules(positionMap, null, { applyRegularOff: true }); // null = 전체 날짜
 
         renderCalendar();
         updateSaveButtonState();
@@ -1232,7 +1263,7 @@ function handleMenuApplyLayoutToDate() {
     }
 
     pushUndoState(`배치 적용: ${dateStr}`);
-    const updateCount = applyLayoutToSchedules(positionMap, [dateStr]);
+    const updateCount = applyLayoutToSchedules(positionMap, [dateStr], { applyRegularOff: true });
 
     if (updateCount === 0) {
         alert(`${dateStr}: 변경할 배치가 없습니다.`);
