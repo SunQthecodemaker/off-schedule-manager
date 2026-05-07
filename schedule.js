@@ -2642,8 +2642,7 @@ function initializeSortableAndDraggable() {
             chosenClass: 'sortable-chosen',
             swap: true,
             swapClass: 'sortable-swap-highlight',
-            delay: 200,
-            delayOnTouchOnly: false,
+            // delay 제거 — 달력 그리드와 동일하게 즉시 드래그 시작
 
             onStart(evt) {
                 isDragging = true;
@@ -3048,6 +3047,14 @@ function handleLayoutDragSelectStart(e) {
 
 function handleLayoutDragSelectMove(e) {
     if (!layoutDragState) return;
+    // 방어: 마우스 버튼이 안 눌린 상태에서 mousemove → mouseup 누락 등으로 stale state. 즉시 정리.
+    if (e.buttons === 0) {
+        layoutDragState = null;
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', handleLayoutDragSelectMove);
+        document.removeEventListener('mouseup', handleLayoutDragSelectEnd);
+        return;
+    }
     if (isDragging) { layoutDragState = null; return; }
 
     const dx = e.clientX - layoutDragState.startX;
