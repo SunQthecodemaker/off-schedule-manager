@@ -2672,8 +2672,15 @@ function initializeSortableAndDraggable() {
 
                 const sel = layoutDragMultiInfo.selectedPositions;
                 const fromPos = layoutDragMultiInfo.draggedPos;
+                // SortableJS 잔여 클래스 정리 (스냅샷이 chosen 등을 포함한 채 캡쳐됨)
+                const cleanSortableClasses = (root) => {
+                    root.querySelectorAll('.sortable-chosen, .sortable-drag, .sortable-ghost, .sortable-swap-highlight').forEach(el => {
+                        el.classList.remove('sortable-chosen', 'sortable-drag', 'sortable-ghost', 'sortable-swap-highlight');
+                    });
+                };
                 const restore = () => {
                     grid.innerHTML = layoutDragSnapshot;
+                    cleanSortableClasses(grid);
                     layoutDragSnapshot = null;
                     layoutDragMultiInfo = null;
                     syncGridPositions();
@@ -2720,6 +2727,7 @@ function initializeSortableAndDraggable() {
 
                 // Sortable swap 되돌리고 multi-move 적용
                 grid.innerHTML = layoutDragSnapshot;
+                cleanSortableClasses(grid);
                 const restored = [...grid.querySelectorAll('.event-card, .event-slot')];
 
                 const sourceData = sel.map(p => {
