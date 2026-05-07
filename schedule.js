@@ -1802,7 +1802,7 @@ function getEmployeeStatusOnDate(empId, dateStr) {
     );
     if (hasLeave) return 'leave';
 
-    // 3. DB 스케줄 레코드 (변경 이력이 있는 경우)
+    // 3. DB 스케줄 레코드 (변경 이력이 있는 경우 — 관리자 수동 오버라이드 포함)
     let sched = null;
     state.schedule.schedules.forEach(s => {
         if (s.employee_id === empId && s.date === dateStr) {
@@ -1811,7 +1811,14 @@ function getEmployeeStatusOnDate(empId, dateStr) {
     });
     if (sched) return sched.status === '휴무' ? 'off' : 'working';
 
-    // 4. 레코드 없음 → 기본 근무
+    // 4. 레코드 없음 → 직원의 정기 휴무 요일이면 'off'
+    const emp = (state.management.employees || []).find(e => e.id === empId);
+    if (emp) {
+        const dow = dayjs(dateStr).day();
+        if (isFixedOffDay(emp.regular_holiday_rules, dow, dateStr)) return 'off';
+    }
+
+    // 5. 그 외 → 기본 근무
     return 'working';
 }
 
