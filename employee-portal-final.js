@@ -1,7 +1,7 @@
 import { state, db } from './state.js?v=20260505h';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260506b';
+import { renderScheduleManagement } from './schedule.js?v=20260507a';
 import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260505h';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 

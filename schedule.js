@@ -2585,8 +2585,10 @@ async function loadAndRenderScheduleData(date) {
         // ✨ 순서 변경: 달력을 먼저 렌더링
         renderCalendar();
 
-        // ✨ 이벤트 리스너 초기화 (휴일 토글 등)
-        initializeCalendarEvents();
+        // ✨ 이벤트 리스너 초기화 (휴일 토글 등) — 직원 포털(isReadOnly)에서는 등록 X
+        if (!state.schedule.isReadOnly) {
+            initializeCalendarEvents();
+        }
 
         // ✨ 그 다음 사이드바 렌더링 (이때 달력의 day-events가 존재함)
         await renderScheduleSidebar();
@@ -4039,6 +4041,9 @@ function handleDragSelectEnd(e) {
 function handleGlobalKeydown(e) {
     // 입력 필드 등에서는 무시
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // 직원 포털(isReadOnly)에서는 모든 단축키 차단 (Ctrl+Z/Y/C/X/V, Del, Backspace)
+    if (state.schedule?.isReadOnly) return;
 
     // ✅ 배치 그리드에 선택이 있으면 배치 그리드 키보드 처리 우선
     if (layoutSelectedSlots.size > 0 && handleLayoutKeyAction(e)) return;
