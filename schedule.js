@@ -271,6 +271,8 @@ function findNearestEmpty(dateStr, fromPos, excludeEmpId) {
  * @returns {number} 배치된 개수
  */
 function placeCards(items, dateStr, startPos = null) {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트)
+    if (state.schedule?.isReadOnly) return 0;
     // 원칙 15단계: 공휴일 날짜에는 카드 배치/이동 비활성
     if (state.schedule.companyHolidays?.has(dateStr)) {
         alert('공휴일/전원 휴무일입니다. 날짜를 더블클릭하여 해제한 뒤 배치해주세요.');
@@ -456,6 +458,8 @@ function placeCards(items, dateStr, startPos = null) {
  * @returns {number} 이동된 개수
  */
 function moveCards(empIds, fromDate, toDate, targetPos = null) {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트)
+    if (state.schedule?.isReadOnly) return 0;
     // 원칙 15단계: 공휴일 원본/타겟 날짜는 조작 비활성
     if (state.schedule.companyHolidays?.has(fromDate) || state.schedule.companyHolidays?.has(toDate)) {
         alert('공휴일/전원 휴무일은 이동 원본/대상이 될 수 없습니다.');
@@ -543,6 +547,8 @@ function pushUndoState(actionName) {
 }
 
 function undoLastChange() {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트)
+    if (state.schedule?.isReadOnly) return;
     if (undoStack.length === 0) {
         alert('되돌릴 작업이 없습니다.');
         return;
@@ -565,6 +571,8 @@ function undoLastChange() {
 }
 
 function redoLastChange() {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트)
+    if (state.schedule?.isReadOnly) return;
     if (redoStack.length === 0) {
         alert('다시 실행할 작업이 없습니다.');
         return;
@@ -1149,6 +1157,8 @@ function getLayoutPositionMap() {
 //   - false: 위치만 적용, 상태는 건드리지 않음 (기존 동작)
 // 레코드 없는 직원 → 신규 레코드 생성 (배치 적용 시)
 function applyLayoutToSchedules(positionMap, targetDates, options = {}) {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트)
+    if (state.schedule?.isReadOnly) return 0;
     const { applyRegularOff = false } = options;
     const dateSet = targetDates ? new Set(targetDates) : null;
     let updateCount = 0;
@@ -1922,6 +1932,15 @@ function renderCalendar() {
         return;
     }
 
+    // 원칙 16단계: 직원 포털 읽기 전용 — DOM 레벨 1차 게이트.
+    // 마우스/터치/드래그/포커스/탭/키보드 입력이 그리드로 전혀 도달하지 못하게 함.
+    // 새 입력 경로(단축키·메뉴·라이브러리)가 추가돼도 자동 차단됨.
+    if (state.schedule.isReadOnly) {
+        container.setAttribute('inert', '');
+    } else {
+        container.removeAttribute('inert');
+    }
+
     const currentDate = dayjs(state.schedule.currentDate);
     const year = currentDate.year();
     const month = currentDate.month();
@@ -2444,6 +2463,8 @@ function handleGroupSameDateMove(dateStr, pivotEmpId, oldIndex, newIndex) {
 
 // ✨ 더블클릭 핸들러: 상태 변경(Toggle) / 삭제 로직 (기존 클릭 로직 이동)
 function handleEventCardDblClick(e, card) {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트 안전망)
+    if (state.schedule?.isReadOnly) return;
     const empId = parseInt(card.dataset.employeeId);
     const scheduleId = card.dataset.scheduleId;
 
@@ -3477,6 +3498,8 @@ async function handleAddTempStaff() {
 
 // ✨ 날짜 헤더 더블클릭 핸들러 (휴일 토글)
 function handleDateHeaderDblClick(e) {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트 안전망)
+    if (state.schedule?.isReadOnly) return;
     const dayEl = e.target.closest('.calendar-day');
     if (!dayEl) return;
 
@@ -4003,6 +4026,8 @@ function handleMenuSelectAllDate() {
 
 // ✨ Register Menu Item Click Handler
 function handleMenuRegisterClick() {
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트 안전망)
+    if (state.schedule?.isReadOnly) return;
     const contextMenu = document.getElementById('custom-context-menu-v2');
     const employeeId = contextMenu.dataset.employeeId;
     const date = contextMenu.dataset.date;
