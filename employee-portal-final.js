@@ -162,6 +162,9 @@ export async function renderEmployeePortal() {
                 <button id="tab-work-schedule-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
                     📅 근무 스케줄
                 </button>
+                <button id="tab-welfare-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
+                    💊 진료비 복지
+                </button>
             </div>
 
             <!-- 매니저 전용: 스케줄 승인 요청 반려 알림 배너 -->
@@ -206,6 +209,12 @@ export async function renderEmployeePortal() {
                 <!-- 모바일 친화적 주간 스케줄 -->
             </div>
 
+            <!-- 진료비 복지 탭 (직원 본인 진료기록·잔액·이행 현황) -->
+            <div id="employee-welfare-tab" class="tab-content hidden">
+                <h2 class="text-xl font-bold mb-3">💊 내 진료비 복지 현황</h2>
+                <div id="my-welfare-content"></div>
+            </div>
+
         </div>
     `;
 
@@ -220,6 +229,7 @@ export async function renderEmployeePortal() {
     _('#tab-leave-btn').addEventListener('click', () => switchEmployeeTab('leave'));
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
     _('#tab-work-schedule-btn').addEventListener('click', () => switchEmployeeTab('workSchedule'));
+    _('#tab-welfare-btn')?.addEventListener('click', () => switchEmployeeTab('welfare'));
 
     if (user.isManager) {
         _('#enterManagerViewBtn')?.addEventListener('click', () => {
@@ -239,23 +249,7 @@ export async function renderEmployeePortal() {
     await loadEmployeeData();
 
     // 미제출 서류 알림은 loadEmployeeData() 내에서 한 번만 표시
-
-    // 내 진료비 복지 현황 섹션 (직원 포털 하단에 자동 표시)
-    try {
-        const wrap = portal.querySelector('.max-w-full');
-        if (wrap && !document.getElementById('my-welfare-section')) {
-            const sec = document.createElement('div');
-            sec.id = 'my-welfare-section';
-            sec.className = 'mt-6 mb-6';
-            sec.innerHTML = `
-                <h2 class="text-lg font-bold mb-3">💊 내 진료비 복지 현황</h2>
-                <div id="my-welfare-content"></div>`;
-            wrap.appendChild(sec);
-            await renderMyWelfareSection(sec.querySelector('#my-welfare-content'));
-        }
-    } catch (e) {
-        console.error('내 복지 섹션 렌더링 실패:', e);
-    }
+    // (내 진료비 복지 현황은 별도 탭 — switchEmployeeTab('welfare') 시 렌더)
 }
 
 // 매니저 포털: 가장 최근 반려된 스케줄 승인 요청 표시 (sessionStorage dismiss)
@@ -368,6 +362,7 @@ function switchEmployeeTab(tab) {
         'leave': { btn: '#tab-leave-btn', content: '#employee-leave-tab' },
         'docs': { btn: '#tab-docs-btn', content: '#employee-docs-tab' },
         'workSchedule': { btn: '#tab-work-schedule-btn', content: '#employee-work-schedule-tab' },
+        'welfare': { btn: '#tab-welfare-btn', content: '#employee-welfare-tab' },
         'leaveList': { btn: '#tab-leave-list-btn', content: '#employee-leave-list-tab' },
         'leaveStatus': { btn: '#tab-leave-status-btn', content: '#employee-leave-status-tab' },
         'schedule': { btn: '#tab-schedule-btn', content: '#employee-schedule-tab' },
@@ -406,6 +401,9 @@ function switchEmployeeTab(tab) {
         renderManagerScheduleTab();
     } else if (tab === 'workSchedule') {
         renderEmployeeScheduleView();
+    } else if (tab === 'welfare') {
+        const c = document.getElementById('my-welfare-content');
+        if (c) renderMyWelfareSection(c);
     } else if (tab === 'documentReview') {
         renderManagerDocumentReview();
     } else if (tab === 'leaveManagement') {
