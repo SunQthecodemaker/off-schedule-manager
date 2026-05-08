@@ -34,10 +34,10 @@ export async function renderWelfareTab(container) {
 
 function renderShell(container) {
     const tabs = [
-        { id: 'create',  label: '진료비 계산기' },
-        { id: 'list',    label: '전체 목록' },
-        { id: 'fulfill', label: '월별 이행 체크' },
-        { id: 'settle',  label: '퇴사 정산' },
+        { id: 'create',  label: '📝 신규 동의서 등록' },
+        { id: 'list',    label: '📋 전체 목록' },
+        { id: 'fulfill', label: '✅ 월별 이행 체크' },
+        { id: 'settle',  label: '💸 퇴사 정산' },
     ];
     const active = state.welfare.activeSubTab;
     container.innerHTML = `
@@ -71,6 +71,11 @@ function renderCreateTab(pane) {
     const employees = state.welfare.employees;
 
     pane.innerHTML = `
+        <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-sm">
+            <span class="font-bold text-blue-800">📝 신규 진료비 동의서 등록</span> —
+            아래 정보를 입력하면 실시간으로 산정 결과가 보이고,
+            <b>동의서 생성</b> → 서명 → <b>저장</b> 순으로 진행하면 등록됩니다.
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div class="space-y-3">
                 <h3 class="font-bold text-lg">정보 입력</h3>

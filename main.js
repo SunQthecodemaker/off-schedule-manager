@@ -5,7 +5,7 @@ import { assignManagementEventHandlers, getManagementHTML, getDepartmentManageme
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=2.4';
 import { renderEmployeePortal } from './employee-portal-final.js?v=20260501b';
 import { getLeaveDetails } from './leave-utils.js';
-import { renderWelfareTab } from './welfare-ui.js?v=20260508a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260508b';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
