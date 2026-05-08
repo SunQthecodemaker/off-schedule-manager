@@ -4,6 +4,7 @@ import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260508a';
 import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260507a';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260508a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -238,6 +239,23 @@ export async function renderEmployeePortal() {
     await loadEmployeeData();
 
     // 미제출 서류 알림은 loadEmployeeData() 내에서 한 번만 표시
+
+    // 내 진료비 복지 현황 섹션 (직원 포털 하단에 자동 표시)
+    try {
+        const wrap = portal.querySelector('.max-w-full');
+        if (wrap && !document.getElementById('my-welfare-section')) {
+            const sec = document.createElement('div');
+            sec.id = 'my-welfare-section';
+            sec.className = 'mt-6 mb-6';
+            sec.innerHTML = `
+                <h2 class="text-lg font-bold mb-3">💊 내 진료비 복지 현황</h2>
+                <div id="my-welfare-content"></div>`;
+            wrap.appendChild(sec);
+            await renderMyWelfareSection(sec.querySelector('#my-welfare-content'));
+        }
+    } catch (e) {
+        console.error('내 복지 섹션 렌더링 실패:', e);
+    }
 }
 
 // 매니저 포털: 가장 최근 반려된 스케줄 승인 요청 표시 (sessionStorage dismiss)

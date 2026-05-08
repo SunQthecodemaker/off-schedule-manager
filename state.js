@@ -61,6 +61,14 @@ export const state = {
     docSubmission: {
         currentTemplate: null,
         currentRequestId: null,
+    },
+    welfare: {
+        activeSubTab: 'create',  // create | list | fulfill | settle
+        config: null,
+        employees: [],
+        records: [],
+        signaturePad: null,
+        fulfillMonth: null,
     }
 };
 

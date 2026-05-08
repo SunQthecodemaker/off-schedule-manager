@@ -25,7 +25,7 @@ export function assignManagementEventHandlers() {
 
 // =========================================================================================
 // 매니저 권한 설정 모달 (employees.manager_permissions jsonb)
-// 8개 메뉴 × view/edit 토글. 관리자만 사용. 매니저로 지정된 직원에 한해 노출.
+// 9개 메뉴 × view/edit/commit 토글. 관리자만 사용. 매니저로 지정된 직원에 한해 노출.
 // =========================================================================================
 const MANAGER_MENU_LIST = [
     { key: 'schedule',            label: '스케줄 관리' },
@@ -35,7 +35,8 @@ const MANAGER_MENU_LIST = [
     { key: 'leave_management',    label: '연차 관리' },
     { key: 'employee_management', label: '직원 관리' },
     { key: 'department',          label: '부서 관리' },
-    { key: 'form',                label: '서식 관리' }
+    { key: 'form',                label: '서식 관리' },
+    { key: 'welfare',             label: '진료비 복지' }
 ];
 
 async function openManagerPermissionModal(employeeId) {

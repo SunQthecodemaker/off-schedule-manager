@@ -5,6 +5,7 @@ import { assignManagementEventHandlers, getManagementHTML, getDepartmentManageme
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=2.4';
 import { renderEmployeePortal } from './employee-portal-final.js?v=20260501b';
 import { getLeaveDetails } from './leave-utils.js';
+import { renderWelfareTab } from './welfare-ui.js?v=20260508a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -108,6 +109,9 @@ function renderManagementContent() {
             // ✨ 수정: 서식 관리 탭 렌더링
             renderTemplatesManagement(container);
             break;
+        case 'welfare':
+            renderWelfareTab(container);
+            break;
         default:
             container.innerHTML = `<p>${activeTab} 탭의 콘텐츠가 준비되지 않았습니다.</p>`;
     }
@@ -127,6 +131,7 @@ function renderManagementTabs() {
         { id: 'management', text: '직원 관리' },
         { id: 'department', text: '부서 관리' },
         { id: 'templates', text: '서식 관리' },
+        { id: 'welfare', text: '복지' },
     ];
 
     container.innerHTML = tabs.map(tab => `
