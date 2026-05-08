@@ -5,6 +5,7 @@ import { assignManagementEventHandlers, getManagementHTML, getDepartmentManageme
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260505h';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505h';
+import { renderWelfareTab } from './welfare-ui.js?v=20260508b';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -121,6 +122,10 @@ function renderManagementContent() {
             renderTemplatesManagement(container);
             setTimeout(applyEditPermissionForManagerView, 100);
             break;
+        case 'welfare':
+            renderWelfareTab(container);
+            setTimeout(applyEditPermissionForManagerView, 100);
+            break;
         default:
             container.innerHTML = `<p>${activeTab} 탭의 콘텐츠가 준비되지 않았습니다.</p>`;
     }
@@ -136,6 +141,7 @@ const TAB_TO_PERM_KEY = {
     management: 'employee_management',
     department: 'department',
     templates: 'form',
+    welfare: 'welfare',
 };
 
 function renderManagementTabs() {
@@ -152,6 +158,7 @@ function renderManagementTabs() {
         { id: 'management', text: '직원 관리' },
         { id: 'department', text: '부서 관리' },
         { id: 'templates', text: '서식 관리' },
+        { id: 'welfare', text: '복지' },
     ];
 
     // 매니저 화면이면 perm.view=true 인 탭만
