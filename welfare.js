@@ -151,14 +151,6 @@ function canCommit() {
     return !!(u.isManager && u.manager_permissions?.welfare?.commit === true);
 }
 
-async function setActorForAudit() {
-    // welfare_audit_log 트리거가 actor_id 를 읽도록 GUC 설정.
-    const id = state.currentUser?.id;
-    if (!id) return;
-    try { await db.rpc('set_config', { setting_name: 'welfare.actor_id', new_value: String(id), is_local: true }); }
-    catch (e) { /* set_config RPC 없으면 actor 는 NULL 로 적재 — 트리거가 자동 처리 */ }
-}
-
 export async function createRecord(payload, signatureDataUrl) {
     // payload: { employee_id, relation_type, patient_name, treatment_type, treatment_details, total_fee, start_date }
     // 근속 개월: employees.entry_date 기준
@@ -180,7 +172,6 @@ export async function createRecord(payload, signatureDataUrl) {
         return { staged: true };
     }
 
-    await setActorForAudit();
     const { data: ins, error } = await db.from('welfare_records').insert(insertPayload).select().single();
     if (error) throw error;
 
@@ -204,7 +195,6 @@ export async function deleteRecord(recordId) {
         if (error) throw error;
         return { staged: true };
     }
-    await setActorForAudit();
     // 서명 파일 삭제
     const { data: row } = await db.from('welfare_records').select('consent_sig_path').eq('id', recordId).single();
     if (row?.consent_sig_path) {
@@ -230,7 +220,6 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note) {
         if (error) throw error;
         return { staged: true };
     }
-    await setActorForAudit();
     const { error } = await db.from('welfare_monthly_fulfillment')
         .upsert(payload, { onConflict: 'record_id,year_month' });
     if (error) throw error;
@@ -247,7 +236,6 @@ export async function processSettlement(employeeId, resignDateStr) {
         if (error) throw error;
         return { staged: true };
     }
-    await setActorForAudit();
     const { error } = await db.from('welfare_records')
         .update({ status: 'Settled', resign_date: resignDateStr })
         .eq('employee_id', employeeId).eq('status', 'Active');

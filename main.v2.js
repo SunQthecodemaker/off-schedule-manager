@@ -5,7 +5,7 @@ import { assignManagementEventHandlers, getManagementHTML, getDepartmentManageme
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260508d';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260505h';
-import { renderWelfareTab } from './welfare-ui.js?v=20260508b';
+import { renderWelfareTab } from './welfare-ui.js?v=20260508e';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
