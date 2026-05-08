@@ -152,35 +152,37 @@ function canCommit() {
 }
 
 export async function createRecord(payload, signatureDataUrl) {
-    // payload: { employee_id, relation_type, patient_name, treatment_type, treatment_details, total_fee, start_date }
-    // 근속 개월: employees.entry_date 기준
+    console.log('[welfare:createRecord] payload=', payload, 'currentUser=', state.currentUser);
+
     const { data: empRow, error: empErr } = await db.from('employees')
         .select('entry_date').eq('id', payload.employee_id).single();
-    if (empErr) throw empErr;
+    if (empErr) { console.error('[welfare:createRecord] empErr=', empErr); throw empErr; }
     const preMonths = empRow?.entry_date ? monthsBetween(empRow.entry_date, payload.start_date) : 0;
 
     const insertPayload = { ...payload, pre_tenure_months: preMonths, status: 'Active', created_by: state.currentUser?.id || null };
+    console.log('[welfare:createRecord] insertPayload=', insertPayload, 'canCommit=', canCommit());
 
     if (!canCommit()) {
-        // 매니저: staging
+        if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
         const { error } = await db.from('pending_changes').insert({
             entity_type: 'welfare_record', action: 'create',
             payload: { ...insertPayload, _signature: signatureDataUrl },
             created_by: state.currentUser.id, status: 'pending',
         });
-        if (error) throw error;
+        if (error) { console.error('[welfare:createRecord] staging error=', error); throw error; }
         return { staged: true };
     }
 
     const { data: ins, error } = await db.from('welfare_records').insert(insertPayload).select().single();
+    console.log('[welfare:createRecord] insert result: ins=', ins, 'error=', error);
     if (error) throw error;
+    if (!ins || !ins.id) throw new Error('INSERT 후 row 가 반환되지 않았습니다 (RLS SELECT 차단 의심): ' + JSON.stringify({ins, error}));
 
-    // 서명 PNG 업로드
     if (signatureDataUrl) {
         const path = `welfare/signatures/${ins.id}.png`;
         const blob = dataUrlToBlob(signatureDataUrl);
         const { error: upErr } = await db.storage.from('docs').upload(path, blob, { contentType: 'image/png', upsert: true });
-        if (upErr) console.warn('서명 업로드 실패:', upErr.message);
+        if (upErr) console.warn('[welfare:createRecord] 서명 업로드 실패:', upErr.message);
         else await db.from('welfare_records').update({ consent_sig_path: path }).eq('id', ins.id);
     }
     return { staged: false, record: ins };

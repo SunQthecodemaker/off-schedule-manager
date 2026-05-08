@@ -195,7 +195,10 @@ async function onSaveRecord() {
         state.welfare.records = await loadAllRecords();
         state.welfare.activeSubTab = 'list';
         renderShell(document.querySelector('#admin-content'));
-    } catch (e) { alert('저장 실패: ' + e.message); }
+    } catch (e) {
+        console.error('[welfare:onSaveRecord] error:', e, '\nstack:', e?.stack);
+        alert('저장 실패: ' + e.message + '\n\nF12 → Console 에 상세 stack trace 가 출력되었습니다.');
+    }
 }
 
 // ============================================================
