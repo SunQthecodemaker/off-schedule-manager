@@ -6,6 +6,7 @@
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
 import { state, db } from './state.js?v=20260505h';
+import { dataUrlToBlob } from './welfare.js';
 
 // ---------- 매니저 측: 임시저장 ----------
 
@@ -174,6 +175,10 @@ async function applyChange(change) {
                 return await applyDocument(action, entity_id, payload);
             case 'form_template':
                 return await applyFormTemplate(action, entity_id, payload);
+            case 'welfare_record':
+                return await applyWelfareRecord(action, entity_id, payload);
+            case 'welfare_fulfillment':
+                return await applyWelfareFulfillment(action, payload);
             default:
                 return { ok: false, error: `알 수 없는 entity_type: ${entity_type}` };
         }
@@ -361,4 +366,70 @@ async function applyFormTemplate(action, id, payload) {
         return error ? { ok: false, error: error.message } : { ok: true };
     }
     return { ok: false, error: 'unknown action' };
+}
+
+// 진료비 복지 - 동의서/진료기록 (welfare_records)
+// create payload 에 _signature(dataURL) 가 있으면 INSERT 후 Storage 업로드 + consent_sig_path UPDATE.
+// update with payload._settlement=true 는 퇴사 정산 (employee_id 의 Active row 일괄 Settled).
+async function applyWelfareRecord(action, id, payload) {
+    if (action === 'create') {
+        const { _signature, ...insertPayload } = payload || {};
+        const { data: ins, error } = await db.from('welfare_records').insert(insertPayload).select().single();
+        if (error) return { ok: false, error: error.message };
+        if (!ins?.id) return { ok: false, error: 'INSERT 후 row 미반환 (RLS SELECT 차단 의심)' };
+        if (_signature) {
+            try {
+                const path = `welfare/signatures/${ins.id}.png`;
+                const blob = dataUrlToBlob(_signature);
+                const { error: upErr } = await db.storage.from('docs').upload(path, blob, { contentType: 'image/png', upsert: true });
+                if (!upErr) {
+                    await db.from('welfare_records').update({ consent_sig_path: path }).eq('id', ins.id);
+                } else {
+                    console.warn('[staging:welfare_record] 서명 업로드 실패:', upErr.message);
+                }
+            } catch (e) {
+                console.warn('[staging:welfare_record] 서명 처리 예외:', e);
+            }
+        }
+        return { ok: true };
+    }
+    if (action === 'update') {
+        // 퇴사 정산 분기 (welfare.js processSettlement 의 staging payload)
+        if (payload && payload._settlement === true) {
+            const { employee_id, resign_date } = payload;
+            if (!employee_id) return { ok: false, error: 'settlement: employee_id 누락' };
+            const { error } = await db.from('welfare_records')
+                .update({ status: 'Settled', resign_date: resign_date || null })
+                .eq('employee_id', employee_id).eq('status', 'Active');
+            return error ? { ok: false, error: error.message } : { ok: true };
+        }
+        // 일반 update
+        const { error } = await db.from('welfare_records').update(payload).eq('id', id);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+    if (action === 'delete') {
+        // 서명 파일도 삭제
+        const targetId = id || payload?.id;
+        if (!targetId) return { ok: false, error: 'delete: id 누락' };
+        const { data: row } = await db.from('welfare_records').select('consent_sig_path').eq('id', targetId).single();
+        if (row?.consent_sig_path) {
+            await db.storage.from('docs').remove([row.consent_sig_path]).catch(() => {});
+        }
+        const { error } = await db.from('welfare_records').delete().eq('id', targetId);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+    return { ok: false, error: 'unknown action' };
+}
+
+// 진료비 복지 - 월별 이행 체크 (welfare_monthly_fulfillment)
+// payload: { record_id, year_month, fulfilled, verified_by, verified_at, note }
+// (record_id, year_month) unique 제약 → upsert.
+async function applyWelfareFulfillment(action, payload) {
+    if (action !== 'update') return { ok: false, error: 'welfare_fulfillment only supports update (upsert)' };
+    if (!payload?.record_id || !payload?.year_month) {
+        return { ok: false, error: 'welfare_fulfillment: record_id 또는 year_month 누락' };
+    }
+    const { error } = await db.from('welfare_monthly_fulfillment')
+        .upsert(payload, { onConflict: 'record_id,year_month' });
+    return error ? { ok: false, error: error.message } : { ok: true };
 }
