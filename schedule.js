@@ -3036,10 +3036,12 @@ async function renderScheduleSidebar() {
     const deptNameMap = {};
     departments.forEach(d => { deptNameMap[d.id] = d.name; });
 
-    // 휴직/퇴사/테스트는 sidebar 부서 풀에서 제외
+    // 휴직/퇴사 sidebar 부서 풀에서 제외. 테스트는 admin (토글 무관) 또는 showTestEmployees=true 일 때만 포함
     const sidebarPoolEmps = activeRegular.filter(emp => {
         const status = getEmployeeStatus(emp);
-        return status !== 'retired' && status !== 'on_leave' && status !== 'test';
+        if (status === 'retired' || status === 'on_leave') return false;
+        if (status === 'test' && state.userRole !== 'admin' && !state.showTestEmployees) return false;
+        return true;
     });
     const sortedPoolEmps = sortByDeptOrder(sidebarPoolEmps, departments);
 
