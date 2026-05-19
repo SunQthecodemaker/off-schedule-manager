@@ -1,4 +1,4 @@
-import { state, db, isVisibleIn } from './state.js?v=20260505h';
+import { state, db, isVisibleIn } from './state.js?v=20260519a';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260518a';
@@ -40,6 +40,9 @@ const MANAGER_MENU_LIST = [
 ];
 
 async function openManagerPermissionModal(employeeId) {
+    if (state.currentUser?.role !== 'admin') {
+        return alert('관리자만 매니저 권한을 편집할 수 있습니다.');
+    }
     const emp = state.management.employees.find(e => e.id === employeeId);
     if (!emp) return alert('직원 정보를 찾을 수 없습니다.');
     const perms = emp.manager_permissions || {};
@@ -112,6 +115,9 @@ async function openManagerPermissionModal(employeeId) {
                 commit: !!commitEl?.checked
             };
         });
+        if (state.currentUser?.role !== 'admin') {
+            return alert('관리자만 매니저 권한을 편집할 수 있습니다.');
+        }
         const { error } = await db.from('employees')
             .update({ manager_permissions: newPerms })
             .eq('id', employeeId);
@@ -689,7 +695,7 @@ export function getManagementHTML() {
                 <td class="p-2" style="overflow:hidden;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
                 <td class="p-2 text-center" style="white-space:nowrap;">
                     <input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}>
-                    ${emp.isManager ? `<button onclick="window.openManagerPermissionModal(${emp.id})" class="ml-1 text-xs bg-purple-500 text-white px-2 py-0.5 rounded" title="매니저 권한 설정">⚙️</button>` : ''}
+                    ${emp.isManager && state.currentUser?.role === 'admin' ? `<button onclick="window.openManagerPermissionModal(${emp.id})" class="ml-1 text-xs bg-purple-500 text-white px-2 py-0.5 rounded" title="매니저 권한 설정">⚙️</button>` : ''}
                 </td>
                 <td class="p-2 text-center">
                     <button onclick="window.openRegularHolidayModal(${emp.id}, '${emp.name}')" class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100 w-full text-left">

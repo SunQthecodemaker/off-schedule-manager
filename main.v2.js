@@ -1,7 +1,7 @@
-import { state, db } from './state.js?v=20260505h';
+import { state, db } from './state.js?v=20260519a';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260508a';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260507a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260519a';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260505h';
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260508d';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260518a';

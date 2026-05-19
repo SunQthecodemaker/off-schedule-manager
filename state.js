@@ -153,11 +153,11 @@ export function isVisibleIn(context, emp, viewer) {
         }
         case 'schedule_grid': {
             // 스케줄 관리 전체 (메인 그리드·sidebar 배치·cell) — active 만 노출.
-            // alba/test/휴직/퇴사/hidden 모두 격리.
+            // alba/휴직/퇴사/hidden 격리. 테스트는 admin/매니저가 토글 ON 한 경우 노출 (leave_review 패턴 통일).
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
             if (emp.schedule_visible === false) return false;
-            if (isTestEmployee(emp)) return false;
+            if (isTestEmployee(emp) && v.userRole !== 'admin' && !state.showTestEmployees) return false;
             if (onLeave) return false;
             return true;
         }
