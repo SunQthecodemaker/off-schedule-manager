@@ -337,84 +337,51 @@ function placeCards(items, dateStr, startPos = null) {
             return;
         }
 
-        // 현재 날짜의 점유 맵: flat pos -> schedule. 레거시 레코드는 배제.
-        const occupancyByPos = new Map();
-        state.schedule.schedules.forEach(s => {
-            if (s.date !== dateStr) return;
-            if (s.employee_id <= 0) return;
-            if (s.grid_position == null || s.grid_position < 0 || s.grid_position >= GRID_SIZE) return;
-            occupancyByPos.set(s.grid_position, s);
-        });
-
-        // R1: 타겟 위치의 다른 카드 → 가장 가까운 빈자리로 재배치 (원칙 2·3단계: off-grid 금지)
-        //     - 상태: 뷰별 전환 (근무자뷰→휴무, 휴무자뷰→근무, 통합→휴무)
-        //     - 연차자(is_annual_leave=true): 상태 변경 안 함 (원칙 12단계). 위치만 이동.
-        //     - 선택된 카드끼리는 서로 displace 안 함 (자기 위치로 이동될 예정)
+        // 현재 뷰에 따른 밀려난 카드 상태 (근무자뷰→휴무, 휴무자뷰→근무, 통합→휴무)
         const currentView = state.schedule.viewMode || 'all';
         const displacedStatus = (currentView === 'off') ? '근무' : '휴무';
 
-        const existingAtTarget = occupancyByPos.get(assignPos);
-        if (existingAtTarget
-            && existingAtTarget.employee_id !== empId
-            && existingAtTarget.employee_id > 0
-            && !selectedEmpIds.has(existingAtTarget.employee_id)) {
-            // 점유 슬롯 계산 (이번 이동 자리는 비어 있다고 간주, 본인/선택카드는 무시)
-            const occupied = new Set();
-            occupancyByPos.forEach((s, p) => {
-                if (p === assignPos) return;
-                if (s.employee_id === empId) return;
-                if (selectedEmpIds.has(s.employee_id)) return;
-                occupied.add(p);
-            });
-            const nearest = findNearestEmptyPos(assignPos, occupied);
+        // 🎯 점유 판단은 '통합 보기 기준'(레코드 + 기본배치 전원).
+        //    규칙: 타겟이 빈자리면 그냥 그 자리에 배치. 누가 있으면 그 점유자 1명만
+        //    가장 가까운 '진짜' 빈자리로 옮긴다. 그 사이 카드들은 절대 안 건드린다.
+        const effOcc = getEffectiveOccupancy(dateStr);            // pos -> {employee_id, record|null}
+        const occupant = effOcc.get(assignPos);
+        if (occupant
+            && occupant.employee_id !== empId
+            && occupant.employee_id > 0
+            && !selectedEmpIds.has(occupant.employee_id)) {
+            // 진짜 빈자리 탐색: 전체 점유(통합 기준) + 이번 배치의 타겟들을 제외
+            const occupiedSet = new Set(effOcc.keys());
+            items.forEach(it => { occupiedSet.add(it._targetPos != null ? it._targetPos : assignPos); });
+            const nearest = findNearestEmptyPos(assignPos, occupiedSet);
             if (nearest != null) {
-                if (!existingAtTarget.is_annual_leave) {
-                    existingAtTarget.status = displacedStatus;
+                const rec = occupant.record;
+                if (rec) {
+                    // 기존 레코드 보유 → 위치만 이동 (연차자는 상태 유지)
+                    if (!rec.is_annual_leave) rec.status = displacedStatus;
+                    setSchedulePosFlat(rec, nearest);
+                    rec.sort_order = nearest;
+                    unsavedChanges.set(rec.id, { type: 'update', data: rec });
+                } else {
+                    // 기본배치만 있던 직원 → 새 레코드로 빈자리에 고정 (연차자는 휴무 표기 유지)
+                    const isLeaveOcc = getEmployeeStatusOnDate(occupant.employee_id, dateStr) === 'leave';
+                    const nRow = Math.floor(nearest / GRID_COLS);
+                    const nCol = nearest % GRID_COLS;
+                    const newSched = {
+                        id: `displace-${Date.now()}-${occupant.employee_id}-${Math.random()}`,
+                        date: dateStr,
+                        employee_id: occupant.employee_id,
+                        status: isLeaveOcc ? '휴무' : displacedStatus,
+                        sort_order: nearest,
+                        row: nRow, col: nCol, grid_position: nearest,
+                        is_annual_leave: false
+                    };
+                    state.schedule.schedules.push(newSched);
+                    unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
                 }
-                setSchedulePosFlat(existingAtTarget, nearest);
-                existingAtTarget.sort_order = nearest;
-                unsavedChanges.set(existingAtTarget.id, { type: 'update', data: existingAtTarget });
-                occupancyByPos.delete(assignPos);
-                occupancyByPos.set(nearest, existingAtTarget);
-            } else {
-                // 전 슬롯 점유: 원칙상 여기 도달 안 해야 함. 방어적으로 상태만 변경.
-                if (!existingAtTarget.is_annual_leave) {
-                    existingAtTarget.status = displacedStatus;
-                }
-                unsavedChanges.set(existingAtTarget.id, { type: 'update', data: existingAtTarget });
             }
+            // nearest == null (전 슬롯 점유) 이면 밀어낼 곳 없음 → 그대로 둠
         }
-
-        // R1(b): basePositions으로만 점유하던 직원 (explicit 레코드 없음) → 신규 휴무 레코드 + 빈자리 배치
-        const basePositionsMap = getEmployeeBasePositions();
-        (state.management.employees || []).forEach(emp => {
-            if (!emp || emp.id === empId) return;
-            if (!isGridEmployee(emp)) return;
-            if (selectedEmpIds.has(emp.id)) return;
-            if (basePositionsMap.get(emp.id) !== assignPos) return;
-            const hasExplicit = state.schedule.schedules.some(s => s.date === dateStr && s.employee_id === emp.id);
-            if (hasExplicit) return;
-            // 가장 가까운 빈자리 찾기
-            const occupied = new Set();
-            occupancyByPos.forEach((s, p) => { occupied.add(p); });
-            occupied.add(assignPos); // 타겟은 이번 이동으로 점유 예정
-            const nearest = findNearestEmptyPos(assignPos, occupied);
-            if (nearest == null) return;
-            const nRow = Math.floor(nearest / GRID_COLS);
-            const nCol = nearest % GRID_COLS;
-            const newSched = {
-                id: `displace-${Date.now()}-${emp.id}-${Math.random()}`,
-                date: dateStr,
-                employee_id: emp.id,
-                status: displacedStatus,
-                sort_order: nearest,
-                row: nRow, col: nCol, grid_position: nearest,
-                is_annual_leave: false
-            };
-            state.schedule.schedules.push(newSched);
-            unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
-            occupancyByPos.set(nearest, newSched);
-        });
 
         // R2: 같은 날짜에 같은 직원의 기존 레코드 (다른 위치) → 업데이트 대상. 삭제하지 않고 아래 target 처리로 이어감.
         // 배치: 기존 스케줄 업데이트 또는 신규 생성
@@ -1446,7 +1413,7 @@ function initializeDayDragDrop(dayEl, dateStr) {
             put: ['calendar-group', 'layout-pool'] // ✅ 달력 간 이동 + 배치 패널에서 드롭
         },
         draggable: '.event-card, .draggable-employee, .list-spacer, .event-slot, .layout-pool-card',
-        animation: 150,
+        animation: 0, // 드래그 중 슬라이드(주변 카드 출렁임) 제거 — 위치 기반 그리드
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
         chosenClass: 'sortable-chosen',
@@ -1812,6 +1779,40 @@ function getEmployeeBasePositions() {
     });
 
     return posMap;
+}
+
+/**
+ * 특정 날짜의 '효과적 점유' 맵 — 통합 보기 기준.
+ * "빈자리"는 schedules 레코드 유무가 아니라, 실제로 그 칸에 아무도 없을 때만이다.
+ * (레코드 없이 기본배치로만 표시되는 달에서도 점유자를 정확히 인식 → 엉뚱한 밀림 방지)
+ * renderCalendar 의 getEmpPosition 과 동일 규칙: 레코드 grid_position 우선, 없으면 basePosition.
+ * @returns {Map<number, {employee_id:number, record:Object|null}>} pos -> 점유 정보
+ */
+function getEffectiveOccupancy(dateStr) {
+    const occ = new Map();
+    const basePositions = getEmployeeBasePositions();
+    const recMap = new Map();
+    state.schedule.schedules.forEach(s => {
+        if (s.date !== dateStr || s.employee_id <= 0) return;
+        const prev = recMap.get(s.employee_id);
+        if (!prev || s.status === '근무') recMap.set(s.employee_id, s);
+    });
+    (state.management.employees || []).forEach(emp => {
+        if (!isGridEmployee(emp)) return;
+        if (emp.resignation_date && dateStr >= emp.resignation_date) return;
+        const rec = recMap.get(emp.id);
+        let pos = null;
+        if (rec && rec.grid_position != null) {
+            if (rec.grid_position >= 0 && rec.grid_position < GRID_SIZE) pos = rec.grid_position;
+            // grid_position < 0 (명시적 off-grid) → 점유 안 함
+        } else {
+            const bp = basePositions.get(emp.id);
+            if (bp != null && bp >= 0 && bp < GRID_SIZE) pos = bp;
+        }
+        if (pos == null) return;
+        if (!occ.has(pos)) occ.set(pos, { employee_id: emp.id, record: rec || null });
+    });
+    return occ;
 }
 
 // ✅ 특정 날짜에 직원의 상태 판별
