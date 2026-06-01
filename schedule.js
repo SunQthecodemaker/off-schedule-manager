@@ -1791,6 +1791,7 @@ function getEmployeeBasePositions() {
 function getEffectiveOccupancy(dateStr) {
     const occ = new Map();
     const basePositions = getEmployeeBasePositions();
+    const excludedIds = getExcludedEmployeeIds(); // 렌더와 동일 기준 — 레이아웃 미등록 직원
     const recMap = new Map();
     state.schedule.schedules.forEach(s => {
         if (s.date !== dateStr || s.employee_id <= 0) return;
@@ -1801,6 +1802,9 @@ function getEffectiveOccupancy(dateStr) {
         if (!isGridEmployee(emp)) return;
         if (emp.resignation_date && dateStr >= emp.resignation_date) return;
         const rec = recMap.get(emp.id);
+        // renderCalendar 와 동일: 레이아웃 미등록(excluded) + 레코드 없음 → 화면에 안 나오므로
+        // 점유로 치지 않는다. (자동 임시배정 자리를 '유령 점유'로 잡아 엉뚱하게 미는 버그 방지)
+        if (excludedIds.has(emp.id) && !rec) return;
         let pos = null;
         if (rec && rec.grid_position != null) {
             if (rec.grid_position >= 0 && rec.grid_position < GRID_SIZE) pos = rec.grid_position;
