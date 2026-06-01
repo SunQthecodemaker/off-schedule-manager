@@ -2049,7 +2049,10 @@ function renderCalendar() {
         // 뷰 모드는 렌더링 시 표시/숨김만 결정
         // ═══════════════════════════════════════════
         activeEmps.forEach(emp => {
-            if (excludedIds.has(emp.id)) return;
+            // 레이아웃(monthly_layouts)에 없어도, 그 날짜에 명시적 스케줄 레코드가 있으면 렌더한다.
+            // (복직·수동 배치한 직원을 날짜칸에 드롭하면 레코드는 생기지만 렌더에서 빠져
+            //  "이름이 사라지는" 버그 방지. 레이아웃 미등록 + 레코드 없음일 때만 제외.)
+            if (excludedIds.has(emp.id) && !dateSchedMap.has(emp.id)) return;
             if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
             // 퇴사일 이후는 미표시
             if (emp.resignation_date && dateStr >= emp.resignation_date) return;
