@@ -1647,10 +1647,26 @@ function initializeDayDragDrop(dayEl, dateStr) {
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
             if (isNaN(empId)) { employeeEl.remove(); return; }
 
-            pushUndoState('Drop from sidebar');
-            placeCards([{ employee_id: empId }], dateStr, evt.newIndex);
+            // 🎯 타겟 위치 = 드롭 지점 좌표 아래의 실제 슬롯 data-position.
+            //    (evt.newIndex = 클론 삽입 인덱스는 점유 슬롯을 가리켜 엉뚱한 카드를 밀어내고
+            //     렌더 충돌이 연쇄되는 원인. 좌표 기반이 정확.)
+            const oe = evt.originalEvent || {};
+            const pt = (oe.changedTouches && oe.changedTouches[0]) ? oe.changedTouches[0] : oe;
+            employeeEl.remove(); // 클론 제거 후 좌표 아래 실제 슬롯 탐색
+            let targetPos = null;
+            if (pt && typeof pt.clientX === 'number') {
+                const elAt = document.elementFromPoint(pt.clientX, pt.clientY);
+                const slot = (elAt && elAt.closest) ? elAt.closest('.event-card, .event-slot') : null;
+                const sameDay = slot && slot.closest('.calendar-day')?.dataset.date === dateStr;
+                if (sameDay && slot.dataset.position != null && slot.dataset.position !== '') {
+                    targetPos = parseInt(slot.dataset.position, 10);
+                }
+            }
 
-            employeeEl.remove();
+            pushUndoState('Drop from sidebar');
+            // targetPos 판정 실패 시 null → placeCards 가 첫 빈자리에 안전 배치 (밀어내기 없음)
+            placeCards([{ employee_id: empId }], dateStr, Number.isFinite(targetPos) ? targetPos : null);
+
             renderCalendar();
             updateSaveButtonState();
         },
