@@ -1424,9 +1424,10 @@ function initializeDayDragDrop(dayEl, dateStr) {
         fallbackTolerance: 5,
         forceFallback: false,
         fallbackTolerance: 5,
-        emptyInsertThreshold: 0, // 빈 공간 삽입(주변 카드 밀림) 비활성 — 위치 기반 그리드는 swap만 사용
-        swap: true, // ✨ Swap 모드 활성화 (자리 교환, 삽입-shift 없음)
-        swapClass: 'sortable-swap-highlight', // 교환 대상 강조 스타일
+        emptyInsertThreshold: 0, // 빈 공간 삽입(주변 카드 밀림) 비활성
+        // swap 미사용: 달력은 onAdd/onUpdate 가 placeCards 로 위치를 직접 계산한다.
+        // swap 플러그인은 드롭 시 DOM 을 직접 교환·이동시켜 placeCards 경로와 충돌하고,
+        // 풀 클론을 점유 카드와 교환하면서 점유자를 날려버림(유시온 사라짐 버그) → 제거.
 
         onStart(evt) {
             isDragging = true;
