@@ -4,7 +4,7 @@ import { _, _all, show, hide } from './utils.js';
 // 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260601a';
+import { registerManualLeave } from './management.js?v=20260601c';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
@@ -1457,8 +1457,8 @@ function initializeDayDragDrop(dayEl, dateStr) {
         fallbackTolerance: 5,
         forceFallback: false,
         fallbackTolerance: 5,
-        emptyInsertThreshold: 30,
-        swap: true, // ✨ Swap 모드 활성화
+        emptyInsertThreshold: 0, // 빈 공간 삽입(주변 카드 밀림) 비활성 — 위치 기반 그리드는 swap만 사용
+        swap: true, // ✨ Swap 모드 활성화 (자리 교환, 삽입-shift 없음)
         swapClass: 'sortable-swap-highlight', // 교환 대상 강조 스타일
 
         onStart(evt) {
@@ -2722,6 +2722,7 @@ function initializeSortableAndDraggable() {
             ghostClass: 'sortable-ghost',
             dragClass: 'sortable-drag',
             chosenClass: 'sortable-chosen',
+            emptyInsertThreshold: 0, // 빈 공간 삽입(주변 카드 밀림) 비활성 — swap만 사용
             swap: true,
             swapClass: 'sortable-swap-highlight',
             // delay 제거 — 달력 그리드와 동일하게 즉시 드래그 시작

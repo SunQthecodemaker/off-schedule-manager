@@ -140,6 +140,20 @@ function addManagementEventListeners() {
     const employeeCheckboxes = document.querySelectorAll('.employee-checkbox');
     const bulkDeleteBtn = _('#bulkDeleteBtn');
 
+    // 상단 [전체 저장] — 변경된 모든 행을 한 번에 저장
+    const saveAllBtn = _('#saveAllEmployeesBtn');
+    saveAllBtn?.addEventListener('click', async () => {
+        saveAllBtn.disabled = true;
+        const prev = saveAllBtn.textContent;
+        saveAllBtn.textContent = '저장 중...';
+        try {
+            await handleSaveAllEmployees();
+        } finally {
+            saveAllBtn.disabled = false;
+            saveAllBtn.textContent = prev;
+        }
+    });
+
     selectAllCheckbox?.addEventListener('change', () => {
         employeeCheckboxes.forEach(checkbox => {
             checkbox.checked = selectAllCheckbox.checked;
@@ -282,6 +296,73 @@ async function handleUpdateEmployee(id) {
         alert('직원 정보가 성공적으로 저장되었습니다.');
         await window.loadAndRenderManagement();
     }
+}
+
+// 화면의 모든 재직자 행을 한 번에 저장 — 변경된 행만 업데이트 (행별 [저장] 대체)
+async function handleSaveAllEmployees() {
+    const staging = shouldStage('employee_management');
+    // 현재 렌더된 행(= #name-{id} 입력이 존재하는 직원)만 대상
+    const targets = (state.management.employees || []).filter(emp => document.getElementById(`name-${emp.id}`));
+
+    let updated = 0, staged = 0, failed = 0;
+    const errs = [];
+
+    for (const emp of targets) {
+        const id = emp.id;
+        const name = _(`#name-${id}`).value;
+        const entry_date = _(`#entry-${id}`).value;
+        const email = _(`#email-${id}`).value;
+        const department_id = parseInt(_(`#dept-${id}`).value, 10);
+        const managerCheckbox = _(`#manager-${id}`);
+        const isManager = managerCheckbox ? managerCheckbox.checked : false;
+        const resignation_date = _(`#resign-${id}`)?.value || null;
+        const visibleCheckbox = _(`#visible-${id}`);
+        const schedule_visible = visibleCheckbox ? visibleCheckbox.checked : true;
+        const leave_start_date = _(`#leave-start-${id}`)?.value || null;
+        const return_date = _(`#return-${id}`)?.value || null;
+
+        // 변경 감지 (원본 state 와 비교) — 안 바뀐 행은 건너뜀 (불필요한 쓰기·덮어쓰기 방지)
+        const changed =
+            name !== (emp.name || '') ||
+            entry_date !== (emp.entryDate || '') ||
+            email !== (emp.email || '') ||
+            department_id !== emp.department_id ||
+            (!staging && isManager !== !!emp.isManager) ||
+            (resignation_date) !== (emp.resignation_date || null) ||
+            schedule_visible !== (emp.schedule_visible !== false) ||
+            (leave_start_date) !== (emp.leave_start_date || null) ||
+            (return_date) !== (emp.return_date || null);
+        if (!changed) continue;
+
+        const payload = {
+            name, entry_date, email, department_id,
+            // 매니저 토글/role 변경은 admin만 — staging payload에서 제외 (handleUpdateEmployee 와 동일)
+            ...(staging ? {} : { isManager }),
+            resignation_date, schedule_visible, leave_start_date, return_date
+        };
+
+        if (staging) {
+            const r = await stageChange('employee', id, 'update', payload, emp);
+            if (r.ok) staged++; else { failed++; errs.push(`${emp.name}: ${r.error}`); }
+        } else {
+            const { error } = await db.from('employees').update(payload).eq('id', id);
+            if (error) { failed++; errs.push(`${emp.name}: ${error.message}`); } else updated++;
+        }
+    }
+
+    if (updated === 0 && staged === 0 && failed === 0) {
+        alert('변경된 항목이 없습니다.');
+        return;
+    }
+
+    const failMsg = failed ? `\n\n실패 ${failed}건:\n${errs.join('\n')}` : '';
+    if (staging) {
+        notifyStaged();
+        alert(`${staged}건 임시저장되었습니다. 관리자 승인 후 반영됩니다.${failMsg}`);
+    } else {
+        alert(`${updated}명 저장 완료.${failMsg}`);
+    }
+    await window.loadAndRenderManagement();
 }
 
 async function handleDeleteEmployee(id) {
@@ -670,8 +751,7 @@ export function getManagementHTML() {
         if (filter === 'active') {
             // 권한 설정 버튼은 매니저 체크박스 옆 ⚙️로 통일 (가로 스크롤 회피)
             actions = `
-                <button onclick="handleUpdateEmployee(${emp.id})" class="text-xs bg-blue-500 text-white px-2 py-1 rounded">저장</button>
-                <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-1">PW</button>
+                <button onclick="handleResetPassword(${emp.id})" class="text-xs bg-yellow-500 text-white px-2 py-1 rounded">PW</button>
                 <button onclick="handleDeleteEmployee(${emp.id})" class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-1">삭제</button>
              `;
         } else {
@@ -748,6 +828,7 @@ export function getManagementHTML() {
         <div class="flex justify-between items-center mb-3">
             <h2 class="text-lg font-semibold">직원 관리</h2>
             <div class="flex space-x-2">
+                ${filter === 'active' ? `<button id="saveAllEmployeesBtn" class="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold">전체 저장</button>` : ''}
                 <button id="bulkDeleteBtn" class="text-sm bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold disabled:bg-gray-400 hidden" disabled>선택 삭제 (0)</button>
                 <div class="flex bg-gray-200 rounded p-1" style="display: flex !important;">
                     <button id="filter-btn-active" onclick="window.toggleEmployeeFilter('active')" class="${filter === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-900'} px-3 py-1 text-sm rounded transition-colors" style="display: inline-block !important; ${filter === 'active' ? 'background-color: #2563eb; color: white;' : 'background-color: #e5e7eb; color: black;'}">[재직자]</button>
