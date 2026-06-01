@@ -131,7 +131,8 @@ export function getEmployeeStatus(emp, dateStr) {
  */
 export function isVisibleIn(context, emp, viewer) {
     if (!emp) return false;
-    if (isAlbaEmployee(emp)) return false; // 알바는 모든 컨텍스트에서 격리
+    // 알바(임시직원)는 연차·관리 시스템에서만 격리. 스케줄 그리드에는 등장 (grid_principles 11단계).
+    // → 일괄 격리 제거. 각 컨텍스트(leave_review·employee_list_*)에서 개별 격리.
 
     const v = viewer || state;
     const today = dayjs().format('YYYY-MM-DD');
@@ -145,6 +146,7 @@ export function isVisibleIn(context, emp, viewer) {
             // 연차 검수·연차 관리·연차 현황 — active 직원만 노출
             // 테스트 직원: admin 은 토글 무관 항상 노출 (자기 시스템의 모든 신청 가시).
             // 매니저(매니저뷰)는 admin 이 토글 ON 한 경우에만 노출. 그 외 viewer 는 격리.
+            if (isAlbaEmployee(emp)) return false; // 알바는 연차 시스템에서 격리
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
             if (isTestEmployee(emp) && v.userRole !== 'admin' && !state.showTestEmployees) return false;
@@ -152,8 +154,9 @@ export function isVisibleIn(context, emp, viewer) {
             return true;
         }
         case 'schedule_grid': {
-            // 스케줄 관리 전체 (메인 그리드·sidebar 배치·cell) — active 만 노출.
-            // alba/휴직/퇴사/hidden 격리. 테스트는 admin/매니저가 토글 ON 한 경우 노출 (leave_review 패턴 통일).
+            // 스케줄 관리 전체 (메인 그리드·sidebar 배치·cell) — active 노출.
+            // 알바(임시직원)는 여기 노출 (스케줄에만 등장, grid_principles 11단계). 휴직/퇴사/hidden 격리.
+            // 테스트는 admin/매니저가 토글 ON 한 경우 노출 (leave_review 패턴 통일).
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
             if (emp.schedule_visible === false) return false;
@@ -163,12 +166,14 @@ export function isVisibleIn(context, emp, viewer) {
         }
         case 'employee_list_active': {
             // 직원 관리 [활성] 탭 — 즉시 cutoff
+            if (isAlbaEmployee(emp)) return false; // 알바는 직원 관리 목록에서 격리
             if (emp.retired) return false;
             if (emp.resignation_date && emp.resignation_date <= today) return false;
             return true;
         }
         case 'employee_list_retired': {
             // 직원 관리 [퇴사자] 탭 — 즉시 cutoff
+            if (isAlbaEmployee(emp)) return false; // 알바는 직원 관리 목록에서 격리
             if (emp.retired) return true;
             return !!(emp.resignation_date && emp.resignation_date <= today);
         }

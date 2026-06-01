@@ -1,8 +1,10 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260519a';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260601a';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
-import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@latest/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260519a';
+// 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
+// 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
+import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
+import { registerManualLeave } from './management.js?v=20260601a';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
@@ -2055,9 +2057,16 @@ function renderCalendar() {
             let pos = getEmpPosition(emp.id);
             if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
 
-            // 충돌 시 다음 빈 자리로 밀기
+            // 충돌 시 가장 가까운 빈 자리로 (좌상단 첫 빈칸으로 점프하면 무관한 카드가 멀리 튀어 보임)
             if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
-                for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+                const occupiedNow = new Set();
+                gridSlots.forEach((s, i) => { if (s) occupiedNow.add(i); });
+                const nearest = findNearestEmptyPos(pos, occupiedNow);
+                if (nearest != null) {
+                    pos = nearest;
+                } else {
+                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+                }
             }
 
             const status = getEmployeeStatusOnDate(emp.id, dateStr);
@@ -2073,8 +2082,8 @@ function renderCalendar() {
             };
         });
 
-        // 임시직원 스케줄 배치는 제거 (alba/test 모두 schedule_grid 격리 정책)
-        // 일반 직원은 위 activeEmps 루프에서 처리됨
+        // 임시직원(알바)·테스트직원도 isGridEmployee 통과 시 위 activeEmps 루프에서 함께 처리됨
+        // (별도 placement path 불필요 — 레코드/basePosition 기반 동일 렌더)
 
         // ═══════════════════════════════════════════
         // 그리드 슬롯 → HTML 변환 (공통)
@@ -2521,9 +2530,9 @@ function handleEventCardDblClick(e, card) {
         renderCalendar();
         updateSaveButtonState();
     } else {
-        // 기존 스케줄 객체가 없는 경우 (엣지: DOM에는 카드가 있으나 state에 레코드 없음)
-        // 근무 상태로 신규 생성 — card가 자리잡은 DOM 위치를 그대로 사용
-        pushUndoState('Add Schedule');
+        // 레코드 없는 카드(기본 근무 표시 — id="auto-...") 더블클릭 → 휴무로 토글 (7단계: 근무→휴무).
+        // 신규 휴무 레코드를 카드의 현재 DOM 위치에 생성. (근무 레코드 생성 시 화면 무변화 버그 수정)
+        pushUndoState('Toggle Status');
         const tempId = `temp-${Date.now()}-${empId}`;
         const cardPos = parseInt(card.dataset.position, 10);
         const pos = Number.isFinite(cardPos) && cardPos >= 0 && cardPos < GRID_SIZE ? cardPos : -1;
@@ -2531,9 +2540,10 @@ function handleEventCardDblClick(e, card) {
             id: tempId,
             date: dateStr,
             employee_id: empId,
-            status: '근무',
+            status: '휴무',
             sort_order: pos,
-            grid_position: pos
+            grid_position: pos,
+            is_annual_leave: false
         };
         state.schedule.schedules.push(newSchedule);
         unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
@@ -2837,22 +2847,65 @@ function initializeSortableAndDraggable() {
             },
 
             onAdd(evt) {
-                // 직원 목록에서 들어온 clone 처리
+                // 직원 목록에서 들어온 clone 처리 — 위치 기반 배치 (삽입-shift 금지).
+                // SortableJS 는 클론을 33번째 요소로 삽입해 뒤 슬롯을 한 칸씩 민다.
+                // → 클론을 제거하고 32슬롯을 유지한 채 타겟 슬롯에만 직원을 배치한다.
                 const el = evt.item;
                 const empId = parseInt(el.dataset.employeeId);
                 const emp = (state.management.employees || []).find(e => e.id === empId);
+                const grid = document.getElementById('layout-grid');
 
-                if (!emp || isNaN(empId)) {
+                if (!emp || isNaN(empId) || !grid) {
                     el.remove();
                     return;
                 }
 
-                // clone을 달력과 동일한 event-card 구조로 교체
+                // 클론의 현재 인덱스 = 드롭 타겟. 클론 제거 후 같은 인덱스의 슬롯이 원래 타겟이 됨.
+                const withClone = [...grid.querySelectorAll('.event-card, .event-slot')];
+                let targetPos = withClone.indexOf(el);
+                el.remove();
+                const slots = [...grid.querySelectorAll('.event-card, .event-slot')];
+                if (targetPos < 0) targetPos = slots.length - 1;
+                if (targetPos > slots.length - 1) targetPos = slots.length - 1;
+                const targetSlot = slots[targetPos];
+                if (!targetSlot) { syncGridPositions(); return; }
+
+                const setEmpty = (slot, pos) => {
+                    slot.className = 'event-slot empty-slot';
+                    slot.dataset.employeeId = 'empty';
+                    slot.dataset.type = 'empty';
+                    slot.innerHTML = `<span class="slot-number">${pos + 1}</span>`;
+                };
+
+                // 같은 직원이 이미 그리드에 있으면 그 자리 비우기 (한 그리드 1명 원칙)
+                slots.forEach((s, i) => {
+                    if (s !== targetSlot && s.dataset.employeeId === String(empId)) setEmpty(s, i);
+                });
+
+                // 타겟이 다른 직원으로 점유돼 있으면 그 점유자만 가장 가까운 빈자리로 (주변 카드는 안 움직임)
+                const occId = targetSlot.dataset.employeeId;
+                if (occId && occId !== 'empty' && occId !== String(empId)) {
+                    const occupied = new Set([targetPos]); // 타겟은 새 직원이 차지 → 점유 처리
+                    slots.forEach((s, i) => {
+                        if (s.dataset.employeeId && s.dataset.employeeId !== 'empty') occupied.add(i);
+                    });
+                    const nearest = findNearestEmptyPos(targetPos, occupied);
+                    if (nearest != null && slots[nearest]) {
+                        const ns = slots[nearest];
+                        ns.className = targetSlot.className;
+                        ns.dataset.employeeId = targetSlot.dataset.employeeId;
+                        ns.dataset.type = targetSlot.dataset.type;
+                        ns.innerHTML = targetSlot.innerHTML;
+                    }
+                    // 빈자리 없으면 점유자 덮어쓰기 (방어적)
+                }
+
+                // 타겟 슬롯에 직원 배치
                 const deptColor = getDepartmentColor(emp.departments?.id);
-                el.className = 'event-card event-working';
-                el.dataset.employeeId = emp.id;
-                el.dataset.type = 'working';
-                el.innerHTML = `
+                targetSlot.className = 'event-card event-working';
+                targetSlot.dataset.employeeId = emp.id;
+                targetSlot.dataset.type = 'working';
+                targetSlot.innerHTML = `
                     <span class="event-dot" style="background-color: ${deptColor};"></span>
                     <span class="event-name">${emp.name}</span>
                 `;
@@ -3040,6 +3093,7 @@ async function renderScheduleSidebar() {
     const sidebarPoolEmps = activeRegular.filter(emp => {
         const status = getEmployeeStatus(emp);
         if (status === 'retired' || status === 'on_leave') return false;
+        if (status === 'alba') return false; // 알바는 별도 '임시' 그룹에서 처리 (부서 풀 중복 방지)
         if (status === 'test' && state.userRole !== 'admin' && !state.showTestEmployees) return false;
         return true;
     });
