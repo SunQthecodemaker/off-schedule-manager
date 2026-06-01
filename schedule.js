@@ -1395,7 +1395,84 @@ function handleSameDateMove(dateStr, movedEmployeeId, oldIndex, newIndex) {
     updateSaveButtonState();
 }
 
+// ═══ 달력 드래그 — sort:false 방식 공용 상태/헬퍼 ═══
+// SortableJS 가 드래그 중 DOM 을 재배치(reshuffle)하지 못하게 sort:false 로 두고,
+// 실제 배치는 '놓는 지점 좌표'로 직접 계산한다. (재배치 없음 → 주변 카드 안 움직임)
+let calendarDragPointer = { x: 0, y: 0 };   // 드래그 중 마지막 포인터 좌표
+let calendarMoveHandled = false;            // onUpdate/onAdd 가 처리했으면 true (onEnd 중복 방지)
+
+function onCalendarDragMove(e) {
+    const p = (e.touches && e.touches[0]) ? e.touches[0]
+            : (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : e;
+    if (p && typeof p.clientX === 'number') {
+        calendarDragPointer.x = p.clientX;
+        calendarDragPointer.y = p.clientY;
+    }
+}
+
+// 좌표 추적 전역 1회 등록 — 풀(사이드바)에서 시작한 드래그도 포착해야 하므로
+// 특정 Sortable 의 onStart 가 아니라 document 에 상시 등록한다. (HTML5 DnD 는 dragover,
+// 폴백/터치는 pointermove/touchmove 로 좌표 갱신)
+let _calDragTrackerRegistered = false;
+function ensureCalendarDragTracker() {
+    if (_calDragTrackerRegistered) return;
+    _calDragTrackerRegistered = true;
+    document.addEventListener('dragover', onCalendarDragMove, true);
+    document.addEventListener('pointermove', onCalendarDragMove, true);
+    document.addEventListener('touchmove', onCalendarDragMove, true);
+}
+
+// 좌표 아래의 슬롯 data-position 반환 (해당 날짜 슬롯만). 못 찾으면 null.
+function slotPosAtPointer(dateStr) {
+    const elAt = document.elementFromPoint(calendarDragPointer.x, calendarDragPointer.y);
+    const slot = (elAt && elAt.closest) ? elAt.closest('.event-card, .event-slot') : null;
+    if (!slot) return null;
+    const slotDay = slot.closest('.calendar-day')?.dataset.date;
+    if (slotDay !== dateStr) return null;
+    if (slot.dataset.position == null || slot.dataset.position === '') return null;
+    const p = parseInt(slot.dataset.position, 10);
+    return Number.isFinite(p) ? p : null;
+}
+
+// 같은 날짜 내 그룹 이동 (선택 선행 + row/col 델타 + OOB 전체취소). onUpdate/onEnd 공용.
+function applyIntraGridMove(dateStr, draggedEmpId, fromPos, targetPos) {
+    if (draggedEmpId == null || isNaN(draggedEmpId) || isNaN(fromPos) || targetPos == null || targetPos < 0) {
+        renderCalendar(); return;
+    }
+    const draggedKey = `${dateStr}_${draggedEmpId}`;
+    if (state.schedule.selectedSchedules.size === 0) { renderCalendar(); return; }
+    if (!state.schedule.selectedSchedules.has(draggedKey)) { clearSelection(); renderCalendar(); return; }
+    if (targetPos === fromPos) { renderCalendar(); return; }
+
+    const rowDelta = Math.floor(targetPos / GRID_COLS) - Math.floor(fromPos / GRID_COLS);
+    const colDelta = (targetPos % GRID_COLS) - (fromPos % GRID_COLS);
+    const items = [];
+    let outOfBounds = false;
+    state.schedule.selectedSchedules.forEach(selKey => {
+        const [selDate, eidStr] = selKey.split('_');
+        const eid = parseInt(eidStr, 10);
+        if (selDate !== dateStr || isNaN(eid)) return;
+        const selCard = document.querySelector(`.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${eid}"]`);
+        const origPos = selCard ? parseInt(selCard.dataset.position, 10) : null;
+        if (origPos == null || isNaN(origPos)) return;
+        const origRow = Math.floor(origPos / GRID_COLS), origCol = origPos % GRID_COLS;
+        const newRow = origRow + rowDelta, newCol = origCol + colDelta;
+        if (newCol < 0 || newCol >= GRID_COLS || newRow < 0) { outOfBounds = true; return; }
+        const newPos = newRow * GRID_COLS + newCol;
+        if (newPos < 0 || newPos >= GRID_SIZE) { outOfBounds = true; return; }
+        items.push({ employee_id: eid, _targetPos: newPos, _origPos: origPos });
+    });
+    if (outOfBounds || items.length === 0) { renderCalendar(); return; }
+
+    pushUndoState('Drag Reorder');
+    placeCards(items, dateStr, null);
+    clearSelection();
+    renderCalendar();
+    updateSaveButtonState();
+}
+
 function initializeDayDragDrop(dayEl, dateStr) {
+    ensureCalendarDragTracker(); // 좌표 추적 1회 등록
     const eventContainer = dayEl.querySelector('.day-events');
     if (!eventContainer) return;
 
@@ -1425,14 +1502,17 @@ function initializeDayDragDrop(dayEl, dateStr) {
         forceFallback: false,
         fallbackTolerance: 5,
         emptyInsertThreshold: 0, // 빈 공간 삽입(주변 카드 밀림) 비활성
-        // swap 미사용: 달력은 onAdd/onUpdate 가 placeCards 로 위치를 직접 계산한다.
-        // swap 플러그인은 드롭 시 DOM 을 직접 교환·이동시켜 placeCards 경로와 충돌하고,
-        // 풀 클론을 점유 카드와 교환하면서 점유자를 날려버림(유시온 사라짐 버그) → 제거.
+        sort: false, // 🔑 드래그 중 DOM 재배치 금지 — 주변 카드가 출렁이지 않음.
+        //    배치는 onAdd/onEnd 에서 '놓는 지점 좌표'로 직접 계산 (placeCards 단일 경로).
+        // swap 미사용: 달력은 placeCards 로 위치를 직접 계산하므로 불필요(점유자 삭제 버그 유발).
 
         onStart(evt) {
             isDragging = true;
             dragStartTime = Date.now();
             document.body.style.userSelect = 'none';
+
+            // 좌표 추적은 전역 1회 등록(ensureCalendarDragTracker). 여기선 플래그만 리셋.
+            calendarMoveHandled = false;
 
             // ✅ 드래그 시작 시 현재 상태 저장
             const draggedCard = evt.item;
@@ -1459,119 +1539,60 @@ function initializeDayDragDrop(dayEl, dateStr) {
         },
 
         onEnd(evt) {
-            setTimeout(() => {
-                isDragging = false;
-            }, 100);
+            setTimeout(() => { isDragging = false; }, 100);
             document.body.style.userSelect = '';
             document.querySelectorAll('.day-events').forEach(el => {
-                el.style.minHeight = '';
-                el.style.backgroundColor = '';
-                el.style.border = '';
+                el.style.minHeight = ''; el.style.backgroundColor = ''; el.style.border = '';
             });
 
+            // 같은 날짜 내 이동: sort:false 라 onUpdate 가 안 불리므로 여기서 좌표로 처리.
+            // (pool 드롭/다른날짜 이동은 onAdd 가 calendarMoveHandled=true 로 잡음 → 건너뜀)
+            if (!calendarMoveHandled) {
+                const draggedEl = evt.item;
+                if (draggedEl && draggedEl.classList.contains('event-card')) {
+                    const empIdStr = draggedEl.dataset.employeeId;
+                    const draggedEmpId = (empIdStr === 'empty' || empIdStr === 'spacer') ? null : parseInt(empIdStr, 10);
+                    const fromPos = parseInt(draggedEl.dataset.position, 10);
+                    const targetPos = slotPosAtPointer(dateStr); // 놓은 지점의 슬롯 (같은 날짜만)
+                    if (targetPos != null) {
+                        applyIntraGridMove(dateStr, draggedEmpId, fromPos, targetPos);
+                    }
+                    // targetPos null → 그리드 밖/다른 날짜에 놓음. sort:false 라 DOM 그대로 → 변화 없음.
+                }
+            }
+
             dragSourceInfo = null;
+            calendarMoveHandled = false;
         },
 
         onUpdate(evt) {
-            // ✅ 같은 날짜 내 드래그 — 규칙: 선택 선행 필수 + row/col 델타 기반 배치 유지
+            // sort:false 면 보통 안 불리지만, 혹시 불리면 여기서 처리 (onEnd 중복 방지 플래그).
+            calendarMoveHandled = true;
             const draggedEl = evt.item;
             const empIdStr = draggedEl.dataset.employeeId;
             const draggedEmpId = (empIdStr === 'empty' || empIdStr === 'spacer') ? null : parseInt(empIdStr, 10);
-
-            // 드래그 후 현재 DOM 위치 추출 (SortableJS swap 후 상태)
-            const eventContainer = evt.to;
-            const allSlots = Array.from(eventContainer.querySelectorAll('.event-card, .event-slot'));
-            const targetPos = allSlots.indexOf(draggedEl);
-            const fromPos = parseInt(draggedEl.dataset.position, 10); // dataset은 DOM 이동에도 유지됨
-
-            // 기본 검증 실패 → DOM 원복
-            if (draggedEmpId == null || isNaN(draggedEmpId) || isNaN(fromPos) || targetPos < 0) {
-                renderCalendar();
-                return;
+            const fromPos = parseInt(draggedEl.dataset.position, 10);
+            // 좌표 우선(정확), 실패 시 DOM 인덱스
+            let targetPos = slotPosAtPointer(dateStr);
+            if (targetPos == null) {
+                const allSlots = Array.from(evt.to.querySelectorAll('.event-card, .event-slot'));
+                const idx = allSlots.indexOf(draggedEl);
+                targetPos = idx >= 0 ? idx : null;
             }
-
-            // 🔒 규칙 1: 선택 선행 필수
-            //   - 선택이 없는 상태에서 드래그 → 아무 일도 안 일어남
-            //   - 선택에 포함되지 않은 카드를 드래그 → 선택 풀고 아무 일도 안 일어남
-            const draggedKey = `${dateStr}_${draggedEmpId}`;
-            if (state.schedule.selectedSchedules.size === 0) {
-                renderCalendar();
-                return;
-            }
-            if (!state.schedule.selectedSchedules.has(draggedKey)) {
-                clearSelection();
-                renderCalendar();
-                return;
-            }
-
-            // 같은 위치로 드롭 → no-op
-            if (targetPos === fromPos) {
-                renderCalendar();
-                return;
-            }
-
-            // 🎯 규칙 2: row/col 델타 기반 배치 유지 (전역 GRID_COLS 사용)
-            const rowDelta = Math.floor(targetPos / GRID_COLS) - Math.floor(fromPos / GRID_COLS);
-            const colDelta = (targetPos % GRID_COLS) - (fromPos % GRID_COLS);
-
-            // 선택된 카드들의 새 위치 계산
-            const items = [];
-            let outOfBounds = false;
-
-            state.schedule.selectedSchedules.forEach(selKey => {
-                const [selDate, eidStr] = selKey.split('_');
-                const eid = parseInt(eidStr, 10);
-                if (selDate !== dateStr || isNaN(eid)) return;
-
-                const selCard = document.querySelector(
-                    `.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${eid}"]`
-                );
-                const origPos = selCard ? parseInt(selCard.dataset.position, 10) : null;
-                if (origPos == null || isNaN(origPos)) return;
-
-                const origRow = Math.floor(origPos / GRID_COLS);
-                const origCol = origPos % GRID_COLS;
-                const newRow = origRow + rowDelta;
-                const newCol = origCol + colDelta;
-
-                // 그리드 경계 체크: 하나라도 밖이면 배치 관계 유지 불가 → 전체 취소
-                if (newCol < 0 || newCol >= GRID_COLS || newRow < 0) {
-                    outOfBounds = true;
-                    return;
-                }
-                const newPos = newRow * GRID_COLS + newCol;
-                if (newPos < 0 || newPos >= GRID_SIZE) {
-                    outOfBounds = true;
-                    return;
-                }
-
-                items.push({ employee_id: eid, _targetPos: newPos, _origPos: origPos });
-            });
-
-            // 🔒 규칙 3: 배치 관계 유지 불가능 → 전체 이동 취소
-            if (outOfBounds || items.length === 0) {
-                renderCalendar();
-                return;
-            }
-
-            // DOM 원복 후 state 기준 재렌더링
-            draggedEl.remove();
-
-            pushUndoState('Drag Reorder');
-            placeCards(items, dateStr, null);
-            clearSelection();
-            renderCalendar();
-            updateSaveButtonState();
+            applyIntraGridMove(dateStr, draggedEmpId, fromPos, targetPos);
         },
 
         onAdd(evt) {
+            calendarMoveHandled = true; // onEnd 중복 처리 방지
             const employeeEl = evt.item;
 
             // ✅ event-card인 경우는 다른 날짜에서 온 것 → moveCards() 사용
             if (employeeEl.classList.contains('event-card')) {
                 const draggedEmpId = parseInt(employeeEl.dataset.employeeId, 10);
                 const fromDate = dragSourceInfo?.fromDate;
-                const targetPos = evt.newIndex;
+                // 타겟 = 놓은 지점 좌표의 슬롯 (sort:false 라 정확). 실패 시 newIndex.
+                let targetPos = slotPosAtPointer(dateStr);
+                if (targetPos == null) targetPos = evt.newIndex;
 
                 if (fromDate && fromDate !== dateStr && !isNaN(draggedEmpId)) {
                     // 🔒 규칙: 선택 선행 필수 (cross-date 드래그도 동일)
@@ -1615,25 +1636,13 @@ function initializeDayDragDrop(dayEl, dateStr) {
             const empId = parseInt(employeeEl.dataset.employeeId, 10);
             if (isNaN(empId)) { employeeEl.remove(); return; }
 
-            // 🎯 타겟 위치 = 드롭 지점 좌표 아래의 실제 슬롯 data-position.
-            //    (evt.newIndex = 클론 삽입 인덱스는 점유 슬롯을 가리켜 엉뚱한 카드를 밀어내고
-            //     렌더 충돌이 연쇄되는 원인. 좌표 기반이 정확.)
-            const oe = evt.originalEvent || {};
-            const pt = (oe.changedTouches && oe.changedTouches[0]) ? oe.changedTouches[0] : oe;
             employeeEl.remove(); // 클론 제거 후 좌표 아래 실제 슬롯 탐색
-            let targetPos = null;
-            if (pt && typeof pt.clientX === 'number') {
-                const elAt = document.elementFromPoint(pt.clientX, pt.clientY);
-                const slot = (elAt && elAt.closest) ? elAt.closest('.event-card, .event-slot') : null;
-                const sameDay = slot && slot.closest('.calendar-day')?.dataset.date === dateStr;
-                if (sameDay && slot.dataset.position != null && slot.dataset.position !== '') {
-                    targetPos = parseInt(slot.dataset.position, 10);
-                }
-            }
+            // 🎯 타겟 = 놓은 지점 좌표의 슬롯 data-position (전역 추적된 마지막 포인터).
+            //    sort:false 라 슬롯이 재배치되지 않아 좌표가 정확. 판정 실패 시 null→첫 빈자리.
+            const targetPos = slotPosAtPointer(dateStr);
 
             pushUndoState('Drop from sidebar');
-            // targetPos 판정 실패 시 null → placeCards 가 첫 빈자리에 안전 배치 (밀어내기 없음)
-            placeCards([{ employee_id: empId }], dateStr, Number.isFinite(targetPos) ? targetPos : null);
+            placeCards([{ employee_id: empId }], dateStr, (targetPos != null) ? targetPos : null);
 
             renderCalendar();
             updateSaveButtonState();
