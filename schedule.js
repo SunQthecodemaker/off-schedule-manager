@@ -4377,8 +4377,11 @@ function initializeCalendarEvents() {
         document.addEventListener('mouseup', handleDragSelectEnd);
 
         // 🆕 달력 카드 커스텀 포인터 DnD (선택된 카드 위 pointerdown 에서만 발동)
-        calendarGrid.removeEventListener('pointerdown', onCalendarCardPointerDown);
-        calendarGrid.addEventListener('pointerdown', onCalendarCardPointerDown);
+        //    ⚠️ capture 단계 부착 필수: .day-events 의 SortableJS 가 bubble 단계에서 pointerdown 을
+        //       소비(stopPropagation)하므로, bubble 로 붙이면 핸들러가 발화하지 않음.
+        //       capture 는 SortableJS bubble 리스너보다 먼저 실행되어 안전.
+        calendarGrid.removeEventListener('pointerdown', onCalendarCardPointerDown, true);
+        calendarGrid.addEventListener('pointerdown', onCalendarCardPointerDown, true);
     }
 }
 
