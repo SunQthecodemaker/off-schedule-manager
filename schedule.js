@@ -1655,13 +1655,17 @@ function initializeDayDragDrop(dayEl, dateStr) {
 // =========================================================================================
 // 🆕 달력 카드 커스텀 포인터 DnD (방식 B) — SortableJS 라이브 재배치 제거
 //   요구사항: ① 드래그 중 주변 카드 이동 없음(라이브 재배치 안 함)
-//            ② 같은 슬롯에 1초 이상 체류해야 그 슬롯이 '확정 타겟'으로 잠김 (지나가는 동안 무반응)
+//            ② 같은 슬롯에 0.6초 이상 체류해야 그 슬롯이 '확정 타겟'으로 잠김 (지나가는 동안 무반응)
 //            ③ 드롭은 placeCards/moveCards 좌표 경로 (타겟 점유자 1명만 가장 가까운 빈자리로, 주변 불변)
 //            ④ 날짜간 이동 지원 (잠긴 슬롯의 날짜가 다르면 moveCards)
-//   발동 조건: '선택된' .event-card 위 pointerdown + 이동 임계 초과. (미선택/빈칸은 마퀴 선택이 처리)
+//   🆕 카드 위 제스처 분기 (시간 기반, 사용자 요구):
+//      - 누르고 0.6초↑ 홀드(거의 안 움직임) 후 끌기 = 카드 이동 (롱프레스 픽업)
+//      - 누르고 0.6초 전에 바로 끌기 = 영역선택 (카드 DnD 취소 → 마퀴가 가져감)
+//      → 마퀴 선택은 카드/빈칸 모두에서 가능. 이동이냐 영역선택이냐는 '홀드 시간'으로 구분.
 // =========================================================================================
-const CAL_DWELL_MS = 1000;     // 슬롯 확정까지 체류 시간 (요구사항: 1초. 필요 시 조정)
-const CAL_PICKUP_MOVE_PX = 6;  // 이만큼 움직여야 드래그 시작 (미만은 클릭으로 처리)
+const CAL_PICKUP_HOLD_MS = 600; // 이 시간 이상 홀드해야 카드 이동 픽업 (미만 이동은 영역선택)
+const CAL_HOLD_MOVE_TOL = 8;    // 홀드 중 이만큼 넘게 움직이면 = 빠른 드래그 → 영역선택으로 양보
+const CAL_DWELL_MS = 600;       // 타겟 슬롯 확정(자리 확인 테두리)까지 체류 시간
 let calDrag = null;
 
 function onCalendarCardPointerDown(e) {
@@ -1676,15 +1680,17 @@ function onCalendarCardPointerDown(e) {
     const empId = parseInt(empIdStr, 10);
     if (isNaN(empId)) return;
     if (state.schedule.companyHolidays?.has(dateStr)) return; // 원칙 15단계 공휴일
-    // 🆕 카드 위 누르고 끌기 = 그 카드 이동 (선택 여부 무관). 미선택이면 픽업 시 단일 선택.
-    //    빈칸/슬롯에서 끌기 = 마퀴 영역선택(handleDragSelectStart). → 카드 드래그와 영역선택 분리.
+    // 🆕 'holding' 으로 시작 → 0.6초 홀드 유지 시 카드 이동 픽업. 그 전에 움직이면 영역선택으로 양보.
 
     calDrag = {
-        phase: 'pending', card, dateStr, empId,
+        phase: 'holding', card, dateStr, empId,
         startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY,
         hoverDate: null, hoverPos: null, lockedDate: null, lockedPos: null,
-        ghost: null, dwellTimer: null
+        ghost: null, dwellTimer: null, holdTimer: null
     };
+    calDrag.holdTimer = setTimeout(() => {
+        if (calDrag && calDrag.phase === 'holding') calBeginPickup();
+    }, CAL_PICKUP_HOLD_MS);
     document.addEventListener('pointermove', onCalendarCardPointerMove, true);
     document.addEventListener('pointerup', onCalendarCardPointerUp, true);
     document.addEventListener('pointercancel', onCalendarCardPointerUp, true);
@@ -1728,12 +1734,15 @@ function calPositionGhost(x, y) {
 function onCalendarCardPointerMove(e) {
     if (!calDrag) return;
     calDrag.lastX = e.clientX; calDrag.lastY = e.clientY;
-    if (calDrag.phase === 'pending') {
+    if (calDrag.phase === 'holding') {
+        // 0.6초 홀드 완료 전에 움직이면 → 빠른 드래그 = 영역선택 제스처. 카드 DnD 취소(마퀴가 가져감).
         const dx = e.clientX - calDrag.startX, dy = e.clientY - calDrag.startY;
-        if (Math.abs(dx) <= CAL_PICKUP_MOVE_PX && Math.abs(dy) <= CAL_PICKUP_MOVE_PX) return;
-        calBeginPickup();
-        if (!calDrag || calDrag.phase !== 'dragging') return;
+        if (Math.abs(dx) > CAL_HOLD_MOVE_TOL || Math.abs(dy) > CAL_HOLD_MOVE_TOL) {
+            calCleanup();   // holdTimer 취소 + 리스너 해제 → handleDragSelectStart 가 armed 한 마퀴가 활성화
+        }
+        return;             // 픽업 전에는 ghost/dwell 없음
     }
+    // phase === 'dragging'
     e.preventDefault();
     calPositionGhost(e.clientX, e.clientY);
     calUpdateDwell(e.clientX, e.clientY);
@@ -1784,7 +1793,7 @@ function onCalendarCardPointerUp() {
     setTimeout(() => { dragSelectJustFinished = false; }, 80);
     isDragging = true;
     setTimeout(() => { isDragging = false; }, 100);
-    if (lockedDate == null || lockedPos == null) return; // 1초 미체류 → 아무 동작 안 함 (요구사항②)
+    if (lockedDate == null || lockedPos == null) return; // 0.6초 미체류(미확정) → 아무 동작 안 함
     calCommitDrop(card, fromDate, empId, lockedDate, lockedPos);
 }
 
@@ -1819,6 +1828,7 @@ function calCleanupListeners() {
 function calCleanup() {
     if (calDrag) {
         clearTimeout(calDrag.dwellTimer);
+        clearTimeout(calDrag.holdTimer);
         if (calDrag.ghost && calDrag.ghost.parentNode) calDrag.ghost.parentNode.removeChild(calDrag.ghost);
     }
     calClearHighlight();
@@ -4417,12 +4427,10 @@ function handleDragSelectStart(e) {
     const card = e.target.closest('.event-card, .event-slot');
     if (!card) return;
 
-    // 🆕 카드(점유) 위에서 시작하는 드래그는 마퀴 영역선택을 하지 않음 — 카드 드래그(이동) 경로가 가져감.
-    //    마퀴 영역선택은 '빈 슬롯'에서 시작할 때만. (사용자 요구: 카드=이동, 빈칸=영역선택 분리)
-    if (card.classList.contains('event-card')) return;
-
-    // Sortable 드래그와 충돌 방지: 이미 드래그 중이면 무시
-    if (isDragging) return;
+    // 🆕 마퀴는 카드/빈칸 모두에서 armed. 카드 위에서 '빠르게' 끌면 여기(영역선택)가 활성화되고,
+    //    '0.6초 홀드 후' 끌면 onCalendarCardPointerDown 의 픽업이 isDragging=true 로 만들어 아래에서 양보됨.
+    //    → 이동/영역선택 구분은 '홀드 시간'으로 (사용자 요구).
+    if (isDragging) return;   // 카드 이동 픽업이 이미 시작됐으면 마퀴 양보
 
     const dayEl = card.closest('.calendar-day');
     if (!dayEl) return;
