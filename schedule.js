@@ -1676,8 +1676,8 @@ function onCalendarCardPointerDown(e) {
     const empId = parseInt(empIdStr, 10);
     if (isNaN(empId)) return;
     if (state.schedule.companyHolidays?.has(dateStr)) return; // 원칙 15단계 공휴일
-    // 🔒 선택 선행 필수: 선택된 카드에서만 드래그 (미선택은 마퀴 선택이 가져감)
-    if (!state.schedule.selectedSchedules.has(`${dateStr}_${empId}`)) return;
+    // 🆕 카드 위 누르고 끌기 = 그 카드 이동 (선택 여부 무관). 미선택이면 픽업 시 단일 선택.
+    //    빈칸/슬롯에서 끌기 = 마퀴 영역선택(handleDragSelectStart). → 카드 드래그와 영역선택 분리.
 
     calDrag = {
         phase: 'pending', card, dateStr, empId,
@@ -1692,7 +1692,14 @@ function onCalendarCardPointerDown(e) {
 
 function calBeginPickup() {
     if (!calDrag) return;
-    if (state.schedule.selectedSchedules.size === 0) { calCleanup(); return; }
+    // 드래그하는 카드가 현재 선택에 없으면 → 그 카드만 단일 선택 (클릭 없이 바로 잡아끌기).
+    // 이미 선택(단수/복수)에 포함돼 있으면 그 선택 전체를 함께 끈다.
+    const key = `${calDrag.dateStr}_${calDrag.empId}`;
+    if (!state.schedule.selectedSchedules.has(key)) {
+        clearSelection();
+        state.schedule.selectedSchedules.add(key);
+        calDrag.card.classList.add('selected');
+    }
     calDrag.phase = 'dragging';
     isDragging = true;
     document.body.style.userSelect = 'none';
@@ -4410,16 +4417,12 @@ function handleDragSelectStart(e) {
     const card = e.target.closest('.event-card, .event-slot');
     if (!card) return;
 
+    // 🆕 카드(점유) 위에서 시작하는 드래그는 마퀴 영역선택을 하지 않음 — 카드 드래그(이동) 경로가 가져감.
+    //    마퀴 영역선택은 '빈 슬롯'에서 시작할 때만. (사용자 요구: 카드=이동, 빈칸=영역선택 분리)
+    if (card.classList.contains('event-card')) return;
+
     // Sortable 드래그와 충돌 방지: 이미 드래그 중이면 무시
     if (isDragging) return;
-
-    // 🔒 이미 선택된 카드에서 시작하는 mousedown은 drag-select를 양보 — Sortable 그룹 드래그 경로로
-    const cardDate = card.closest('.calendar-day')?.dataset.date;
-    const cardEmpId = card.dataset.employeeId;
-    const selKey = (cardDate && cardEmpId && cardEmpId !== 'empty') ? `${cardDate}_${cardEmpId}` : null;
-    if (selKey && state.schedule.selectedSchedules.has(selKey)) {
-        return;
-    }
 
     const dayEl = card.closest('.calendar-day');
     if (!dayEl) return;
