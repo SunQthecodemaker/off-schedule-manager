@@ -1489,7 +1489,9 @@ function initializeDayDragDrop(dayEl, dateStr) {
             pull: true,
             put: ['calendar-group', 'layout-pool'] // ✅ 달력 간 이동 + 배치 패널에서 드롭
         },
-        draggable: '.event-card, .draggable-employee, .list-spacer, .event-slot, .layout-pool-card',
+        // 🆕 달력 카드(.event-card)·빈슬롯(.event-slot)은 SortableJS가 잡지 않음 — 커스텀 포인터 DnD(onCalendarCardPointerDown)가 처리.
+        //    이 Sortable 은 사이드바/배치패널(.draggable-employee/.layout-pool-card) → 달력 드롭(onAdd) 수신 전용으로만 남김.
+        draggable: '.draggable-employee, .list-spacer, .layout-pool-card',
         animation: 0, // 드래그 중 슬라이드(주변 카드 출렁임) 제거 — 위치 기반 그리드
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
@@ -1648,6 +1650,174 @@ function initializeDayDragDrop(dayEl, dateStr) {
             updateSaveButtonState();
         },
     });
+}
+
+// =========================================================================================
+// 🆕 달력 카드 커스텀 포인터 DnD (방식 B) — SortableJS 라이브 재배치 제거
+//   요구사항: ① 드래그 중 주변 카드 이동 없음(라이브 재배치 안 함)
+//            ② 같은 슬롯에 1초 이상 체류해야 그 슬롯이 '확정 타겟'으로 잠김 (지나가는 동안 무반응)
+//            ③ 드롭은 placeCards/moveCards 좌표 경로 (타겟 점유자 1명만 가장 가까운 빈자리로, 주변 불변)
+//            ④ 날짜간 이동 지원 (잠긴 슬롯의 날짜가 다르면 moveCards)
+//   발동 조건: '선택된' .event-card 위 pointerdown + 이동 임계 초과. (미선택/빈칸은 마퀴 선택이 처리)
+// =========================================================================================
+const CAL_DWELL_MS = 1000;     // 슬롯 확정까지 체류 시간 (요구사항: 1초. 필요 시 조정)
+const CAL_PICKUP_MOVE_PX = 6;  // 이만큼 움직여야 드래그 시작 (미만은 클릭으로 처리)
+let calDrag = null;
+
+function onCalendarCardPointerDown(e) {
+    if (e.button != null && e.button !== 0) return;        // 좌클릭만
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;      // 선택 보조키 → 클릭 처리에 양보
+    if (state.schedule?.isReadOnly) return;                // 원칙 16단계 게이트(안전망)
+    const card = e.target.closest('.event-card');
+    if (!card) return;                                     // 빈칸/슬롯 → 마퀴·클릭이 처리
+    const dateStr = card.closest('.calendar-day')?.dataset.date;
+    const empIdStr = card.dataset.employeeId;
+    if (!dateStr || !empIdStr || empIdStr === 'empty' || empIdStr === 'spacer') return;
+    const empId = parseInt(empIdStr, 10);
+    if (isNaN(empId)) return;
+    if (state.schedule.companyHolidays?.has(dateStr)) return; // 원칙 15단계 공휴일
+    // 🔒 선택 선행 필수: 선택된 카드에서만 드래그 (미선택은 마퀴 선택이 가져감)
+    if (!state.schedule.selectedSchedules.has(`${dateStr}_${empId}`)) return;
+
+    calDrag = {
+        phase: 'pending', card, dateStr, empId,
+        startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY,
+        hoverDate: null, hoverPos: null, lockedDate: null, lockedPos: null,
+        ghost: null, dwellTimer: null
+    };
+    document.addEventListener('pointermove', onCalendarCardPointerMove, true);
+    document.addEventListener('pointerup', onCalendarCardPointerUp, true);
+    document.addEventListener('pointercancel', onCalendarCardPointerUp, true);
+}
+
+function calBeginPickup() {
+    if (!calDrag) return;
+    if (state.schedule.selectedSchedules.size === 0) { calCleanup(); return; }
+    calDrag.phase = 'dragging';
+    isDragging = true;
+    document.body.style.userSelect = 'none';
+    const count = [...state.schedule.selectedSchedules].filter(k => k.startsWith(calDrag.dateStr + '_')).length;
+    const g = calDrag.card.cloneNode(true);
+    g.classList.add('cal-drag-ghost');
+    g.classList.remove('selected');
+    g.style.width = calDrag.card.offsetWidth + 'px';
+    if (count > 1) {
+        const badge = document.createElement('span');
+        badge.className = 'cal-drag-ghost-badge';
+        badge.textContent = String(count);
+        g.appendChild(badge);
+    }
+    document.body.appendChild(g);
+    calDrag.ghost = g;
+    calPositionGhost(calDrag.lastX, calDrag.lastY);
+}
+
+function calPositionGhost(x, y) {
+    if (!calDrag || !calDrag.ghost) return;
+    calDrag.ghost.style.left = (x + 12) + 'px';
+    calDrag.ghost.style.top = (y + 12) + 'px';
+}
+
+function onCalendarCardPointerMove(e) {
+    if (!calDrag) return;
+    calDrag.lastX = e.clientX; calDrag.lastY = e.clientY;
+    if (calDrag.phase === 'pending') {
+        const dx = e.clientX - calDrag.startX, dy = e.clientY - calDrag.startY;
+        if (Math.abs(dx) <= CAL_PICKUP_MOVE_PX && Math.abs(dy) <= CAL_PICKUP_MOVE_PX) return;
+        calBeginPickup();
+        if (!calDrag || calDrag.phase !== 'dragging') return;
+    }
+    e.preventDefault();
+    calPositionGhost(e.clientX, e.clientY);
+    calUpdateDwell(e.clientX, e.clientY);
+}
+
+function calSlotAtPoint(x, y) {
+    const el = document.elementFromPoint(x, y);            // ghost 는 pointer-events:none 이라 아래 슬롯이 잡힘
+    const slot = (el && el.closest) ? el.closest('.event-card, .event-slot') : null;
+    if (!slot) return null;
+    const date = slot.closest('.calendar-day')?.dataset.date;
+    const posStr = slot.dataset.position;
+    if (!date || posStr == null || posStr === '') return null;
+    const pos = parseInt(posStr, 10);
+    return Number.isFinite(pos) ? { date, pos } : null;
+}
+
+function calClearHighlight() {
+    document.querySelectorAll('.cal-drop-locked').forEach(el => el.classList.remove('cal-drop-locked'));
+}
+
+function calUpdateDwell(x, y) {
+    const hit = calSlotAtPoint(x, y);
+    if (hit && calDrag.hoverDate === hit.date && calDrag.hoverPos === hit.pos) return; // 같은 슬롯 계속 체류 → 타이머 유지
+    // 슬롯 변경(=지나감) → dwell 리셋 + 락 해제 (요구사항①②: 지나가는 동안 아무 반응 없음)
+    clearTimeout(calDrag.dwellTimer);
+    calClearHighlight();
+    calDrag.lockedDate = null; calDrag.lockedPos = null;
+    calDrag.hoverDate = hit ? hit.date : null;
+    calDrag.hoverPos = hit ? hit.pos : null;
+    if (hit) {
+        calDrag.dwellTimer = setTimeout(() => {
+            if (!calDrag) return;
+            calDrag.lockedDate = hit.date; calDrag.lockedPos = hit.pos;
+            const slotEl = document.querySelector(`.calendar-day[data-date="${hit.date}"] [data-position="${hit.pos}"]`);
+            if (slotEl) slotEl.classList.add('cal-drop-locked');
+        }, CAL_DWELL_MS);
+    }
+}
+
+function onCalendarCardPointerUp() {
+    if (!calDrag) { calCleanupListeners(); return; }
+    const wasDragging = calDrag.phase === 'dragging';
+    const lockedDate = calDrag.lockedDate, lockedPos = calDrag.lockedPos;
+    const fromDate = calDrag.dateStr, empId = calDrag.empId, card = calDrag.card;
+    calCleanup();
+    if (!wasDragging) return;                       // 단순 클릭 → handleCalendarClick 가 선택 처리
+    dragSelectJustFinished = true;                  // 드래그 직후 click 무시
+    setTimeout(() => { dragSelectJustFinished = false; }, 80);
+    isDragging = true;
+    setTimeout(() => { isDragging = false; }, 100);
+    if (lockedDate == null || lockedPos == null) return; // 1초 미체류 → 아무 동작 안 함 (요구사항②)
+    calCommitDrop(card, fromDate, empId, lockedDate, lockedPos);
+}
+
+function calCommitDrop(card, fromDate, empId, toDate, toPos) {
+    if (toDate === fromDate) {
+        const fromPos = parseInt(card.dataset.position, 10);
+        applyIntraGridMove(fromDate, empId, fromPos, toPos);   // (row,col) 델타·OOB·선택검사 내장
+        return;
+    }
+    // 날짜간 이동 (기존 onAdd 로직 미러 — 선택된 같은-원본날짜 카드 일괄 이동)
+    if (state.schedule.selectedSchedules.size === 0) { renderCalendar(); return; }
+    if (!state.schedule.selectedSchedules.has(`${fromDate}_${empId}`)) { clearSelection(); renderCalendar(); return; }
+    pushUndoState('Drag Move');
+    const empIdsToMove = [];
+    state.schedule.selectedSchedules.forEach(selKey => {
+        const [selDate, eidStr] = selKey.split('_');
+        const eid = parseInt(eidStr, 10);
+        if (selDate === fromDate && !isNaN(eid)) empIdsToMove.push(eid);
+    });
+    moveCards(empIdsToMove, fromDate, toDate, toPos);
+    clearSelection();
+    renderCalendar();
+    updateSaveButtonState();
+}
+
+function calCleanupListeners() {
+    document.removeEventListener('pointermove', onCalendarCardPointerMove, true);
+    document.removeEventListener('pointerup', onCalendarCardPointerUp, true);
+    document.removeEventListener('pointercancel', onCalendarCardPointerUp, true);
+}
+
+function calCleanup() {
+    if (calDrag) {
+        clearTimeout(calDrag.dwellTimer);
+        if (calDrag.ghost && calDrag.ghost.parentNode) calDrag.ghost.parentNode.removeChild(calDrag.ghost);
+    }
+    calClearHighlight();
+    document.body.style.userSelect = '';
+    calDrag = null;
+    calCleanupListeners();
 }
 
 // =========================================================================================
@@ -4205,6 +4375,10 @@ function initializeCalendarEvents() {
         document.addEventListener('mousemove', handleDragSelectMove);
         document.removeEventListener('mouseup', handleDragSelectEnd);
         document.addEventListener('mouseup', handleDragSelectEnd);
+
+        // 🆕 달력 카드 커스텀 포인터 DnD (선택된 카드 위 pointerdown 에서만 발동)
+        calendarGrid.removeEventListener('pointerdown', onCalendarCardPointerDown);
+        calendarGrid.addEventListener('pointerdown', onCalendarCardPointerDown);
     }
 }
 
