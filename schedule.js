@@ -2271,6 +2271,13 @@ function renderCalendar() {
             // (복직·수동 배치한 직원을 날짜칸에 드롭하면 레코드는 생기지만 렌더에서 빠져
             //  "이름이 사라지는" 버그 방지. 레이아웃 미등록 + 레코드 없음일 때만 제외.)
             if (excludedIds.has(emp.id) && !dateSchedMap.has(emp.id)) return;
+            // 임시직원(알바): '근무' 레코드가 있는 날짜에만 등장 (grid_principles 11단계).
+            //   basePosition 자동표시·휴무 레코드 표시 금지 → 더블클릭 삭제 시 영구 부재,
+            //   '휴무' 상태/휴무자 뷰에 절대 안 뜸. (정규/테스트 직원은 기존대로 basePosition 표시)
+            if (isAlbaEmployee(emp)) {
+                const albaSched = dateSchedMap.get(emp.id);
+                if (!albaSched || albaSched.status !== '근무') return;
+            }
             if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
             // 퇴사일 이후는 미표시
             if (emp.resignation_date && dateStr >= emp.resignation_date) return;
@@ -2711,9 +2718,10 @@ function handleEventCardDblClick(e, card) {
     // 3. 상태 토글 또는 삭제 (임시 직원)
     let schedule = state.schedule.schedules.find(s => s.id == scheduleId); // 타입 주의
 
-    // ✨ 임시 직원 확인
+    // ✨ 임시 직원(알바) 확인 — isAlbaEmployee 단일 판정 (렌더와 동일 기준).
+    //   테스트 직원은 알바가 아니므로 else 분기에서 기존대로 휴무 토글됨.
     const emp = state.management.employees.find(e => e.id === empId);
-    const isTemp = emp && emp.is_temp;
+    const isTemp = isAlbaEmployee(emp);
 
     // ✨ 연차 대상자인지 확인
     const isLeave = state.management.leaveRequests.some(req =>
@@ -2751,6 +2759,9 @@ function handleEventCardDblClick(e, card) {
         renderCalendar();
         updateSaveButtonState();
     } else {
+        // 알바는 '휴무' 레코드를 만들지 않는다 (11단계: 알바 부재 = 레코드 삭제, 휴무자 없음).
+        //   렌더에서 알바는 근무 레코드 있는 날만 등장하므로 여기 도달할 일이 없으나 방어 가드.
+        if (isTemp) return;
         // 레코드 없는 카드(기본 근무 표시 — id="auto-...") 더블클릭 → 휴무로 토글 (7단계: 근무→휴무).
         // 신규 휴무 레코드를 카드의 현재 DOM 위치에 생성. (근무 레코드 생성 시 화면 무변화 버그 수정)
         pushUndoState('Toggle Status');
