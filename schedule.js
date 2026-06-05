@@ -5055,15 +5055,29 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // 공휴일이 근무일에 겹칠 때 대체가능 고정 휴무일 확인
-        const holidayOnWorkDay = businessDays.filter(dateStr => {
+        // ✅ 대체 보정: "주5일보장(sub:true)" 휴무는 그 주 공휴일이 대신함
+        // WHY: 공휴일로 원래 근무할 날이 빠지면, 대체가능 정기휴무일은 근무 의무로 환원된다.
+        //      (단 sub:false 인 연차성 고정휴무는 공휴일과 무관하게 1일 휴무 유지 → 환원 대상 아님)
+        // 그 주(allDates, 공휴일 포함) 공휴일 중 해당 직원의 고정휴무가 아닌 날 = 빠진 근무일 수
+        const lostWorkdayHolidays = allDates.filter(dateStr => {
+            if (!holidays.has(dateStr)) return false;
             const dayIdx = dayjs(dateStr).day();
-            return holidays.has(dateStr) && !isFixedOffDay(rules, dayIdx, dateStr);
-        });
-        let subAvailable = false;
-        if (holidayOnWorkDay.length > 0) {
-            subAvailable = parsedRules.some(r => r.sub !== false);
-        }
+            return !isFixedOffDay(rules, dayIdx, dateStr);
+        }).length;
+        // 그 주 영업일 중 대체가능(sub !== false) 고정휴무 수
+        const subOffCount = businessDays.filter(dateStr => {
+            const dayIdx = dayjs(dateStr).day();
+            if (!isFixedOffDay(rules, dayIdx, dateStr)) return false;
+            return parsedRules.some(r => {
+                if (r.day !== dayIdx) return false;
+                if (r.weeks && !r.weeks.includes(getCalendarWeekRow(dateStr))) return false;
+                return r.sub !== false;
+            });
+        }).length;
+        // 빠진 근무일만큼 대체가능 휴무를 의무근무로 환원 (둘 중 작은 값)
+        const subRestore = Math.min(lostWorkdayHolidays, subOffCount);
+        expected += subRestore;
+        const subAvailable = lostWorkdayHolidays > 0 && subOffCount > 0;
 
         const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
