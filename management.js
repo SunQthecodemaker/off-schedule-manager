@@ -3408,7 +3408,8 @@ function openRegularHolidayModal(employeeId, employeeName) {
         if (!day) return '';
         const dayRules = rulesForDay(index);
         const isChecked = dayRules.length > 0 ? 'checked' : '';
-        const subChecked = dayRules.length > 0 ? (dayRules.some(r => r.sub !== false) ? 'checked' : '') : 'checked';
+        // 신규 요일 기본값 = 대체안됨(sub:false). 정상은 "대체안됨"이고 류효경 목요일만 예외. (회귀 방지)
+        const subChecked = dayRules.length > 0 ? (dayRules.some(r => r.sub !== false) ? 'checked' : '') : '';
         // 주차 설정: weeks 배열이 있으면 해당 주차만, 없으면 매주
         const hasWeeks = dayRules.some(r => r.weeks && r.weeks.length > 0);
         const selectedWeeks = hasWeeks ? dayRules.flatMap(r => r.weeks || []) : [];
