@@ -1,7 +1,7 @@
 import { state, db } from './state.js?v=20260601a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260605e';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260605h';
 import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260605e';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
 import { renderMyWelfareSection } from './employee-welfare.js?v=20260601a';
@@ -602,19 +602,17 @@ async function renderEmployeeMobileScheduleList() {
             return;
         }
 
-        // 2. 데이터 병렬 로딩
-        //    monthly_layouts: 위치(배치) 정본. PC 그리드와 동일하게 해당 월(≤) 최근 1건.
-        const [schedulesRes, employeesRes, departmentsRes, holidaysRes, layoutRes] = await Promise.all([
-            db.from('schedules')
-                .select('*')
-                .gte('date', startStr)
-                .lte('date', endStr)
-                .order('sort_order', { ascending: true }),
-
-            db.from('employees').select('id, name, department_id'),
+        // 2. 데이터 병렬 로딩 — PC 그리드와 100% 동일하게 보이도록 PC 와 같은 전역 state 를 구성한 뒤
+        //    공용 정본 함수 computeDayGridSlots 로 날짜별 배치를 산출한다 (모바일 자체 위치계산 폐기).
+        const GRID_SIZE = 32;
+        const layoutMonth = startOfWeek.format('YYYY-MM-01'); // PC loadAndRenderScheduleData 와 동일 형식(YYYY-MM-01)
+        const [schedulesRes, employeesRes, departmentsRes, holidaysRes, layoutRes, leavesRes] = await Promise.all([
+            db.from('schedules').select('*').gte('date', startStr).lte('date', endStr),
+            db.from('employees').select('*'),
             db.from('departments').select('id, name').order('id'),
             db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr),
-            db.from('monthly_layouts').select('layout_data').lte('month', monthStr).order('month', { ascending: false }).limit(1)
+            db.from('monthly_layouts').select('layout_data').lte('month', layoutMonth).order('month', { ascending: false }).limit(1),
+            db.from('leave_requests').select('*').in('status', ['approved'])
         ]);
 
         if (schedulesRes.error) throw schedulesRes.error;
@@ -622,36 +620,40 @@ async function renderEmployeeMobileScheduleList() {
         if (departmentsRes.error) throw departmentsRes.error;
         if (holidaysRes.error) throw holidaysRes.error;
         if (layoutRes.error) throw layoutRes.error;
+        if (leavesRes.error) throw leavesRes.error;
 
-        const schedules = schedulesRes.data || [];
         const allEmployees = employeesRes.data || [];
         const allDepartments = departmentsRes.data || [];
         const holidays = holidaysRes.data || [];
 
-        // 데이터 매핑용 Map
         const empMap = new Map(allEmployees.map(e => [e.id, e]));
         const deptMap = new Map(allDepartments.map(d => [d.id, d.name]));
         const holidaySet = new Set(holidays.map(h => h.date));
 
-        // ── monthly_layouts → 직원별 기본 grid 위치 (PC getEmployeeBasePositions 규칙) ──
-        // 운영 schedules 는 grid_position 이 비어있어, 위치 정본은 배치 패널(monthly_layouts).
-        // members 인덱스 = grid_position (positional 32칸, 0/음수=빈자리). 컴팩트 레거시도 호환.
-        const GRID_SIZE = 32;
-        const layoutMembers = (() => {
-            const ld = layoutRes.data?.[0]?.layout_data;
-            if (ld && ld.length > 0 && Array.isArray(ld[0]?.members)) return ld[0].members;
-            return [];
-        })();
-        const basePositions = new Map();
-        if (layoutMembers.length === GRID_SIZE) {
-            layoutMembers.forEach((id, idx) => {
-                if (typeof id === 'number' && id > 0 && !basePositions.has(id)) basePositions.set(id, idx);
-            });
-        } else if (layoutMembers.length > 0) {
-            layoutMembers.filter(id => id > 0).forEach((id, idx) => {
-                if (!basePositions.has(id)) basePositions.set(id, idx);
-            });
+        // ── PC teamLayout 구성 (loadAndRenderScheduleData 와 동일): layout_data[0].members(positional 32칸, 0=빈자리) ──
+        let employeeOrder = [];
+        const latestLayout = layoutRes.data?.[0];
+        if (latestLayout?.layout_data?.length > 0) {
+            employeeOrder = [...(latestLayout.layout_data[0].members || [])];
         }
+        if (employeeOrder.length === GRID_SIZE) {
+            employeeOrder = employeeOrder.map(id => (typeof id === 'number' && id > 0) ? id : 0);
+        } else if (employeeOrder.length > 0) {
+            employeeOrder = employeeOrder.filter(id => id > 0);
+        }
+
+        // ── PC 와 동일한 전역 state 주입 → computeDayGridSlots 가 위치·status·활성직원 전원을 PC와 똑같이 산출 ──
+        state.schedule = state.schedule || {};
+        state.management = state.management || {};
+        state.management.employees = allEmployees;
+        state.management.leaveRequests = leavesRes.data || [];
+        state.schedule.schedules = (schedulesRes.data || []).map(hydrateScheduleRow);
+        state.schedule.companyHolidays = new Set(holidays.map(h => h.date));
+        state.schedule.teamLayout = {
+            month: layoutMonth,
+            data: employeeOrder.length > 0 ? [{ id: 'main', name: '직원 목록', members: employeeOrder }] : []
+        };
+        if (!state.schedule.activeDepartmentFilters) state.schedule.activeDepartmentFilters = new Set();
 
         // 3. UI 렌더링
         // 상단 네비게이션 (한 줄로 변경)
@@ -716,59 +718,14 @@ async function renderEmployeeMobileScheduleList() {
             // 휴일 확인
             const isHoliday = holidaySet.has(dateStr);
 
-            // 해당 날짜의 스케줄 → 직원 정보 매핑 (스페이서/세퍼레이터 제외)
-            let employeesList = schedules
-                .filter(s => s.date === dateStr)
-                .map(sch => {
-                    const emp = empMap.get(sch.employee_id);
-                    if (!emp) return { ...sch, isSystem: true };
-                    return { ...sch, empName: emp.name, deptId: emp.department_id, isSystem: false };
-                })
-                .filter(item => !item.isSystem);
-
-            // 부서 필터링 (Set 기반, 빈 Set = 전체) — 걸러진 직원은 슬롯에서 빠져 빈칸이 됨(배치 유지)
-            if (state.employee.scheduleDeptFilter.size > 0) {
-                employeesList = employeesList.filter(item => state.employee.scheduleDeptFilter.has(item.deptId));
-            }
-
-            // ── 슬롯 배치 — PC 그리드와 동일 좌표계 (row=pos/4, col=pos%4), 위치 우선순위도 동일 ──
-            // 웹에서 정한 팀별 배치(A1, D4 …)를 모바일에서도 그대로 유지.
-            // 우선순위: ① schedules.grid_position(그날 개별 조정) → ② monthly_layouts 기본 위치 → ③ 폴백.
-            const GRID_COLS = 4;
-            const slots = new Array(GRID_SIZE).fill(null);
-
-            // ① grid_position 이 명시된 레코드 먼저 확정 배치
-            let deferred = [];
-            employeesList.forEach(item => {
-                const pos = item.grid_position;
-                if (pos != null && pos >= 0 && pos < GRID_SIZE && slots[pos] == null) {
-                    slots[pos] = item;
-                } else {
-                    deferred.push(item);
-                }
-            });
-            // ② monthly_layouts 기본 위치 (PC 와 동일 좌표). 점유 충돌 시 폴백으로 이월
-            const legacyItems = [];
-            deferred.forEach(item => {
-                const bp = basePositions.get(item.employee_id);
-                if (bp != null && bp >= 0 && bp < GRID_SIZE && slots[bp] == null) {
-                    slots[bp] = item;
-                } else {
-                    legacyItems.push(item);
-                }
-            });
-            // ③ 위치 정보 없는 레코드: 빈 슬롯에 sort_order 순으로 채워 폴백
-            legacyItems.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-            for (const item of legacyItems) {
-                const free = slots.indexOf(null);
-                if (free === -1) break;
-                slots[free] = item;
-            }
+            // ── PC 정본 함수로 32칸 배치 산출 (활성직원 전원·위치·status 가 PC와 100% 동일) ──
+            //    부서필터는 applyDeptFilter:false 로 끄고(전원 배치 받기), 모바일 자체 필터를 표시 단계에서 적용.
+            const gridSlots = computeDayGridSlots(dateStr, { applyDeptFilter: false });
 
             // 실제 점유된 마지막 행까지만 렌더 (세로 길이 절감, 그 안 빈자리는 유지 → 배치 보존)
             let lastFilled = -1;
             for (let p = GRID_SIZE - 1; p >= 0; p--) {
-                if (slots[p]) { lastFilled = p; break; }
+                if (gridSlots[p]) { lastFilled = p; break; }
             }
 
             // 내용 생성
@@ -777,25 +734,35 @@ async function renderEmployeeMobileScheduleList() {
                 content = `<div class="text-xs text-gray-400 py-2 pl-2">일정 없음</div>`;
             } else {
                 const viewMode = state.employee.scheduleViewMode;
-                const renderCount = (Math.floor(lastFilled / GRID_COLS) + 1) * GRID_COLS;
+                const deptFilter = state.employee.scheduleDeptFilter;
+                const renderCount = (Math.floor(lastFilled / 4) + 1) * 4;
                 content = `<div class="grid grid-cols-4 gap-1">`;
 
                 for (let p = 0; p < renderCount; p++) {
-                    const item = slots[p];
-                    // 빈 슬롯 또는 뷰모드 불일치 → 빈칸 (PC와 동일하게 위치 유지)
-                    const hide = !item
-                        || (viewMode === 'working' && item.status !== '근무')
-                        || (viewMode === 'off' && item.status === '근무');
+                    const slot = gridSlots[p];
+                    const emp = slot ? empMap.get(slot.employee_id) : null;
+                    let hide = !slot || !emp;
+                    if (!hide) {
+                        // 부서 필터 (빈 Set = 전체)
+                        if (deptFilter.size > 0 && !deptFilter.has(emp.department_id)) hide = true;
+                        // 뷰모드: 근무자 탭 = 근무만 / 휴무자 탭 = 휴무+연차
+                        if (!hide) {
+                            const isWorking = slot.status === '근무';
+                            if (viewMode === 'working' && !isWorking) hide = true;
+                            if (viewMode === 'off' && isWorking) hide = true;
+                        }
+                    }
                     if (hide) {
                         content += `<div class="h-6 rounded bg-gray-50/50"></div>`;
                         continue;
                     }
 
-                    const deptColor = getDepartmentColor(item.deptId);
+                    const deptColor = getDepartmentColor(emp.department_id);
+                    const isLeave = slot.status === '연차';
                     content += `
-                        <div class="flex items-center bg-gray-50 border rounded px-1 py-1 min-w-0">
+                        <div class="flex items-center bg-gray-50 border rounded px-1 py-1 min-w-0"${isLeave ? ' style="opacity:.55"' : ''}>
                             <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
-                            <span class="text-[11px] font-medium truncate text-gray-700">${item.empName}</span>
+                            <span class="text-[11px] font-medium truncate text-gray-700">${emp.name}${isLeave ? ' <span class="text-[9px] text-orange-500">연차</span>' : ''}</span>
                         </div>
                     `;
                 }

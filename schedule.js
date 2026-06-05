@@ -31,7 +31,7 @@ const GRID_COLS = 4;
 // DB/메모리 모두 row/col 사용. flat index 금지. off-grid 개념 완전 제거(원칙 2단계):
 // 활성 직원은 항상 그리드 어딘가에 위치. 밀려난 카드는 즉시 가장 가까운 빈자리로 재배치.
 // ═══════════════════════════════════════════════════════
-function hydrateScheduleRow(dbRow) {
+export function hydrateScheduleRow(dbRow) {
     if (!dbRow) return dbRow;
     const onGrid = (dbRow.row_pos != null && dbRow.col_pos != null);
     const { row_pos, col_pos, ...rest } = dbRow;
@@ -2145,6 +2145,91 @@ function handleDateNumberClick(e) {
     updateSaveButtonState();
 }
 
+// 특정 날짜의 32칸 그리드 배치를 계산 (renderCalendar·모바일 주간뷰 공용 단일 정본).
+// 위치(grid_position→basePosition)·status(연차/휴무/근무/정기휴무/공휴일)·활성직원 전원·알바/퇴사 규칙이 한 곳에.
+// ctx로 basePositions/excludedIds/activeEmps 주입 가능(PC 루프 성능 보존). applyDeptFilter:false면 부서필터 무시(모바일은 표시단계에서 자체 필터).
+export function computeDayGridSlots(dateStr, ctx = {}) {
+    const basePositions = ctx.basePositions || getEmployeeBasePositions();
+    const excludedIds = ctx.excludedIds || getExcludedEmployeeIds();
+    const activeEmps = ctx.activeEmps || (state.management.employees || []).filter(e => isGridEmployee(e));
+    const applyDeptFilter = ctx.applyDeptFilter !== false;
+
+    const gridSlots = new Array(GRID_SIZE).fill(null);
+
+    // 부서 필터 (PC: state.schedule.activeDepartmentFilters)
+    const filteredEmployeeIds = new Set();
+    if (applyDeptFilter && state.schedule.activeDepartmentFilters?.size > 0) {
+        (state.management.employees || []).forEach(emp => {
+            if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
+                filteredEmployeeIds.add(emp.id);
+            }
+        });
+    }
+
+    // 해당 날짜 스케줄 빠른 조회용 맵 (근무 레코드 우선)
+    const dateSchedMap = new Map();
+    state.schedule.schedules.forEach(s => {
+        if (s.date === dateStr) {
+            const prev = dateSchedMap.get(s.employee_id);
+            if (!prev || s.status === '근무') dateSchedMap.set(s.employee_id, s);
+        }
+    });
+
+    // 위치 결정: schedule.grid_position 우선, 없으면 basePositions fallback
+    function getEmpPosition(empId) {
+        const sched = dateSchedMap.get(empId);
+        if (sched) {
+            if (sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE) {
+                return sched.grid_position;
+            }
+            if (sched.grid_position != null && sched.grid_position < 0) {
+                return null;
+            }
+        }
+        return basePositions.get(empId);
+    }
+
+    activeEmps.forEach(emp => {
+        // 레이아웃 미등록 + 레코드 없음일 때만 제외 (복직·수동배치 직원 보존)
+        if (excludedIds.has(emp.id) && !dateSchedMap.has(emp.id)) return;
+        // 임시직원(알바): '근무' 레코드 있는 날짜에만 (grid_principles 11단계)
+        if (isAlbaEmployee(emp)) {
+            const albaSched = dateSchedMap.get(emp.id);
+            if (!albaSched || albaSched.status !== '근무') return;
+        }
+        if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
+        if (emp.resignation_date && dateStr >= emp.resignation_date) return;
+
+        let pos = getEmpPosition(emp.id);
+        if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
+
+        // 충돌 시 가장 가까운 빈 자리로
+        if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
+            const occupiedNow = new Set();
+            gridSlots.forEach((s, i) => { if (s) occupiedNow.add(i); });
+            const nearest = findNearestEmptyPos(pos, occupiedNow);
+            if (nearest != null) {
+                pos = nearest;
+            } else {
+                for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
+            }
+        }
+
+        const status = getEmployeeStatusOnDate(emp.id, dateStr);
+        const sched = dateSchedMap.get(emp.id);
+        gridSlots[pos] = {
+            id: sched?.id || `auto-${emp.id}-${dateStr}`,
+            employee_id: emp.id,
+            date: dateStr,
+            status: status === 'leave' ? '연차' : status === 'off' ? '휴무' : '근무',
+            grid_position: pos,
+            _empStatus: status
+        };
+    });
+
+    return gridSlots;
+}
+
 function renderCalendar() {
     const container = _('#pure-calendar');
     if (!container) {
@@ -2225,93 +2310,8 @@ function renderCalendar() {
         if (isSaturday) numberClass += ' text-blue-500';
 
         let eventsHTML = '';
-        const gridSlots = new Array(GRID_SIZE).fill(null);
-
-        // ✅ 부서 필터
-        const filteredEmployeeIds = new Set();
-        if (state.schedule.activeDepartmentFilters.size > 0) {
-            state.management.employees.forEach(emp => {
-                if (state.schedule.activeDepartmentFilters.has(emp.department_id)) {
-                    filteredEmployeeIds.add(emp.id);
-                }
-            });
-        }
-
-        // ✅ 해당 날짜 스케줄 빠른 조회용 맵 (근무 레코드 우선)
-        const dateSchedMap = new Map();
-        state.schedule.schedules.forEach(s => {
-            if (s.date === dateStr) {
-                const prev = dateSchedMap.get(s.employee_id);
-                if (!prev || s.status === '근무') dateSchedMap.set(s.employee_id, s);
-            }
-        });
-
-        // ✅ 위치 결정: schedule.grid_position 우선, 없으면 basePositions fallback
-        //    단, grid_position이 명시적으로 음수면 "off-grid"(빈자리로 처리된 카드) → 렌더링 제외
-        function getEmpPosition(empId) {
-            const sched = dateSchedMap.get(empId);
-            if (sched) {
-                if (sched.grid_position != null && sched.grid_position >= 0 && sched.grid_position < GRID_SIZE) {
-                    return sched.grid_position;
-                }
-                // 명시적 off-grid (예: 드래그드롭/붙여넣기로 밀려난 카드) → null 반환, basePositions fallback 금지
-                if (sched.grid_position != null && sched.grid_position < 0) {
-                    return null;
-                }
-            }
-            return basePositions.get(empId);
-        }
-
-        // ═══════════════════════════════════════════
-        // 배치: 항상 전체 직원 기준으로 gridSlots 구성 (뷰 모드 무관)
-        // 뷰 모드는 렌더링 시 표시/숨김만 결정
-        // ═══════════════════════════════════════════
-        activeEmps.forEach(emp => {
-            // 레이아웃(monthly_layouts)에 없어도, 그 날짜에 명시적 스케줄 레코드가 있으면 렌더한다.
-            // (복직·수동 배치한 직원을 날짜칸에 드롭하면 레코드는 생기지만 렌더에서 빠져
-            //  "이름이 사라지는" 버그 방지. 레이아웃 미등록 + 레코드 없음일 때만 제외.)
-            if (excludedIds.has(emp.id) && !dateSchedMap.has(emp.id)) return;
-            // 임시직원(알바): '근무' 레코드가 있는 날짜에만 등장 (grid_principles 11단계).
-            //   basePosition 자동표시·휴무 레코드 표시 금지 → 더블클릭 삭제 시 영구 부재,
-            //   '휴무' 상태/휴무자 뷰에 절대 안 뜸. (정규/테스트 직원은 기존대로 basePosition 표시)
-            if (isAlbaEmployee(emp)) {
-                const albaSched = dateSchedMap.get(emp.id);
-                if (!albaSched || albaSched.status !== '근무') return;
-            }
-            if (filteredEmployeeIds.size > 0 && !filteredEmployeeIds.has(emp.id)) return;
-            // 퇴사일 이후는 미표시
-            if (emp.resignation_date && dateStr >= emp.resignation_date) return;
-
-            let pos = getEmpPosition(emp.id);
-            if (pos == null || pos < 0 || pos >= GRID_SIZE) return;
-
-            // 충돌 시 가장 가까운 빈 자리로 (좌상단 첫 빈칸으로 점프하면 무관한 카드가 멀리 튀어 보임)
-            if (gridSlots[pos] && gridSlots[pos].employee_id !== emp.id) {
-                const occupiedNow = new Set();
-                gridSlots.forEach((s, i) => { if (s) occupiedNow.add(i); });
-                const nearest = findNearestEmptyPos(pos, occupiedNow);
-                if (nearest != null) {
-                    pos = nearest;
-                } else {
-                    for (let i = 0; i < GRID_SIZE; i++) { if (!gridSlots[i]) { pos = i; break; } }
-                }
-            }
-
-            const status = getEmployeeStatusOnDate(emp.id, dateStr);
-            const sched = dateSchedMap.get(emp.id);
-
-            gridSlots[pos] = {
-                id: sched?.id || `auto-${emp.id}-${dateStr}`,
-                employee_id: emp.id,
-                date: dateStr,
-                status: status === 'leave' ? '연차' : status === 'off' ? '휴무' : '근무',
-                grid_position: pos,
-                _empStatus: status
-            };
-        });
-
-        // 임시직원(알바)·테스트직원도 isGridEmployee 통과 시 위 activeEmps 루프에서 함께 처리됨
-        // (별도 placement path 불필요 — 레코드/basePosition 기반 동일 렌더)
+        // ✅ 날짜별 배치 계산 — 모바일 주간뷰와 공유하는 단일 정본 함수
+        const gridSlots = computeDayGridSlots(dateStr, { basePositions, excludedIds, activeEmps });
 
         // ═══════════════════════════════════════════
         // 그리드 슬롯 → HTML 변환 (공통)
