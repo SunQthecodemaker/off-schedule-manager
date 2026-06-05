@@ -5055,29 +5055,20 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // ✅ 대체 보정: "주5일보장(sub:true)" 휴무는 그 주 공휴일이 대신함
-        // WHY: 공휴일로 원래 근무할 날이 빠지면, 대체가능 정기휴무일은 근무 의무로 환원된다.
-        //      (단 sub:false 인 연차성 고정휴무는 공휴일과 무관하게 1일 휴무 유지 → 환원 대상 아님)
-        // 그 주(allDates, 공휴일 포함) 공휴일 중 해당 직원의 고정휴무가 아닌 날 = 빠진 근무일 수
-        const lostWorkdayHolidays = allDates.filter(dateStr => {
-            if (!holidays.has(dateStr)) return false;
-            const dayIdx = dayjs(dateStr).day();
-            return !isFixedOffDay(rules, dayIdx, dateStr);
-        }).length;
-        // 그 주 영업일 중 대체가능(sub !== false) 고정휴무 수
-        const subOffCount = businessDays.filter(dateStr => {
-            const dayIdx = dayjs(dateStr).day();
-            if (!isFixedOffDay(rules, dayIdx, dateStr)) return false;
-            return parsedRules.some(r => {
-                if (r.day !== dayIdx) return false;
-                if (r.weeks && !r.weeks.includes(getCalendarWeekRow(dateStr))) return false;
-                return r.sub !== false;
-            });
-        }).length;
-        // 빠진 근무일만큼 대체가능 휴무를 의무근무로 환원 (둘 중 작은 값)
-        const subRestore = Math.min(lostWorkdayHolidays, subOffCount);
+        // ✅ 검수 의무근무일 — 공휴일 대체 규칙 (전 직원 공통)
+        // 규칙: 그 주 공휴일 중 "첫 1일"만 정기휴무(주5일보장)로 대체되어 의무근무에서 빠지지 않음.
+        //       두 번째 공휴일부터는 대체 안 됨 → expected_base(영업일−고정휴무)에서 그대로 차감.
+        // 구현: expected_base 는 공휴일을 이미 뺀 영업일에서 고정휴무까지 뺀 값이므로,
+        //       첫 공휴일 1일을 되돌려(+1) 대체 처리. (그 주에 되돌릴 고정휴무가 있을 때만)
+        const offDaysThisWeek = businessDays.filter(dateStr =>
+            isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
+        ).length;
+        const holidaysOnWorkday = allDates.filter(dateStr =>
+            holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
+        ).length;
+        const subRestore = Math.min(holidaysOnWorkday, offDaysThisWeek, 1);
         expected += subRestore;
-        const subAvailable = lostWorkdayHolidays > 0 && subOffCount > 0;
+        const subAvailable = subRestore > 0;
 
         const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
