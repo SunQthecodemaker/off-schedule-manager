@@ -3,7 +3,7 @@ import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260605a';
 import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260601c';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260604a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260605b';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260601a';
 import { renderWelfareTab } from './welfare-ui.js?v=20260601a';
 
@@ -637,13 +637,14 @@ async function handleEmployeeLogin(e) {
     }
 
     try {
-        const { data: employee, error } = await db.from('employees')
-            .select('*, departments(*)')
-            .eq('name', name)
-            .eq('password', password)
-            .single();
+        // 비번 평문 비교 폐기 → 서버 RPC(해시 비교, password 제외 반환). 2026-06-05
+        const { data: employee, error } = await db.rpc('employee_login', {
+            p_name: name,
+            p_password: password
+        });
 
         if (error || !employee) {
+            if (error) console.error('로그인 RPC 오류:', error);
             alert('로그인 실패: 이름 또는 비밀번호가 일치하지 않습니다.');
             return;
         }

@@ -278,12 +278,13 @@ async function loadManagerRejectionBanner() {
 }
 
 async function verifyCurrentPassword(inputPass) {
-    const { data, error } = await db.from('employees')
-        .select('password')
-        .eq('id', state.currentUser.id)
-        .single();
-    if (error || !data) return false;
-    return data.password === inputPass;
+    // 평문 비교 폐기 → 서버 RPC 해시 검증 (캐시 비교 X, admin 강제 초기화 즉시 반영). 2026-06-05
+    const { data, error } = await db.rpc('employee_verify_password', {
+        p_id: state.currentUser.id,
+        p_password: inputPass
+    });
+    if (error) { console.error('비번 검증 RPC 오류:', error); return false; }
+    return data === true;
 }
 
 async function handleChangePassword() {
