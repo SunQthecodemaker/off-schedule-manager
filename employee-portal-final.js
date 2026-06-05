@@ -603,7 +603,8 @@ async function renderEmployeeMobileScheduleList() {
         }
 
         // 2. 데이터 병렬 로딩
-        const [schedulesRes, employeesRes, departmentsRes, holidaysRes] = await Promise.all([
+        //    monthly_layouts: 위치(배치) 정본. PC 그리드와 동일하게 해당 월(≤) 최근 1건.
+        const [schedulesRes, employeesRes, departmentsRes, holidaysRes, layoutRes] = await Promise.all([
             db.from('schedules')
                 .select('*')
                 .gte('date', startStr)
@@ -612,13 +613,15 @@ async function renderEmployeeMobileScheduleList() {
 
             db.from('employees').select('id, name, department_id'),
             db.from('departments').select('id, name').order('id'),
-            db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr)
+            db.from('company_holidays').select('*').gte('date', startStr).lte('date', endStr),
+            db.from('monthly_layouts').select('layout_data').lte('month', monthStr).order('month', { ascending: false }).limit(1)
         ]);
 
         if (schedulesRes.error) throw schedulesRes.error;
         if (employeesRes.error) throw employeesRes.error;
         if (departmentsRes.error) throw departmentsRes.error;
         if (holidaysRes.error) throw holidaysRes.error;
+        if (layoutRes.error) throw layoutRes.error;
 
         const schedules = schedulesRes.data || [];
         const allEmployees = employeesRes.data || [];
@@ -629,6 +632,26 @@ async function renderEmployeeMobileScheduleList() {
         const empMap = new Map(allEmployees.map(e => [e.id, e]));
         const deptMap = new Map(allDepartments.map(d => [d.id, d.name]));
         const holidaySet = new Set(holidays.map(h => h.date));
+
+        // ── monthly_layouts → 직원별 기본 grid 위치 (PC getEmployeeBasePositions 규칙) ──
+        // 운영 schedules 는 grid_position 이 비어있어, 위치 정본은 배치 패널(monthly_layouts).
+        // members 인덱스 = grid_position (positional 32칸, 0/음수=빈자리). 컴팩트 레거시도 호환.
+        const GRID_SIZE = 32;
+        const layoutMembers = (() => {
+            const ld = layoutRes.data?.[0]?.layout_data;
+            if (ld && ld.length > 0 && Array.isArray(ld[0]?.members)) return ld[0].members;
+            return [];
+        })();
+        const basePositions = new Map();
+        if (layoutMembers.length === GRID_SIZE) {
+            layoutMembers.forEach((id, idx) => {
+                if (typeof id === 'number' && id > 0 && !basePositions.has(id)) basePositions.set(id, idx);
+            });
+        } else if (layoutMembers.length > 0) {
+            layoutMembers.filter(id => id > 0).forEach((id, idx) => {
+                if (!basePositions.has(id)) basePositions.set(id, idx);
+            });
+        }
 
         // 3. UI 렌더링
         // 상단 네비게이션 (한 줄로 변경)
@@ -708,20 +731,33 @@ async function renderEmployeeMobileScheduleList() {
                 employeesList = employeesList.filter(item => state.employee.scheduleDeptFilter.has(item.deptId));
             }
 
-            // ── grid_position(0~31) 기반 슬롯 배치 — PC 그리드와 동일 좌표계 (row=pos/4, col=pos%4) ──
-            // 웹에서 정한 팀별 배치(A1, D4 …)를 모바일에서도 그대로 유지
-            const GRID_COLS = 4, GRID_SIZE = 32;
+            // ── 슬롯 배치 — PC 그리드와 동일 좌표계 (row=pos/4, col=pos%4), 위치 우선순위도 동일 ──
+            // 웹에서 정한 팀별 배치(A1, D4 …)를 모바일에서도 그대로 유지.
+            // 우선순위: ① schedules.grid_position(그날 개별 조정) → ② monthly_layouts 기본 위치 → ③ 폴백.
+            const GRID_COLS = 4;
             const slots = new Array(GRID_SIZE).fill(null);
-            const legacyItems = []; // grid_position 없는 레거시 레코드는 폴백 처리
+
+            // ① grid_position 이 명시된 레코드 먼저 확정 배치
+            let deferred = [];
             employeesList.forEach(item => {
                 const pos = item.grid_position;
                 if (pos != null && pos >= 0 && pos < GRID_SIZE && slots[pos] == null) {
                     slots[pos] = item;
                 } else {
+                    deferred.push(item);
+                }
+            });
+            // ② monthly_layouts 기본 위치 (PC 와 동일 좌표). 점유 충돌 시 폴백으로 이월
+            const legacyItems = [];
+            deferred.forEach(item => {
+                const bp = basePositions.get(item.employee_id);
+                if (bp != null && bp >= 0 && bp < GRID_SIZE && slots[bp] == null) {
+                    slots[bp] = item;
+                } else {
                     legacyItems.push(item);
                 }
             });
-            // 레거시 레코드: 빈 슬롯에 sort_order 순으로 채워 폴백
+            // ③ 위치 정보 없는 레코드: 빈 슬롯에 sort_order 순으로 채워 폴백
             legacyItems.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
             for (const item of legacyItems) {
                 const free = slots.indexOf(null);
