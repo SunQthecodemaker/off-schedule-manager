@@ -699,12 +699,12 @@ async function renderEmployeeMobileScheduleList() {
             <div class="space-y-3">
         `;
 
-        // 요일별 카드 생성
+        // 요일별 카드 생성 (일요일 제외 — PC 달력과 동일하게 월~토만 표시)
         for (let i = 0; i < 7; i++) {
             const date = startOfWeek.add(i, 'day');
+            if (date.day() === 0) continue; // 일요일 스킵
             const dateStr = date.format('YYYY-MM-DD');
             const isToday = dateStr === dayjs().format('YYYY-MM-DD');
-            const isSunday = date.day() === 0;
             const isSaturday = date.day() === 6;
 
             const weekLabel = date.format('ddd'); // 월, 화, 수...
@@ -712,7 +712,6 @@ async function renderEmployeeMobileScheduleList() {
 
             // 날짜 색상
             let dayColorClass = 'text-gray-800';
-            if (isSunday) dayColorClass = 'text-red-500';
             if (isSaturday) dayColorClass = 'text-blue-500';
 
             // 휴일 확인
