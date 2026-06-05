@@ -5055,19 +5055,30 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // ✅ 검수 의무근무일 — 공휴일 대체 규칙 (전 직원 공통)
-        // 규칙: 그 주 공휴일 중 "첫 1일"만 정기휴무(주5일보장)로 대체되어 의무근무에서 빠지지 않음.
-        //       두 번째 공휴일부터는 대체 안 됨 → expected_base(영업일−고정휴무)에서 그대로 차감.
-        // 구현: expected_base 는 공휴일을 이미 뺀 영업일에서 고정휴무까지 뺀 값이므로,
-        //       첫 공휴일 1일을 되돌려(+1) 대체 처리. (그 주에 되돌릴 고정휴무가 있을 때만)
-        const offDaysThisWeek = businessDays.filter(dateStr =>
-            isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
-        ).length;
+        // ✅ 검수 의무근무일 — 공휴일 대체 규칙
+        // 유동 휴무(sub:true, 예: 류효경 목요일 주5일보장)만 공휴일을 대체근무로 환원.
+        //   공휴일이 오면 그 유동 휴무 요일을 옮겨 대체근무 → 의무근무 유지(+1).
+        //   유동 휴무 1개당 공휴일 1일까지만 대체 → 두 번째 공휴일은 대체 안 됨.
+        // 고정 휴무(sub:false/기본)만 있는 직원은 대체 불가 → 공휴일은 유급(연차) 처리.
+        //   이 경우 영업일 기준 expected 가 자연히 줄고 실제 근무도 그만큼이라 0 으로 맞음(보정 0).
+        const flexOffCount = businessDays.filter(dateStr => {
+            const dayIdx = dayjs(dateStr).day();
+            if (!isFixedOffDay(rules, dayIdx, dateStr)) return false;
+            return parsedRules.some(r =>
+                r.day === dayIdx &&
+                (!r.weeks || r.weeks.includes(getCalendarWeekRow(dateStr))) &&
+                r.sub === true
+            );
+        }).length;
         const holidaysOnWorkday = allDates.filter(dateStr =>
             holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
         ).length;
-        const subRestore = Math.min(holidaysOnWorkday, offDaysThisWeek, 1);
-        expected += subRestore;
+        const subRestore = Math.min(holidaysOnWorkday, flexOffCount);
+        // 고정 휴무(대체안됨)만 있는 직원: 공휴일은 유급 연차로 처리 → 근무일수·의무 둘 다 +1씩 (숫자 유지)
+        //   (류효경처럼 대체가능 휴무가 있으면 대체/감산으로 처리하므로 연차 크레딧 없음)
+        const holidayCredit = (parsedRules.length > 0 && flexOffCount === 0) ? holidaysOnWorkday : 0;
+        expected += subRestore + holidayCredit;
+        workCount += holidayCredit;
         const subAvailable = subRestore > 0;
 
         const diff = workCount - expected;
