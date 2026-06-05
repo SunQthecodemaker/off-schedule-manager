@@ -693,51 +693,66 @@ async function renderEmployeeMobileScheduleList() {
             // 휴일 확인
             const isHoliday = holidaySet.has(dateStr);
 
-            // 해당 날짜의 스케줄 필터링
-            // 1) 날짜 매칭
-            let daySchedules = schedules.filter(s => s.date === dateStr);
+            // 해당 날짜의 스케줄 → 직원 정보 매핑 (스페이서/세퍼레이터 제외)
+            let employeesList = schedules
+                .filter(s => s.date === dateStr)
+                .map(sch => {
+                    const emp = empMap.get(sch.employee_id);
+                    if (!emp) return { ...sch, isSystem: true };
+                    return { ...sch, empName: emp.name, deptId: emp.department_id, isSystem: false };
+                })
+                .filter(item => !item.isSystem);
 
-            // 2) 정렬 순서 (sort_order)
-            daySchedules.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
-            // 데이터 가공 (직원 정보 매핑)
-            let employeesList = daySchedules.map(sch => {
-                const emp = empMap.get(sch.employee_id);
-                // Spacer나 Separator인 경우 emp가 없을 수 있음 (또는 가상 ID)
-                if (!emp) return { ...sch, isSystem: true };
-                return { ...sch, empName: emp.name, deptId: emp.department_id, isSystem: false };
-            });
-
-            // 3) 부서 필터링 (Set 기반, 빈 Set = 전체)
+            // 부서 필터링 (Set 기반, 빈 Set = 전체) — 걸러진 직원은 슬롯에서 빠져 빈칸이 됨(배치 유지)
             if (state.employee.scheduleDeptFilter.size > 0) {
-                employeesList = employeesList.filter(item => {
-                    if (item.isSystem) return false;
-                    return state.employee.scheduleDeptFilter.has(item.deptId);
-                });
+                employeesList = employeesList.filter(item => state.employee.scheduleDeptFilter.has(item.deptId));
             }
-            // 근무/휴무 필터는 렌더링 시 빈칸 처리 (PC 달력과 동일하게 배치 유지)
+
+            // ── grid_position(0~31) 기반 슬롯 배치 — PC 그리드와 동일 좌표계 (row=pos/4, col=pos%4) ──
+            // 웹에서 정한 팀별 배치(A1, D4 …)를 모바일에서도 그대로 유지
+            const GRID_COLS = 4, GRID_SIZE = 32;
+            const slots = new Array(GRID_SIZE).fill(null);
+            const legacyItems = []; // grid_position 없는 레거시 레코드는 폴백 처리
+            employeesList.forEach(item => {
+                const pos = item.grid_position;
+                if (pos != null && pos >= 0 && pos < GRID_SIZE && slots[pos] == null) {
+                    slots[pos] = item;
+                } else {
+                    legacyItems.push(item);
+                }
+            });
+            // 레거시 레코드: 빈 슬롯에 sort_order 순으로 채워 폴백
+            legacyItems.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+            for (const item of legacyItems) {
+                const free = slots.indexOf(null);
+                if (free === -1) break;
+                slots[free] = item;
+            }
+
+            // 실제 점유된 마지막 행까지만 렌더 (세로 길이 절감, 그 안 빈자리는 유지 → 배치 보존)
+            let lastFilled = -1;
+            for (let p = GRID_SIZE - 1; p >= 0; p--) {
+                if (slots[p]) { lastFilled = p; break; }
+            }
 
             // 내용 생성
             let content = '';
-
-            if (employeesList.length === 0) {
+            if (lastFilled === -1) {
                 content = `<div class="text-xs text-gray-400 py-2 pl-2">일정 없음</div>`;
             } else {
-                // PC 달력과 동일: sort_order 기반 배치 유지, 빈칸/스페이서는 건너뜀
                 const viewMode = state.employee.scheduleViewMode;
+                const renderCount = (Math.floor(lastFilled / GRID_COLS) + 1) * GRID_COLS;
                 content = `<div class="grid grid-cols-4 gap-1">`;
 
-                employeesList.forEach(item => {
-                    if (item.isSystem) return;
-
-                    // 뷰 모드 필터: 해당 모드가 아니면 빈칸 표시 (PC와 동일하게 위치 유지)
-                    if (viewMode === 'working' && item.status !== '근무') {
-                        content += `<div class="h-6 rounded bg-gray-50"></div>`;
-                        return;
-                    }
-                    if (viewMode === 'off' && item.status === '근무') {
-                        content += `<div class="h-6 rounded bg-gray-50"></div>`;
-                        return;
+                for (let p = 0; p < renderCount; p++) {
+                    const item = slots[p];
+                    // 빈 슬롯 또는 뷰모드 불일치 → 빈칸 (PC와 동일하게 위치 유지)
+                    const hide = !item
+                        || (viewMode === 'working' && item.status !== '근무')
+                        || (viewMode === 'off' && item.status === '근무');
+                    if (hide) {
+                        content += `<div class="h-6 rounded bg-gray-50/50"></div>`;
+                        continue;
                     }
 
                     const deptColor = getDepartmentColor(item.deptId);
@@ -747,7 +762,7 @@ async function renderEmployeeMobileScheduleList() {
                             <span class="text-[11px] font-medium truncate text-gray-700">${item.empName}</span>
                         </div>
                     `;
-                });
+                }
 
                 content += `</div>`;
             }
