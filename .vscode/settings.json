@@ -1,0 +1,5 @@
+{
+  // offapp은 순수 JS/HTML — 파이썬 미사용. Pylance 끔 (PC 보안앱 anti-debug 충돌 + spawn UNKNOWN 크래시 방지)
+  "python.languageServer": "None",
+  "python.analysis.diagnosticMode": "off"
+}
