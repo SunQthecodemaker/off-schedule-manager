@@ -690,7 +690,7 @@ async function renderEmployeeMobileScheduleList() {
                     <!-- 부서 필터 (전체 버튼 폐지, 실제 부서만 · 한 줄 균등 · 기본 전 부서 선택) -->
                     <div class="flex flex-wrap gap-1.5 pb-1">
                         ${realDepartments.map(dept => `
-                            <button data-dept="${dept.id}" class="dept-filter-btn flex-1 min-w-[60px] px-2 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.has(dept.id) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-300'}">
+                            <button data-dept="${dept.id}" class="dept-filter-btn flex-1 min-w-[60px] px-2 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.has(dept.id) ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-500 border-gray-300'}">
                                 ${dept.name}
                             </button>
                         `).join('')}
@@ -781,7 +781,7 @@ async function renderEmployeeMobileScheduleList() {
             }
 
             html += `
-                <div class="flex gap-3 rounded-lg ${isToday ? 'bg-blue-50' : ''}">
+                <div class="flex gap-3 rounded-lg ${isToday ? 'today-row' : ''}"${isToday ? ' style="background-color:#f5edd4;"' : ''}>
                     <!-- 날짜 컬럼 -->
                     <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
                         <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel.toUpperCase()}</span>
@@ -854,7 +854,7 @@ function attachNavListeners(container, currentDate = dayjs()) {
     });
 
     requestAnimationFrame(() => {
-        const todayEl = container.querySelector('.bg-blue-50');
+        const todayEl = container.querySelector('.today-row');
         if (todayEl) {
             todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
