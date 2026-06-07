@@ -721,52 +721,60 @@ async function renderEmployeeMobileScheduleList() {
             //    부서필터는 applyDeptFilter:false 로 끄고(전원 배치 받기), 모바일 자체 필터를 표시 단계에서 적용.
             const gridSlots = computeDayGridSlots(dateStr, { applyDeptFilter: false });
 
-            // 실제 점유된 마지막 행까지만 렌더 (세로 길이 절감, 그 안 빈자리는 유지 → 배치 보존)
-            let lastFilled = -1;
-            for (let p = GRID_SIZE - 1; p >= 0; p--) {
-                if (gridSlots[p]) { lastFilled = p; break; }
+            // ── 콤팩트 렌더 (2026-06-07) ──
+            //  - 열(4열=팀 배치) 위치는 그대로 보존 (행 내부 빈칸 = spacer)
+            //  - 한 명도 없는 행은 통째로 접음 → 진료실/경영지원실 사이 빈 행(공백) 제거
+            //  - 그날 보여줄 카드가 하나도 없으면(전원 휴무 등) "휴무" 한 칸만
+            const viewMode = state.employee.scheduleViewMode;
+            const deptFilter = state.employee.scheduleDeptFilter;
+
+            // 32칸 가시성 선계산 (부서/뷰모드 필터 반영). 위치(p)는 그대로 유지.
+            const cells = [];
+            for (let p = 0; p < GRID_SIZE; p++) {
+                const slot = gridSlots[p];
+                const emp = slot ? empMap.get(slot.employee_id) : null;
+                let hide = !slot || !emp;
+                if (!hide) {
+                    // 부서 필터 (빈 Set = 전체)
+                    if (deptFilter.size > 0 && !deptFilter.has(emp.department_id)) hide = true;
+                    // 뷰모드: 근무자 탭 = 근무만 / 휴무자 탭 = 휴무+연차
+                    if (!hide) {
+                        const isWorking = slot.status === '근무';
+                        if (viewMode === 'working' && !isWorking) hide = true;
+                        if (viewMode === 'off' && isWorking) hide = true;
+                    }
+                }
+                cells[p] = hide ? null : { emp, slot };
             }
 
-            // 내용 생성
-            let content = '';
-            if (lastFilled === -1) {
-                content = `<div class="text-xs text-gray-400 py-2 pl-2">일정 없음</div>`;
-            } else {
-                const viewMode = state.employee.scheduleViewMode;
-                const deptFilter = state.employee.scheduleDeptFilter;
-                const renderCount = (Math.floor(lastFilled / 4) + 1) * 4;
-                content = `<div class="grid grid-cols-4 gap-1">`;
-
-                for (let p = 0; p < renderCount; p++) {
-                    const slot = gridSlots[p];
-                    const emp = slot ? empMap.get(slot.employee_id) : null;
-                    let hide = !slot || !emp;
-                    if (!hide) {
-                        // 부서 필터 (빈 Set = 전체)
-                        if (deptFilter.size > 0 && !deptFilter.has(emp.department_id)) hide = true;
-                        // 뷰모드: 근무자 탭 = 근무만 / 휴무자 탭 = 휴무+연차
-                        if (!hide) {
-                            const isWorking = slot.status === '근무';
-                            if (viewMode === 'working' && !isWorking) hide = true;
-                            if (viewMode === 'off' && isWorking) hide = true;
-                        }
-                    }
-                    if (hide) {
-                        content += `<div class="h-6 rounded bg-gray-50/50"></div>`;
-                        continue;
-                    }
-
-                    const deptColor = getDepartmentColor(emp.department_id);
-                    const isLeave = slot.status === '연차';
-                    content += `
-                        <div class="flex items-center bg-gray-50 border rounded px-1 py-1 min-w-0"${isLeave ? ' style="opacity:.55"' : ''}>
-                            <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
-                            <span class="text-[11px] font-medium truncate text-gray-700">${emp.name}${isLeave ? ' <span class="text-[9px] text-orange-500">연차</span>' : ''}</span>
+            // 행(4칸) 단위로 렌더하되, 전부 빈 행은 건너뛴다(공백 접기). 행 내부 빈칸은 열 위치 보존용 spacer.
+            let rowsHtml = '';
+            let anyVisible = false;
+            for (let r = 0; r < GRID_SIZE / 4; r++) {
+                const rowCells = cells.slice(r * 4, r * 4 + 4);
+                if (rowCells.every(c => !c)) continue; // 빈 행 접기
+                anyVisible = true;
+                rowsHtml += `<div class="grid grid-cols-4 gap-1">`;
+                for (const c of rowCells) {
+                    if (!c) { rowsHtml += `<div></div>`; continue; } // 빈칸 spacer (열 위치 보존)
+                    const deptColor = getDepartmentColor(c.emp.department_id);
+                    const isLeave = c.slot.status === '연차';
+                    rowsHtml += `
+                        <div class="flex items-center bg-gray-50 border rounded px-1 py-0.5 min-w-0"${isLeave ? ' style="opacity:.55"' : ''}>
+                            <span class="w-1 h-1 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
+                            <span class="text-[10px] font-medium truncate text-gray-700">${c.emp.name}${isLeave ? '<span class="text-[8px] text-orange-500 ml-0.5">연차</span>' : ''}</span>
                         </div>
                     `;
                 }
+                rowsHtml += `</div>`;
+            }
 
-                content += `</div>`;
+            let content;
+            if (!anyVisible) {
+                const label = viewMode === 'off' ? '휴무자 없음' : '휴무';
+                content = `<div class="inline-flex items-center bg-gray-50 border rounded px-2 py-0.5 text-[10px] text-gray-400">${label}</div>`;
+            } else {
+                content = `<div class="space-y-1">${rowsHtml}</div>`;
             }
 
             html += `
