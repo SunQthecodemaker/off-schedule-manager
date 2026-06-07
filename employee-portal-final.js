@@ -562,7 +562,7 @@ async function renderEmployeeMobileScheduleList() {
         // 초기화
         if (!state.employee.scheduleViewDate) state.employee.scheduleViewDate = dayjs().format('YYYY-MM-DD');
         if (!state.employee.scheduleViewMode) state.employee.scheduleViewMode = 'working'; // working | off
-        if (!state.employee.scheduleDeptFilter) state.employee.scheduleDeptFilter = new Set(); // 빈 Set = 전체
+        // scheduleDeptFilter 는 부서 목록 fetch 후 "전 부서 선택" 으로 기본 초기화 (전체 버튼 폐지, 선택=표시)
 
         const currentDate = dayjs(state.employee.scheduleViewDate);
 
@@ -624,6 +624,12 @@ async function renderEmployeeMobileScheduleList() {
 
         const allEmployees = employeesRes.data || [];
         const allDepartments = departmentsRes.data || [];
+        // 모바일 부서 필터 버튼 = 테스트 부서 제외한 실제 부서만 (전체 버튼 폐지)
+        const realDepartments = allDepartments.filter(d => !(d.name || '').includes('테스트'));
+        // 기본값 = 전 부서 선택 (선택된 부서만 표시; 미초기화일 때만 세팅 → 사용자 토글 보존)
+        if (!state.employee.scheduleDeptFilter) {
+            state.employee.scheduleDeptFilter = new Set(realDepartments.map(d => d.id));
+        }
         const holidays = holidaysRes.data || [];
 
         const empMap = new Map(allEmployees.map(e => [e.id, e]));
@@ -681,13 +687,10 @@ async function renderEmployeeMobileScheduleList() {
                         </button>
                     </div>
 
-                    <!-- 부서 필터 (가로 스크롤, 중복 선택 가능) -->
-                    <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                        <button data-dept="all" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.size === 0 ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}">
-                            전체
-                        </button>
-                        ${allDepartments.map(dept => `
-                            <button data-dept="${dept.id}" class="dept-filter-btn px-3 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.has(dept.id) ? 'bg-blue-100 text-blue-700 border-blue-200 font-bold' : 'bg-white text-gray-600 border-gray-200'}">
+                    <!-- 부서 필터 (전체 버튼 폐지, 실제 부서만 · 한 줄 균등 · 기본 전 부서 선택) -->
+                    <div class="flex flex-wrap gap-1.5 pb-1">
+                        ${realDepartments.map(dept => `
+                            <button data-dept="${dept.id}" class="dept-filter-btn flex-1 min-w-[60px] px-2 py-1 text-xs rounded-full border whitespace-nowrap ${state.employee.scheduleDeptFilter.has(dept.id) ? 'bg-blue-100 text-blue-700 border-blue-200 font-bold' : 'bg-white text-gray-600 border-gray-200'}">
                                 ${dept.name}
                             </button>
                         `).join('')}
@@ -735,8 +738,8 @@ async function renderEmployeeMobileScheduleList() {
                 const emp = slot ? empMap.get(slot.employee_id) : null;
                 let hide = !slot || !emp;
                 if (!hide) {
-                    // 부서 필터 (빈 Set = 전체)
-                    if (deptFilter.size > 0 && !deptFilter.has(emp.department_id)) hide = true;
+                    // 부서 필터 (선택된 부서만 표시; 기본=전 부서 선택). 미선택 부서(테스트 포함)는 숨김.
+                    if (!deptFilter.has(emp.department_id)) hide = true;
                     // 뷰모드: 근무자 탭 = 근무만 / 휴무자 탭 = 휴무+연차
                     if (!hide) {
                         const isWorking = slot.status === '근무';
@@ -837,19 +840,14 @@ function attachNavListeners(container, currentDate = dayjs()) {
         renderEmployeeMobileScheduleList();
     });
 
-    // 부서 필터 버튼 (토글 방식, 중복 선택 가능)
+    // 부서 필터 버튼 (토글 방식, 복수 선택 — 전체 버튼 폐지, 선택된 부서만 표시)
     container.querySelectorAll('.dept-filter-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const dept = btn.dataset.dept;
-            if (dept === 'all') {
-                state.employee.scheduleDeptFilter = new Set();
+            const deptId = parseInt(btn.dataset.dept);
+            if (state.employee.scheduleDeptFilter.has(deptId)) {
+                state.employee.scheduleDeptFilter.delete(deptId);
             } else {
-                const deptId = parseInt(dept);
-                if (state.employee.scheduleDeptFilter.has(deptId)) {
-                    state.employee.scheduleDeptFilter.delete(deptId);
-                } else {
-                    state.employee.scheduleDeptFilter.add(deptId);
-                }
+                state.employee.scheduleDeptFilter.add(deptId);
             }
             renderEmployeeMobileScheduleList();
         });
