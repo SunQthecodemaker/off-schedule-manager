@@ -552,6 +552,31 @@ function getDepartmentColor(departmentId) {
     return colors[departmentId % colors.length];
 }
 
+// 근무 스케줄 부서 필터 — 개인(유저 id)별 마지막 선택을 localStorage 에 영속화.
+// 기본값은 '전 부서 선택' 이지만, 한 번 토글한 뒤로는 그 사람이 설정한 그대로 복원.
+function _deptFilterStorageKey() {
+    const uid = state.currentUser?.id ?? state.currentUser?.name ?? 'anon';
+    return `offapp_schedDeptFilter_${uid}`;
+}
+// 저장값 로드: 저장된 적 없으면 null(→ 기본 전부 선택), 있으면 현존 부서로 필터한 Set
+function loadSavedDeptFilter(realDepartments) {
+    try {
+        const raw = localStorage.getItem(_deptFilterStorageKey());
+        if (raw === null) return null;
+        const ids = JSON.parse(raw);
+        if (!Array.isArray(ids)) return null;
+        const valid = new Set(realDepartments.map(d => d.id));
+        return new Set(ids.filter(id => valid.has(id)));
+    } catch (e) {
+        return null;
+    }
+}
+function saveDeptFilter() {
+    try {
+        localStorage.setItem(_deptFilterStorageKey(), JSON.stringify([...state.employee.scheduleDeptFilter]));
+    } catch (e) { /* localStorage 불가 환경(프라이빗 등) 무시 */ }
+}
+
 // 렌더 타깃 영속화 — 직원 포털(#employee-work-schedule-tab)과 원장 모바일 조회 페이지가
 // 같은 함수를 재사용하되, 주차 이동/필터 토글의 재렌더가 같은 컨테이너로 돌아가도록 모듈 변수에 보존.
 let _mobileScheduleTarget = { selector: '#employee-work-schedule-tab', bypassConfirm: false };
@@ -640,9 +665,13 @@ export async function renderEmployeeMobileScheduleList(opts) {
         const allDepartments = departmentsRes.data || [];
         // 모바일 부서 필터 버튼 = 테스트 부서 제외한 실제 부서만 (전체 버튼 폐지)
         const realDepartments = allDepartments.filter(d => !(d.name || '').includes('테스트'));
-        // 기본값 = 전 부서 선택 (선택된 부서만 표시; 미초기화일 때만 세팅 → 사용자 토글 보존)
+        // 부서 필터 초기화 (미초기화일 때만 → 세션 중 토글 보존).
+        // 개인이 저장한 마지막 선택이 있으면 그대로 복원, 없으면 기본 = 전 부서 선택.
         if (!state.employee.scheduleDeptFilter) {
-            state.employee.scheduleDeptFilter = new Set(realDepartments.map(d => d.id));
+            const saved = loadSavedDeptFilter(realDepartments);
+            state.employee.scheduleDeptFilter = (saved !== null)
+                ? saved
+                : new Set(realDepartments.map(d => d.id));
         }
         const holidays = holidaysRes.data || [];
 
@@ -865,6 +894,7 @@ function attachNavListeners(container, currentDate = dayjs()) {
             } else {
                 state.employee.scheduleDeptFilter.add(deptId);
             }
+            saveDeptFilter(); // 개인 선택을 localStorage 에 영속화
             renderEmployeeMobileScheduleList();
         });
     });
