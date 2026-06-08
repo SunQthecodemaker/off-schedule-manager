@@ -777,7 +777,7 @@ export async function renderEmployeeMobileScheduleList(opts) {
                     rowsHtml += `
                         <div class="flex items-center bg-gray-50 border rounded px-1 py-0.5 min-w-0"${cardStyle}>
                             <span class="w-1 h-1 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
-                            <span class="text-[10px] font-medium truncate ${isLeave ? '' : 'text-gray-700'}"${isLeave ? ' style="color:var(--color-gold-dark);"' : ''}>${c.emp.name}</span>
+                            <span class="emp-sched-name font-medium ${isLeave ? '' : 'text-gray-700'}"${isLeave ? ' style="color:var(--color-gold-dark);"' : ''}>${c.emp.name}</span>
                         </div>
                     `;
                 }
