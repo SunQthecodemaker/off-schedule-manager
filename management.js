@@ -1101,22 +1101,62 @@ function buildLeaveMonthSectionsHTML(currentMonth) {
         return '<p class="text-center text-gray-500 py-8">표시할 연차 신청 기록이 없습니다.</p>';
     }
 
-    // 현재 표시 월 + 직전 2개월 = recent (currentMonth 만 펼침). 그 외 = 과거 토글.
+    // 'unknown'(날짜 없음) 은 실제 월 정렬에서 빼고 과거기록 토글에 모음 (문자열 비교 시 미래로 오인 방지)
+    const realMonths = allMonths.filter(m => m !== 'unknown');
+    const todayMonth = dayjs().format('YYYY-MM');
+
     const prev1 = dayjs(currentMonth + '-01').subtract(1, 'month').format('YYYY-MM');
     const prev2 = dayjs(currentMonth + '-01').subtract(2, 'month').format('YYYY-MM');
     const recentSet = new Set([currentMonth, prev1, prev2]);
-    const recentOrdered = [currentMonth, prev1, prev2].filter(m => monthGroups[m]);
-    const otherMonths = allMonths.filter(m => !recentSet.has(m)).sort((a, b) => b.localeCompare(a));
 
-    let html = recentOrdered.map(m => buildMonthSection(m, monthGroups[m], m === currentMonth)).join('');
-    if (otherMonths.length > 0) {
-        const oldSections = otherMonths.map(m => buildMonthSection(m, monthGroups[m], false)).join('');
+    // 미래월: 현재월 이후 신청이 있는 월. 단 현재월이 오늘월 이상일 때만 노출(과거 탐색 중엔 숨김).
+    const showFuture = currentMonth >= todayMonth;
+    const futureMonths = showFuture
+        ? realMonths.filter(m => m > currentMonth).sort((a, b) => b.localeCompare(a))  // 먼 미래가 위
+        : [];
+    const futureSet = new Set(futureMonths);
+
+    // 현재월 + 직전 2개월 (헤더로 노출, 현재월만 펼침)
+    const recentOrdered = [currentMonth, prev1, prev2].filter(m => monthGroups[m]);
+
+    // 과거기록: 직전 2개월보다 이전 ~ 현재월 기준 12개월 이내. 'unknown' 포함.
+    const cutoff = dayjs(currentMonth + '-01').subtract(12, 'month').format('YYYY-MM');
+    const pastWithin = realMonths
+        .filter(m => !recentSet.has(m) && !futureSet.has(m) && m < currentMonth && m >= cutoff)
+        .sort((a, b) => b.localeCompare(a));
+    if (monthGroups['unknown']) pastWithin.push('unknown');
+
+    // 12개월 밖 과거 = admin(원장) 전용 '전체 기록 보기'
+    const archived = realMonths
+        .filter(m => m < cutoff && !recentSet.has(m) && !futureSet.has(m))
+        .sort((a, b) => b.localeCompare(a));
+
+    // 미래월은 대기(pending) 건이 있을 때만 펼침 — 처리 끝나면 자동으로 접힘
+    const hasPending = (m) => monthGroups[m].some(e => ((e.req.final_manager_status) || 'pending') === 'pending');
+
+    let html = futureMonths.map(m => buildMonthSection(m, monthGroups[m], hasPending(m))).join('');
+    html += recentOrdered.map(m => buildMonthSection(m, monthGroups[m], m === currentMonth)).join('');
+
+    if (pastWithin.length > 0) {
+        const oldSections = pastWithin.map(m => buildMonthSection(m, monthGroups[m], false)).join('');
         html += `
             <button onclick="window.toggleOldLeaveHistory()" id="leave-old-history-toggle" class="w-full text-center text-sm text-gray-600 hover:bg-gray-100 py-2 mb-2 border rounded-lg">
-                과거기록 보기 (${otherMonths.length}개월) ▼
+                과거기록 보기 (${pastWithin.length}개월) ▼
             </button>
             <div id="leave-old-history-container" style="display:none">
                 ${oldSections}
+            </div>`;
+    }
+
+    // 12개월 이전 기록 — admin(원장) 만 추가로 펼쳐볼 수 있음
+    if (isAdmin && archived.length > 0) {
+        const archivedSections = archived.map(m => buildMonthSection(m, monthGroups[m], false)).join('');
+        html += `
+            <button onclick="window.toggleArchivedLeaveHistory()" id="leave-archived-toggle" class="w-full text-center text-sm text-gray-500 hover:bg-gray-100 py-2 mb-2 border rounded-lg">
+                전체 기록 보기 (12개월 이전 ${archived.length}개월) ▼
+            </button>
+            <div id="leave-archived-container" style="display:none">
+                ${archivedSections}
             </div>`;
     }
     return html;
@@ -1334,6 +1374,16 @@ window.toggleMonthSection = function (month) {
 window.toggleOldLeaveHistory = function () {
     const container = document.getElementById('leave-old-history-container');
     const btn = document.getElementById('leave-old-history-toggle');
+    if (!container || !btn) return;
+    const isHidden = container.style.display === 'none';
+    container.style.display = isHidden ? 'block' : 'none';
+    btn.innerHTML = btn.innerHTML.replace(isHidden ? '▼' : '▲', isHidden ? '▲' : '▼');
+};
+
+// 전체 기록 (12개월 이전) 토글 — admin(원장) 전용
+window.toggleArchivedLeaveHistory = function () {
+    const container = document.getElementById('leave-archived-container');
+    const btn = document.getElementById('leave-archived-toggle');
     if (!container || !btn) return;
     const isHidden = container.style.display === 'none';
     container.style.display = isHidden ? 'block' : 'none';
