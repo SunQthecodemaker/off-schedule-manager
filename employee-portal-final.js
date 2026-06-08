@@ -808,7 +808,7 @@ export async function renderEmployeeMobileScheduleList(opts) {
                     // 연차 = PC(.event-leave)와 동일하게 골드크림 배경 + 골드 점선 + 골드 글자 (배지 없이 색으로만 구분)
                     const cardStyle = isLeave ? ' style="background-color:var(--color-primary-light);border-color:var(--color-gold-dark);border-style:dashed;"' : '';
                     rowsHtml += `
-                        <div class="flex items-center bg-gray-50 border rounded px-1 py-0.5 min-w-0"${cardStyle}>
+                        <div class="emp-sched-card flex items-center bg-gray-50 border rounded px-1 py-0.5 min-w-0"${cardStyle}>
                             <span class="w-1 h-1 rounded-full mr-1 flex-shrink-0" style="background-color: ${deptColor};"></span>
                             <span class="emp-sched-name font-medium ${isLeave ? '' : 'text-gray-700'}"${isLeave ? ' style="color:var(--color-gold-dark);"' : ''}>${c.emp.name}</span>
                         </div>
