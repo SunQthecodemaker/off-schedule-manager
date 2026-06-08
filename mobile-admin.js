@@ -8,8 +8,8 @@
 // =========================================================================================
 import { state, db, isVisibleIn } from './state.js?v=20260601a';
 import { _ } from './utils.js';
-import { buildLeaveMonthSectionsHTML } from './management.js?v=20260608f';
-import { renderEmployeeMobileScheduleList } from './employee-portal-final.js?v=20260608j';
+import { buildLeaveMonthSectionsHTML } from './management.js?v=20260608k';
+import { renderEmployeeMobileScheduleList } from './employee-portal-final.js?v=20260608k';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { loadConfig, loadAllRecords, computeRemaining, elapsedMonthList, formatNum } from './welfare.js';
 
@@ -28,17 +28,17 @@ export async function renderMobileAdminPortal() {
     const userName = state.currentUser?.name || '원장';
     root.innerHTML = `
         <div class="min-h-screen bg-gray-50">
-            <header style="background:#1a1a1a;color:#fff;" class="px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow">
-                <div class="flex items-center gap-2">
-                    <span class="text-base font-bold">👑 ${userName}</span>
-                    <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:#b8860b;color:#fff;">모바일 조회</span>
+            <header style="background:#1a1a1a;color:#fff;" class="px-3 py-3 flex items-center justify-between gap-2 flex-nowrap sticky top-0 z-20 shadow">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="ma-title font-bold">👑 ${userName}</span>
+                    <span class="ma-badge px-2 py-0.5 rounded-full" style="background:#b8860b;color:#fff;">모바일 조회</span>
                 </div>
-                <button id="ma-logout" class="text-xs px-3 py-1 rounded border border-gray-500 text-gray-200 hover:bg-gray-700">로그아웃</button>
+                <button id="ma-logout" class="ma-logout rounded border border-gray-500 text-gray-200 hover:bg-gray-700">로그아웃</button>
             </header>
 
-            <nav id="ma-tabs" class="flex bg-white border-b sticky z-10 shadow-sm" style="top:48px;">
+            <nav id="ma-tabs" class="flex flex-nowrap bg-white border-b sticky z-10 shadow-sm" style="top:48px;">
                 ${TABS.map(t => `
-                    <button data-ma-tab="${t.id}" class="ma-tab flex-1 py-2.5 text-[12px] font-medium border-b-2 transition-colors"
+                    <button data-ma-tab="${t.id}" class="ma-tab transition-colors"
                             style="${t.id === state.mobileAdmin.activeTab ? 'border-color:#b8860b;color:#b8860b;' : 'border-color:transparent;color:#6b7280;'}">
                         ${t.label}
                     </button>`).join('')}
@@ -46,7 +46,7 @@ export async function renderMobileAdminPortal() {
 
             <main id="ma-content" class="p-3"></main>
 
-            <div class="text-center text-[11px] text-gray-400 py-4">조회 전용 화면입니다. 승인·편집은 PC에서 하세요.</div>
+            <div class="ma-fs-xs text-center text-gray-400 py-4">조회 전용 화면입니다. 승인·편집은 PC에서 하세요.</div>
         </div>
     `;
 
@@ -131,24 +131,24 @@ async function renderPendingTab(content) {
     const rows = pending.map(({ r, dates }) => {
         const middle = r.middle_manager_status;
         const middleTag = middle === 'approved'
-            ? '<span class="text-[11px] text-green-600">매니저 승인</span>'
+            ? '<span class="ma-fs-xs text-green-600">매니저 승인</span>'
             : middle === 'rejected'
-                ? '<span class="text-[11px] text-red-500">매니저 반려</span>'
-                : '<span class="text-[11px] text-gray-400">매니저 대기</span>';
+                ? '<span class="ma-fs-xs text-red-500">매니저 반려</span>'
+                : '<span class="ma-fs-xs text-gray-400">매니저 대기</span>';
         const datesText = dates.map(d => `${parseInt(d.substring(5, 7), 10)}/${parseInt(d.substring(8, 10), 10)}`).join(', ');
         return `
             <div class="bg-white rounded-lg border p-3 flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                    <div class="font-semibold text-sm">${nameMap[r.employee_id]}</div>
-                    <div class="text-[12px] text-gray-600 mt-0.5 break-words">${datesText} <span class="text-gray-400">(${dates.length}일)</span></div>
+                    <div class="ma-fs-sm font-semibold">${nameMap[r.employee_id]}</div>
+                    <div class="ma-fs-xs text-gray-600 mt-0.5">${datesText} <span class="text-gray-400">(${dates.length}일)</span></div>
                     <div class="mt-1">${middleTag}</div>
                 </div>
-                <span class="text-[11px] px-2 py-1 rounded-full whitespace-nowrap" style="background:#fef3c7;color:#b45309;">대기</span>
+                <span class="ma-fs-xs px-2 py-1 rounded-full ma-nowrap" style="background:#fef3c7;color:#b45309;">대기</span>
             </div>`;
     }).join('');
 
     content.innerHTML = `
-        <div class="mb-2 text-[12px] text-gray-500">최종 승인 대기 <b style="color:#b8860b;">${pending.length}</b>건</div>
+        <div class="mb-2 ma-fs-xs text-gray-500">최종 승인 대기 <b style="color:#b8860b;">${pending.length}</b>건</div>
         <div class="space-y-2">${rows}</div>`;
 }
 
@@ -173,8 +173,8 @@ async function renderLeaveTab(content) {
 
     const statusTable = `
         <div class="bg-white rounded-lg border overflow-hidden mb-4">
-            <div class="px-3 py-2 bg-gray-50 border-b text-sm font-semibold">직원별 잔여 연차 (현재 주기)</div>
-            <table class="min-w-full text-[12px]">
+            <div class="px-3 py-2 bg-gray-50 border-b ma-fs-sm font-semibold">직원별 잔여 연차 (현재 주기)</div>
+            <table class="min-w-full">
                 <thead class="bg-gray-50 text-gray-500">
                     <tr><th class="py-1.5 px-2 text-left">직원</th><th class="py-1.5 px-2 text-left">부서</th>
                         <th class="py-1.5 px-2 text-center">확정</th><th class="py-1.5 px-2 text-center">사용</th>
@@ -196,7 +196,7 @@ async function renderLeaveTab(content) {
     const thisMonth = dayjs().format('YYYY-MM');
     const listHTML = buildLeaveMonthSectionsHTML(thisMonth, true);
 
-    content.innerHTML = statusTable + `<div class="text-sm font-semibold mb-2 px-1">연차 신청 목록</div>` + listHTML;
+    content.innerHTML = statusTable + `<div class="ma-fs-sm font-semibold mb-2 px-1">연차 신청 목록</div>` + listHTML;
 }
 
 // ── 탭 4) 복지 현황 — 진료비 복지 진행 목록 (읽기전용) ──
@@ -226,19 +226,19 @@ async function renderWelfareTab(content) {
         const { remaining, fulfilledMonths } = computeRemaining(r, fulfills, cfg);
         const possible = elapsedMonthList(r.start_date).length;
         const badge = r.status === 'Settled'
-            ? '<span class="px-2 py-0.5 rounded text-white text-[11px]" style="background:#6b7280;">정산완료</span>'
-            : '<span class="px-2 py-0.5 rounded text-white text-[11px]" style="background:#16a34a;">진행중</span>';
+            ? '<span class="px-2 py-0.5 rounded text-white ma-fs-xs ma-nowrap" style="background:#6b7280;">정산완료</span>'
+            : '<span class="px-2 py-0.5 rounded text-white ma-fs-xs ma-nowrap" style="background:#16a34a;">진행중</span>';
         return `
             <div class="bg-white rounded-lg border p-3 ${r.status === 'Settled' ? 'opacity-60' : ''}">
-                <div class="flex items-center justify-between">
-                    <span class="font-semibold text-sm">${r.employee?.name || '-'}</span>
+                <div class="flex items-center justify-between gap-2">
+                    <span class="ma-fs-sm font-semibold truncate">${r.employee?.name || '-'}</span>
                     ${badge}
                 </div>
-                <div class="text-[12px] text-gray-600 mt-1">${r.relation_type}${r.patient_name ? ' (' + r.patient_name + ')' : ''} · ${r.treatment_details || '-'}</div>
-                <div class="flex justify-between text-[12px] mt-2 pt-2 border-t">
-                    <span class="text-gray-500">총 진료비 <b class="text-gray-700">${formatNum(r.total_fee)}</b></span>
-                    <span class="text-gray-500">잔여 <b style="color:#b8860b;">${formatNum(remaining)}</b></span>
-                    <span class="text-gray-500">이행 <b class="text-gray-700">${fulfilledMonths}/${possible}</b></span>
+                <div class="ma-fs-xs text-gray-600 mt-1">${r.relation_type}${r.patient_name ? ' (' + r.patient_name + ')' : ''} · ${r.treatment_details || '-'}</div>
+                <div class="flex justify-between gap-1 ma-fs-xs mt-2 pt-2 border-t">
+                    <span class="text-gray-500 ma-nowrap">총 진료비 <b class="text-gray-700">${formatNum(r.total_fee)}</b></span>
+                    <span class="text-gray-500 ma-nowrap">잔여 <b style="color:#b8860b;">${formatNum(remaining)}</b></span>
+                    <span class="text-gray-500 ma-nowrap">이행 <b class="text-gray-700">${fulfilledMonths}/${possible}</b></span>
                 </div>
             </div>`;
     }).join('');
