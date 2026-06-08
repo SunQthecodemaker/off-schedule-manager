@@ -1135,7 +1135,7 @@ function buildLeaveMonthSectionsHTML(currentMonth) {
     const hasPending = (m) => monthGroups[m].some(e => ((e.req.final_manager_status) || 'pending') === 'pending');
 
     let html = futureMonths.map(m => buildMonthSection(m, monthGroups[m], hasPending(m))).join('');
-    html += recentOrdered.map(m => buildMonthSection(m, monthGroups[m], m === currentMonth)).join('');
+    html += recentOrdered.map(m => buildMonthSection(m, monthGroups[m], hasPending(m))).join('');
 
     if (pastWithin.length > 0) {
         const oldSections = pastWithin.map(m => buildMonthSection(m, monthGroups[m], false)).join('');

@@ -1,9 +1,9 @@
 import { state, db } from './state.js?v=20260601a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260608d';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260608d';
+import { renderScheduleManagement } from './schedule.js?v=20260608e';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260608e';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260608d';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260608e';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260601a';
 import { renderWelfareTab } from './welfare-ui.js?v=20260601a';
 
