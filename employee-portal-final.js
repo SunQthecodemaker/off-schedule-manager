@@ -1283,9 +1283,9 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
         editable: false,
         events: function (info, successCallback) {
             const isMobile = window.innerWidth < 640;
-            const approvedTitle = isMobile ? '✓ 승인' : '연차 (승인됨)';
-            const pendingTitle = isMobile ? '⏳ 대기' : '승인 대기중';
-            const selectedTitle = isMobile ? '● 선택' : '선택됨';
+            const approvedTitle = isMobile ? '승인' : '연차 (승인됨)';
+            const pendingTitle = isMobile ? '대기' : '승인 대기중';
+            const selectedTitle = isMobile ? '선택' : '선택됨';
             const events = [
                 ...approvedDates.map(date => ({
                     title: approvedTitle,
