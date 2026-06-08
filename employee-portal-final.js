@@ -2,7 +2,7 @@ import { state, db } from './state.js?v=20260601a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
 import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260608e';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260608e';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260608f';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
 import { renderMyWelfareSection } from './employee-welfare.js?v=20260601a';
 
@@ -525,12 +525,12 @@ async function renderEmployeeScheduleView() {
         } catch (err) {
             console.error('❌ PC 달력 렌더링 실패, 주간뷰로 대체:', err);
             container.style.height = 'auto';
-            await renderEmployeeMobileScheduleList();
+            await renderEmployeeMobileScheduleList({ selector: '#employee-work-schedule-tab', bypassConfirm: false });
         }
     } else {
         // 모바일/태블릿: 주간 리스트 뷰
         container.style.height = 'auto';
-        await renderEmployeeMobileScheduleList();
+        await renderEmployeeMobileScheduleList({ selector: '#employee-work-schedule-tab', bypassConfirm: false });
     }
 }
 
@@ -548,9 +548,19 @@ function getDepartmentColor(departmentId) {
     return colors[departmentId % colors.length];
 }
 
-async function renderEmployeeMobileScheduleList() {
-    const container = _('#employee-work-schedule-tab');
+// 렌더 타깃 영속화 — 직원 포털(#employee-work-schedule-tab)과 원장 모바일 조회 페이지가
+// 같은 함수를 재사용하되, 주차 이동/필터 토글의 재렌더가 같은 컨테이너로 돌아가도록 모듈 변수에 보존.
+let _mobileScheduleTarget = { selector: '#employee-work-schedule-tab', bypassConfirm: false };
+
+export async function renderEmployeeMobileScheduleList(opts) {
+    if (opts && opts.selector) {
+        _mobileScheduleTarget = { selector: opts.selector, bypassConfirm: !!opts.bypassConfirm };
+    }
+    const { selector: _msSelector, bypassConfirm: _msBypassConfirm } = _mobileScheduleTarget;
+    const container = _(_msSelector);
     if (!container) return;
+    // state.employee 미초기화(원장 진입 등) 방어
+    state.employee = state.employee || {};
     window._retryScheduleList = renderEmployeeMobileScheduleList;
 
     // 로딩 인디케이터
@@ -586,7 +596,7 @@ async function renderEmployeeMobileScheduleList() {
 
         const isConfirmed = confirmData && confirmData.is_confirmed;
 
-        if (!isConfirmed) {
+        if (!isConfirmed && !_msBypassConfirm) {
             container.innerHTML = `
                 <div class="flex flex-col items-center justify-center h-full p-6 text-center">
                     <div class="text-4xl mb-4">⏳</div>

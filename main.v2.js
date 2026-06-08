@@ -1,9 +1,10 @@
 import { state, db } from './state.js?v=20260601a';
 import { _, _all, show, hide } from './utils.js';
 import { renderScheduleManagement } from './schedule.js?v=20260608e';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260608e';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260608f';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260608e';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260608f';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260608f';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260601a';
 import { renderWelfareTab } from './welfare-ui.js?v=20260601a';
 
@@ -543,6 +544,18 @@ async function handleLogout() {
     await checkAuth();
 }
 
+// 모듈 로드 시점(뷰포트 메타 변경 전)의 실제 기기 폭 캡처 — 이후 width=1280 강제로
+// innerWidth 가 바뀌어도 불변. 좁은 기기(모바일/태블릿) 판별 단일 기준.
+const IS_SMALL_DEVICE = window.innerWidth < 1024;
+
+// #admin-portal(데스크톱 전용)을 좁은 기기에서 띄울 때만 PC 폭(1280) 강제 → 축소된 데스크톱 뷰.
+// 그 외(모바일 전용 페이지·직원포털·로그인·실제 PC)는 반응형 device-width.
+function applyViewport(mode) {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    meta.setAttribute('content', mode === 'desktop' ? 'width=1280' : 'width=device-width, initial-scale=1.0');
+}
+
 function render() {
     _all('.page-section').forEach(el => el.classList.add('hidden'));
 
@@ -552,16 +565,25 @@ function render() {
     const user = state.currentUser;
     const isManager = !!(user && user.isManager);
     const viewAs = state.viewAs || 'employee';
+    let viewportMode = 'responsive';
 
     if (state.userRole === 'admin') {
         document.body.classList.add('mode-admin');
-        show('#admin-portal');
-        renderAdminPortal();
+        if (IS_SMALL_DEVICE) {
+            // 원장(최고관리자) 모바일 → 전용 조회 페이지 (읽기전용, 반응형)
+            show('#mobile-admin-portal');
+            renderMobileAdminPortal();
+        } else {
+            show('#admin-portal');
+            renderAdminPortal();
+        }
     } else if (state.userRole === 'employee' && isManager && viewAs === 'admin') {
-        // 매니저가 매니저 화면 진입 → admin-portal 재사용 + perm 필터
+        // 매니저가 매니저 화면 진입 → admin-portal 재사용 + perm 필터.
+        // 매니저 화면은 데스크톱 전용이라 모바일이면 PC 레이아웃(1280) 강제 = 축소뷰(핀치줌 가능).
         document.body.classList.add('mode-admin');
         show('#admin-portal');
         renderAdminPortal();
+        if (IS_SMALL_DEVICE) viewportMode = 'desktop';
     } else if (state.userRole === 'employee') {
         document.body.classList.add('mode-employee');
         show('#employee-portal');
@@ -569,6 +591,8 @@ function render() {
     } else {
         show('#login-screen');
     }
+
+    applyViewport(viewportMode);
 }
 
 // 매니저가 진입/복귀 버튼 클릭 시 발화 — render() 만 다시 돌리면 됨

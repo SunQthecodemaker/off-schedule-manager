@@ -971,9 +971,10 @@ export function getDepartmentManagementHTML() {
 
 // 월별 섹션 영역만 별도 빌드 — 달력 prev/next 시 syncLeaveListMonth 가 재호출.
 // 정렬: currentMonth + 직전 2개월 = recent (currentMonth 펼침), 그 외 모두 = 과거 토글.
-function buildLeaveMonthSectionsHTML(currentMonth) {
+export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
     const { leaveRequests, employees } = state.management;
     const isAdmin = state.currentUser?.role === 'admin';
+    // readOnly: 모바일 원장 조회 전용 — 승인/반려 버튼·체크박스 전부 제거, 상태 텍스트만
 
     const employeeNameMap = employees.reduce((map, emp) => {
         if (!isVisibleIn('leave_review', emp)) return map;
@@ -1030,7 +1031,9 @@ function buildLeaveMonthSectionsHTML(currentMonth) {
         }
         const currentUser = state.currentUser;
         let actions = '';
-        if (finalStatus === 'rejected') {
+        if (readOnly) {
+            actions = `<span class="text-xs ${finalColor} font-semibold">${finalText}</span>`;
+        } else if (finalStatus === 'rejected') {
             actions = '<span class="text-xs text-red-400">반려됨</span>';
         } else if (finalStatus === 'approved') {
             actions = '<span class="text-xs text-green-600">승인완료</span>';
@@ -1050,7 +1053,7 @@ function buildLeaveMonthSectionsHTML(currentMonth) {
         const monthDatesArr = monthDates && monthDates.length > 0 ? monthDates : (req.dates || []);
         const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ');
         const dateCount = req.dates?.length || 0;
-        const checkboxCell = isAdmin
+        const checkboxCell = (isAdmin && !readOnly)
             ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
             : '';
         return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
@@ -1082,7 +1085,7 @@ function buildLeaveMonthSectionsHTML(currentMonth) {
                     <table class="min-w-full text-sm">
                         <thead class="bg-gray-100">
                             <tr>
-                                ${isAdmin ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
+                                ${(isAdmin && !readOnly) ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
                                 <th class="py-1 px-2 text-left text-xs font-semibold">직원</th>
                                 <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
                                 <th class="py-1 px-2 text-center text-xs font-semibold">일수</th>

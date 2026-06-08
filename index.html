@@ -84,6 +84,8 @@
 
         <div id="employee-portal" class="page-section hidden"></div>
         <div id="admin-portal" class="page-section hidden"></div>
+        <!-- 원장 전용 모바일 조회 페이지 (읽기전용) — 모바일에서 admin 로그인 시 사용 -->
+        <div id="mobile-admin-portal" class="page-section hidden"></div>
     </div>
 
     <!-- ✨ Right-Click Context Menu (원칙 10단계: 연차 취소/해제 항목 완전 제거, 연차 관리 페이지로 일원화) -->
@@ -297,9 +299,9 @@
         }
     </style>
 
-    <script type="module" src="main.v2.js?v=20260608e"></script>
+    <script type="module" src="main.v2.js?v=20260608f"></script>
     <script type="module">
-        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20260608e';
+        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20260608f';
 
         document.addEventListener('DOMContentLoaded', () => {
             // 연차 신청 모달 관련
