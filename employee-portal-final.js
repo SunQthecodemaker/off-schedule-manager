@@ -829,9 +829,9 @@ export async function renderEmployeeMobileScheduleList(opts) {
             }
 
             html += `
-                <div class="flex gap-3 rounded-lg ${isToday ? 'today-row' : ''}"${isToday ? ' style="background-color:#f5edd4;"' : ''}>
-                    <!-- 날짜 컬럼 -->
-                    <div class="flex flex-col items-center justify-start pt-1 w-12 flex-shrink-0">
+                <div class="flex gap-2 rounded-lg ${isToday ? 'today-row' : ''}"${isToday ? ' style="background-color:#f5edd4;"' : ''}>
+                    <!-- 날짜 컬럼 (폭 축소 → 네임카드 영역 확대) -->
+                    <div class="flex flex-col items-center justify-start pt-1 w-10 flex-shrink-0">
                         <span class="text-[10px] uppercase ${dayColorClass} font-bold">${weekLabel.toUpperCase()}</span>
                         <span class="text-base font-bold ${isToday ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center rounded-full' : dayColorClass + ' leading-none'}">${dayLabel}</span>
                         ${isHoliday ? '<span class="text-[9px] text-red-500 mt-0.5">휴</span>' : ''}
