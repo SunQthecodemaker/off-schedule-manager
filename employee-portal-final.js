@@ -714,7 +714,10 @@ export async function renderEmployeeMobileScheduleList(opts) {
                 <!-- 날짜 및 이동 버튼 (Grid Layout for Robustness) -->
                 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;" class="bg-white p-2 rounded-lg shadow-sm border">
                     <button id="prev-week-btn" style="flex-shrink:0;" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">‹</button>
-                    <span style="white-space:nowrap;font-size:14px;font-weight:700;">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')} <span style="font-size:12px;color:#9ca3af;font-weight:400;">${startOfWeek.format('YYYY년')}</span></span>
+                    <span style="display:flex;flex-direction:column;align-items:center;line-height:1.15;">
+                        <span style="font-size:11px;color:#9ca3af;font-weight:400;">${startOfWeek.format('YYYY년')}</span>
+                        <span style="white-space:nowrap;font-size:14px;font-weight:700;">${startOfWeek.format('MM.DD')} ~ ${endOfWeek.format('MM.DD')}</span>
+                    </span>
                     <button id="next-week-btn" style="flex-shrink:0;" class="p-2 hover:bg-gray-100 rounded-full text-gray-600">›</button>
                 </div>
 
