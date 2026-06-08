@@ -106,12 +106,16 @@ export async function renderEmployeePortal() {
 
     portal.innerHTML = `
         <div class="max-w-full mx-auto">
-            <div class="flex justify-between items-center mb-6">
-                <h1 class="text-xl sm:text-3xl font-bold">직원 포털</h1>
-                <div class="text-right">
-                    <p class="text-gray-700 text-sm font-semibold">${user.name}님 (${departmentName})</p>
+            <div class="flex justify-between items-start mb-6">
+                <h1 class="text-xl sm:text-3xl font-bold flex-shrink-0">직원 포털</h1>
+                <div class="text-right min-w-0">
+                    <!-- 이름 줄: 이름 + (매니저만) 매니저 화면 보기 버튼 -->
+                    <div class="flex items-center justify-end gap-2">
+                        <p class="text-gray-700 text-sm font-semibold whitespace-nowrap">${user.name}님 (${departmentName})</p>
+                        ${user.isManager ? `<button id="enterManagerViewBtn" class="emp-manager-btn px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors whitespace-nowrap flex-shrink-0">🛠️ 매니저 화면 보기</button>` : ''}
+                    </div>
+                    <!-- 공통 버튼 줄: 모든 직원 동일 3개, 한 줄 고정 -->
                     <div class="mt-1 flex gap-2 justify-end emp-header-actions">
-                        ${user.isManager ? `<button id="enterManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">🛠️ 매니저 화면 보기</button>` : ''}
                         <button id="changeEmailBtn" class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors">이메일 변경</button>
                         <button id="changePasswordBtn" class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors">비밀번호 변경</button>
                         <button id="employeeLogoutBtn" class="px-3 py-1 text-sm bg-gray-300 hover:bg-gray-400 rounded transition-colors">로그아웃</button>
