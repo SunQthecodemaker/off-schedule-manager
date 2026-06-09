@@ -5017,35 +5017,22 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     // 직원별 검수
     const rows = targetEmployees.map(emp => {
         const rules = emp.regular_holiday_rules;
-        const parsedRules = parseHolidayRules(rules);
 
-        // 의무 근무일 = 영업일 중 고정 휴무가 아닌 날 수 (주차별 규칙 반영)
-        const empWorkDays = emp.weekly_work_days || 5;
-        let expected;
-        if (parsedRules.length > 0) {
-            // 고정 휴무 규칙 있음 → 영업일에서 고정 휴무일 제외
-            expected = 0;
-            businessDays.forEach(dateStr => {
-                const dayIdx = dayjs(dateStr).day();
-                if (!isFixedOffDay(rules, dayIdx, dateStr)) {
-                    expected++;
-                }
-            });
-        } else {
-            // 규칙 없음 → 기존 방식: min(주근무일수, 영업일수)
-            expected = Math.min(empWorkDays, businessDayCount);
-        }
+        // ✅ 의무근무일(분모) = 주 근무일수. 무조건. (공휴일·요일지정과 무관)
+        //   공휴일이 끼어도 분모는 줄지 않고, 부족분은 아래에서 유급으로 보전 → 정상이면 분자=분모.
+        const weeklyWorkDays = emp.weekly_work_days || 5;
+        const expected = weeklyWorkDays;
 
-        // 실제 근무일 카운트 + 비정상 휴무 수집
-        let workCount = 0;
+        // 실제 근무 인정일 = 영업일 중 (근무 + 연차[유급]) + 비정상 휴무 수집
+        let credit = 0;
         let leaveCount = 0;
         const unexpectedOffNames = []; // 고정 휴무가 아닌데 쉬는 요일
         businessDays.forEach(dateStr => {
             const status = getEmployeeStatusOnDate(emp.id, dateStr);
             if (status === 'working') {
-                workCount++;
+                credit++;
             } else if (status === 'leave') {
-                workCount++; // 연차 = 유급휴무 → 근무일수에 포함
+                credit++; // 연차 = 유급휴무 → 근무일수에 포함
                 leaveCount++;
             } else {
                 const dayIdx = dayjs(dateStr).day();
@@ -5055,34 +5042,20 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // ✅ 검수 의무근무일 — 공휴일 대체 규칙
-        // 유동 휴무(sub:true, 예: 류효경 목요일 주5일보장)만 공휴일을 대체근무로 환원.
-        //   공휴일이 오면 그 유동 휴무 요일을 옮겨 대체근무 → 의무근무 유지(+1).
-        //   유동 휴무 1개당 공휴일 1일까지만 대체 → 두 번째 공휴일은 대체 안 됨.
-        // 고정 휴무(sub:false/기본)만 있는 직원은 대체 불가 → 공휴일은 유급(연차) 처리.
-        //   이 경우 영업일 기준 expected 가 자연히 줄고 실제 근무도 그만큼이라 0 으로 맞음(보정 0).
-        const flexOffCount = businessDays.filter(dateStr => {
-            const dayIdx = dayjs(dateStr).day();
-            if (!isFixedOffDay(rules, dayIdx, dateStr)) return false;
-            return parsedRules.some(r =>
-                r.day === dayIdx &&
-                (!r.weeks || r.weeks.includes(getCalendarWeekRow(dateStr))) &&
-                r.sub === true
-            );
-        }).length;
+        // ✅ 공휴일 유급 보전 — 공휴일 때문에 주 근무일수를 못 채운 부족분만큼만,
+        //   본인 고정휴무가 아닌(=원래 근무했어야 할) 공휴일을 유급으로 인정.
+        //   대체가능(sub:true)=대체근무 / 고정(sub:false)=연차 처리 — 규칙상 둘 다 결과는 "주 근무일수 유지"라 동일.
+        const shortfall = Math.max(0, weeklyWorkDays - credit);
         const holidaysOnWorkday = allDates.filter(dateStr =>
             holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
         ).length;
-        const subRestore = Math.min(holidaysOnWorkday, flexOffCount);
-        // 고정 휴무(대체안됨)만 있는 직원: 공휴일은 유급 연차로 처리 → 근무일수·의무 둘 다 +1씩 (숫자 유지)
-        //   (류효경처럼 대체가능 휴무가 있으면 대체/감산으로 처리하므로 연차 크레딧 없음)
-        const holidayCredit = (parsedRules.length > 0 && flexOffCount === 0) ? holidaysOnWorkday : 0;
-        expected += subRestore + holidayCredit;
-        workCount += holidayCredit;
-        const subAvailable = subRestore > 0;
+        credit += Math.min(shortfall, holidaysOnWorkday);
 
+        const workCount = credit;
         const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
+        // 대체가능 휴무 보유 직원 (부족 시 노란/빨강 색상 구분용)
+        const subAvailable = parseHolidayRules(rules).some(r => r.sub === true);
 
         // 색상: 부족+대체가능=노란, 부족=빨간, 초과근무=초록, 연차사용주간=파란, 정상=없음
         let bgColor = 'transparent';
