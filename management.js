@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260609f';
+import { state, db, isVisibleIn } from './state.js?v=20260609h';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260609f';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260609h';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2039,6 +2039,103 @@ function getPeriodAdjustment(emp, periodStartStr, offset) {
     };
 }
 
+// =========================================================================================
+// 매니저 임시저장(leave_management) — 사람이 읽을 수 있는 변경 diff
+// payload: { table:'employees', data:{...} }, original_snapshot:{...} 비교
+// =========================================================================================
+function escLeave(s) {
+    return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+export function formatLeaveChange(item) {
+    const data = (item && item.payload && (item.payload.data || item.payload)) || {};
+    const before = (item && item.original_snapshot) || {};
+    const lines = [];
+    const fmtRenewal = v => v ? String(v).slice(5) : '없음';      // 2000-MM-DD → MM-DD
+    const sign = n => (n > 0 ? '+' : '') + (n ?? 0);
+
+    if ('carried_over_leave' in data && data.carried_over_leave !== before.carried_over_leave)
+        lines.push(`이월 연차: ${before.carried_over_leave ?? 0} → ${data.carried_over_leave}일`);
+    if ('weekly_work_days' in data && data.weekly_work_days !== before.weekly_work_days)
+        lines.push(`주 근무일: ${before.weekly_work_days ?? '-'} → ${data.weekly_work_days}일`);
+    if ('leave_renewal_date' in data && data.leave_renewal_date !== before.leave_renewal_date)
+        lines.push(`연차 갱신일: ${fmtRenewal(before.leave_renewal_date)} → ${fmtRenewal(data.leave_renewal_date)}`);
+
+    if (data.adjustments && typeof data.adjustments === 'object') {
+        const oldAdjs = before.adjustments || {};
+        for (const period of Object.keys(data.adjustments)) {
+            const nw = data.adjustments[period] || {};
+            const od = oldAdjs[period] || {};
+            const pLabel = dayjs(period).isValid() ? `${dayjs(period).format('YY.MM.DD')} 주기` : period;
+            const parts = [];
+            if ((nw.adjustment ?? 0) !== (od.adjustment ?? 0))
+                parts.push(`조정 ${sign(od.adjustment ?? 0)} → ${sign(nw.adjustment ?? 0)}일`);
+            if (nw.carried !== undefined && nw.carried !== od.carried)
+                parts.push(`이월 ${od.carried ?? 0} → ${nw.carried}일`);
+            const oldKeys = (od.details || []).map(d => JSON.stringify(d));
+            const newKeys = (nw.details || []).map(d => JSON.stringify(d));
+            const added = (nw.details || []).filter(d => !oldKeys.includes(JSON.stringify(d)));
+            const removed = (od.details || []).filter(d => !newKeys.includes(JSON.stringify(d)));
+            const detail = [];
+            added.forEach(d => detail.push(`＋ ${d.reason || '-'} (${sign(d.amount)}일)`));
+            removed.forEach(d => detail.push(`－ ${d.reason || '-'} (${sign(d.amount)}일)`));
+            if (parts.length || detail.length)
+                lines.push(`${pLabel} — ${parts.join(', ')}${detail.length ? '\n   ' + detail.join('\n   ') : ''}`);
+        }
+    }
+
+    if (!lines.length) {
+        const keys = Object.keys(data).filter(k => k !== 'adjustments' && k !== 'table');
+        lines.push(keys.length ? `${keys.join(', ')} 변경` : '변경 내용 확인');
+    }
+    return lines;
+}
+
+// 직원 행 바로 아래에 끼우는 노란 검토 행 (관리자 전용)
+function renderPendingReviewRows(empId, items, colspan) {
+    if (!items || !items.length) return '';
+    const empMap = {};
+    state.management.employees.forEach(e => { empMap[e.id] = e.name; });
+    return items.map(it => {
+        const who = empMap[it.created_by] || `매니저 #${it.created_by}`;
+        const time = dayjs(it.created_at).format('MM-DD HH:mm');
+        const body = formatLeaveChange(it)
+            .map(l => `<div class="whitespace-pre-wrap leading-relaxed">• ${escLeave(l)}</div>`).join('');
+        return `<tr class="bg-yellow-50" data-pending-row="${it.id}">
+            <td colspan="${colspan}" class="p-3 border-l-4 border-yellow-400">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="text-xs text-gray-700">
+                        <span class="font-semibold text-yellow-800">⏳ ${escLeave(who)} 제출</span>
+                        <span class="text-gray-400 ml-2">${time}</span>
+                        <div class="mt-1 text-sm text-gray-800">${body}</div>
+                    </div>
+                    <div class="whitespace-nowrap shrink-0">
+                        <button onclick="window.approveLeaveChange(${it.id})" class="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700">✅ 승인</button>
+                        <button onclick="window.rejectLeaveChange(${it.id})" class="text-xs bg-red-500 text-white px-3 py-1.5 rounded ml-1 hover:bg-red-600">❌ 반려</button>
+                    </div>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+window.approveLeaveChange = async function (id) {
+    if (!confirm('이 변경을 승인하여 실제 데이터에 반영하시겠습니까?')) return;
+    const r = await approvePendingChange(id);
+    if (!r.ok) { alert('승인 실패: ' + r.error); return; }
+    await window.loadAndRenderManagement?.();
+    window.refreshApprovalBanner?.();
+};
+
+window.rejectLeaveChange = async function (id) {
+    const reason = prompt('반려 사유를 입력하세요:');
+    if (!reason) return;
+    const r = await rejectPendingChange(id, reason);
+    if (!r.ok) { alert('반려 실패: ' + r.error); return; }
+    await window.loadAndRenderManagement?.();
+    window.refreshApprovalBanner?.();
+};
+
 export function getLeaveManagementHTML() {
     const { employees } = state.management;
     const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
@@ -2059,12 +2156,24 @@ export function getLeaveManagementHTML() {
     ];
     const headerHtml = headers.map(h => `<th class="p-2 text-center text-xs font-semibold" style="width:${h.width};">${h.name}</th>`).join('');
 
-    const rows = validEmployees.map(emp => renderLeaveMgmtRow(emp)).join('');
+    // 매니저가 임시저장한 연차 변경 — 관리자에게만 직원 행 아래 검토 행으로 노출
+    const pendingByEmp = {};
+    if (state.userRole === 'admin') {
+        (state.management.pendingLeaveChanges || []).forEach(p => {
+            if (p.entity_id != null) (pendingByEmp[p.entity_id] = pendingByEmp[p.entity_id] || []).push(p);
+        });
+    }
+    const pendingCount = Object.values(pendingByEmp).reduce((n, arr) => n + arr.length, 0);
+
+    const rows = validEmployees
+        .map(emp => renderLeaveMgmtRow(emp) + renderPendingReviewRows(emp.id, pendingByEmp[emp.id], headers.length))
+        .join('');
 
     return `
         <div class="mb-3">
             <h2 class="text-lg font-semibold">연차 관리</h2>
             <p class="text-sm text-gray-600 mt-1">직원별 ◀▶ 화살표로 주기를 전환하여 조정값을 입력하세요.</p>
+            ${pendingCount ? `<p class="text-sm text-yellow-800 bg-yellow-50 border border-yellow-300 rounded px-3 py-2 mt-2">⏳ 매니저가 제출한 변경 <strong>${pendingCount}건</strong> — 해당 직원 행 아래에서 내용을 확인하고 승인·반려하세요.</p>` : ''}
         </div>
         <div class="mb-4 flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded text-sm">
             <label class="font-semibold">연차 신청 마감일수:</label>
