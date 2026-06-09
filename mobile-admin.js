@@ -136,11 +136,14 @@ async function renderPendingTab(content) {
                 ? '<span class="ma-fs-xs text-red-500">매니저 반려</span>'
                 : '<span class="ma-fs-xs text-gray-400">매니저 대기</span>';
         const datesText = dates.map(d => `${parseInt(d.substring(5, 7), 10)}/${parseInt(d.substring(8, 10), 10)}`).join(', ');
+        const isHalf = r.leave_type === 'am_half' || r.leave_type === 'pm_half';
+        const dayCount = dates.length * (isHalf ? 0.5 : 1); // 반차는 0.5일
+        const halfLabel = r.leave_type === 'am_half' ? ' · 오전반차' : r.leave_type === 'pm_half' ? ' · 오후반차' : '';
         return `
             <div class="bg-white rounded-lg border p-3 flex items-start justify-between gap-3">
                 <div class="min-w-0">
                     <div class="ma-fs-sm font-semibold">${nameMap[r.employee_id]}</div>
-                    <div class="ma-fs-xs text-gray-600 mt-0.5">${datesText} <span class="text-gray-400">(${dates.length}일)</span></div>
+                    <div class="ma-fs-xs text-gray-600 mt-0.5">${datesText} <span class="text-gray-400">(${dayCount}일${halfLabel})</span></div>
                     <div class="mt-1">${middleTag}</div>
                 </div>
                 <span class="ma-fs-xs px-2 py-1 rounded-full ma-nowrap" style="background:#fef3c7;color:#b45309;">대기</span>
@@ -165,7 +168,10 @@ async function renderLeaveTab(content) {
             const pStart = d.periodStart, pEnd = d.periodEnd;
             const used = leaveRequests
                 .filter(r => r.employee_id === emp.id && r.status === 'approved')
-                .reduce((sum, r) => sum + (r.dates || []).filter(ds => isLeaveInPeriod(r, ds, pStart, pEnd)).length, 0);
+                .reduce((sum, r) => {
+                    const perDay = (r.leave_type === 'am_half' || r.leave_type === 'pm_half') ? 0.5 : 1; // 반차 0.5일
+                    return sum + (r.dates || []).filter(ds => isLeaveInPeriod(r, ds, pStart, pEnd)).length * perDay;
+                }, 0);
             const remaining = d.final - used;
             return { name: emp.name, dept: emp.departments?.name || emp.dept || '-', final: d.final, used, remaining };
         })

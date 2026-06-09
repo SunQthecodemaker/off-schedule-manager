@@ -1051,8 +1051,12 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
             actions = '<span class="text-xs text-gray-400">-</span>';
         }
         const monthDatesArr = monthDates && monthDates.length > 0 ? monthDates : (req.dates || []);
-        const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ');
-        const dateCount = req.dates?.length || 0;
+        const isHalf = req.leave_type === 'am_half' || req.leave_type === 'pm_half';
+        const halfLabel = req.leave_type === 'am_half' ? '오전반차' : req.leave_type === 'pm_half' ? '오후반차' : '';
+        const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ')
+            + (halfLabel ? ` <span class="text-[10px] text-amber-600">(${halfLabel})</span>` : '');
+        // 반차는 0.5일로 집계 (오전반차 2번 ≠ 1일 연차)
+        const dateCount = (req.dates?.length || 0) * (isHalf ? 0.5 : 1);
         const checkboxCell = (isAdmin && !readOnly)
             ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
             : '';
@@ -2600,6 +2604,7 @@ export function getLeaveStatusHTML() {
                         date: dateStr,
                         type: (req.reason && req.reason.includes('수동')) ? 'manual' : 'formal',
                         requestId: req.id,
+                        leaveType: req.leave_type || 'full', // 반차(0.5일) 식별 — 당겨쓰기 분도 0.5로 집계
                         isBorrowedFromPast: true // 식별 플래그
                     });
                 }
@@ -2775,6 +2780,27 @@ export function getLeaveStatusHTML() {
                 ) !important;
                 border-style: dashed !important;
             }
+            /* 반차 대각선 카드: 오전=좌상 삼각형, 오후=우하 삼각형. 날짜는 각 삼각형에 작게 */
+            .leave-box.split {
+                position: relative;
+                padding: 0;
+                overflow: hidden;
+                background-color: #ffffff;
+            }
+            .leave-box.split .half-am,
+            .leave-box.split .half-pm {
+                position: absolute;
+                font-size: 8px;
+                line-height: 1;
+                font-weight: bold;
+                color: #1f2937;
+                z-index: 1;
+                white-space: nowrap;
+                cursor: pointer;
+            }
+            .leave-box.split .half-am { top: 2px; left: 3px; }
+            .leave-box.split .half-pm { bottom: 2px; right: 3px; }
+            .leave-box.split .empty-half { color: #d1d5db; font-weight: normal; cursor: default; }
         </style>
     <div class="leave-status-container">
         <div class="flex justify-between items-center mb-4">
@@ -2836,12 +2862,10 @@ function getLeaveStatusRow(emp) {
     const carriedCnt = emp.leaveDetails.carriedOverCnt || 0; // 이월된 개수
     const adjustmentCnt = Math.max(0, emp.leaveDetails.adjustment || 0); // 조정 추가분 (양수만)
     const legalCnt = emp.leaveDetails.legal || 0; // 법정 연차
-    const usedCnt = emp.usedDays; // 올해 실제 총 사용 개수
 
-    // 그리드 총 칸 수 = Max(확정 연차, 실제 사용량)
-    // 당겨쓰기를 표현하기 위해 사용량이 더 많으면 그만큼 더 그린다.
-    // [당겨쓰기 UI 보완] 최소 1개의 빈 박스는 여유분으로 남겨둔다 (관리자 클릭 입력용).
-    const totalBoxes = Math.max(finalLeaves, usedCnt + 1);
+    // 사용 엔트리 = 반차도 각각 한 칸. 오전반차 2번을 "1일 연차" 한 칸으로 합치지 않는다.
+    // (숫자 사용량 usedDays 는 반차 0.5 합산이지만, 그리드는 점유한 날짜 수만큼 칸을 그린다)
+    const usedEntries = emp.usedDates || [];
 
     const isCurrentPeriod = emp.periodOffset === 0;
     const periodLabel = `${emp.periodStart.format('YY.MM.DD')} ~`;
@@ -2856,81 +2880,95 @@ function getLeaveStatusRow(emp) {
             <div class="leave-grid-container flex-1 mx-1">
     `;
 
-    for (let i = 0; i < totalBoxes; i++) {
-        const isUsed = i < usedCnt; // 앞에서부터 순차적으로 채움
-        const boxIndex = i + 1;
+    // 연차 소진 순서: 이월 -> 법정 -> 조정 -> 당겨쓰기. 소진 위치 판정은 '일수 누적'(반차=0.5)으로.
+    const regularEnd = carriedCnt + legalCnt; // 이월 + 법정 끝나는 지점
+    const adjustEnd = regularEnd + adjustmentCnt; // 조정 끝나는 지점
+    const bucketFor = (dayPos) => {
+        if (dayPos < carriedCnt) return 'carried';
+        if (dayPos < regularEnd) return 'regular';
+        if (dayPos < adjustEnd) return 'adjustment';
+        if (dayPos < finalLeaves) return 'regular'; // 음수 조정 등 잔여 구간
+        return 'borrowed'; // 한도 초과 = 당겨쓰기
+    };
 
-        // 연차 소진 순서 로직: 이월 -> 금년 -> 조정 -> 당겨쓰기
-        let boxType = 'regular'; // default
-        let boxLabel = boxIndex;
-        const regularEnd = carriedCnt + legalCnt; // 이월 + 법정 끝나는 지점
-        const adjustEnd = regularEnd + adjustmentCnt; // 조정 끝나는 지점
+    // 1) 사용 칸 구성
+    //    - 종일 연차 = 꽉 찬 카드 1개 (날짜 중앙)
+    //    - 반차 = 한 카드를 대각선으로 나눠 오전(좌상)·오후(우하)를 합쳐 표기. 각 반차 날짜를 작게 따로.
+    //    - 오전+오후 짝이 다 차면 1일 완성(양쪽 채움), 한쪽만 있으면 반쪽만 채운 '미완성' 카드.
+    const fillColorOf = { carried: '#d8b4fe', regular: '#93c5fd', adjustment: '#86efac', borrowed: '#fca5a5' };
+    const byDate = (a, b) => new Date(a.date || a) - new Date(b.date || b);
 
-        if (i < carriedCnt) {
-            boxType = 'carried';
-            boxLabel = `이${i + 1}`; // 이1, 이2 ...
-        } else if (i < regularEnd) {
-            boxType = 'regular';
-        } else if (i < adjustEnd) {
-            boxType = 'adjustment';
-            boxLabel = `조${i - regularEnd + 1}`; // 조1, 조2 ...
-        } else if (i < finalLeaves) {
-            // 혹시 남는 구간 (음수 조정 등)
-            boxType = 'regular';
+    const borrowedPast = usedEntries.filter(u => u.isBorrowedFromPast);
+    const current = usedEntries.filter(u => !u.isBorrowedFromPast);
+    const fullsCur = current.filter(u => (u.leaveType || 'full') === 'full').sort(byDate);
+    const amsCur = current.filter(u => u.leaveType === 'am_half').sort(byDate);
+    const pmsCur = current.filter(u => u.leaveType === 'pm_half').sort(byDate);
+
+    // 카드 목록: 당겨쓰기 작년분(개별) 먼저, 그 다음 올해분(날짜순)
+    const cards = [];
+    borrowedPast.forEach(u => {
+        const lt = u.leaveType || 'full';
+        if (lt === 'am_half') cards.push({ kind: 'pair', am: u, pm: null, dayVal: 0.5, sortDate: u.date });
+        else if (lt === 'pm_half') cards.push({ kind: 'pair', am: null, pm: u, dayVal: 0.5, sortDate: u.date });
+        else cards.push({ kind: 'full', full: u, dayVal: 1, sortDate: u.date });
+    });
+    const curCards = [];
+    fullsCur.forEach(f => curCards.push({ kind: 'full', full: f, dayVal: 1, sortDate: f.date }));
+    const pairN = Math.max(amsCur.length, pmsCur.length);
+    for (let k = 0; k < pairN; k++) {
+        const am = amsCur[k] || null, pm = pmsCur[k] || null;
+        curCards.push({ kind: 'pair', am, pm, dayVal: (am ? 0.5 : 0) + (pm ? 0.5 : 0), sortDate: (am ? am.date : pm.date) });
+    }
+    curCards.sort((a, b) => new Date(a.sortDate) - new Date(b.sortDate));
+    cards.push(...curCards);
+
+    let cumDays = 0; // 소진한 '일수' (반차 0.5 합산)
+    cards.forEach(card => {
+        const boxType = bucketFor(cumDays);
+        if (card.kind === 'full') {
+            const u = card.full;
+            let boxClass = `leave-box type-${boxType} used`;
+            if (u.type === 'manual') boxClass += ' manual-entry';
+            const typeTitle = boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용';
+            const dataAttrs = `data-request-id="${u.requestId || ''}" data-type="${u.type || 'formal'}" title="${typeTitle}: ${u.date}"`;
+            gridHTML += `<div class="${boxClass}" ${dataAttrs}>${dayjs(u.date).format('M.D')}</div>`;
         } else {
-            // 이번년도의 초과(당겨쓰기) 구간
-            boxType = 'borrowed';
-            boxLabel = `-${boxIndex - finalLeaves}`; // -1, -2 ...
+            const am = card.am, pm = card.pm;
+            const amFill = am ? fillColorOf[boxType] : '#ffffff';
+            const pmFill = pm ? fillColorOf[boxType] : '#ffffff';
+            const bg = `linear-gradient(to bottom right, ${amFill} 0 calc(50% - 0.4px), #9ca3af calc(50% - 0.4px) calc(50% + 0.4px), ${pmFill} calc(50% + 0.4px) 100%)`;
+            const manual = (am && am.type === 'manual') || (pm && pm.type === 'manual');
+            const amSpan = am
+                ? `<span class="half-am" data-request-id="${am.requestId || ''}" data-type="${am.type || 'formal'}" title="오전반차: ${am.date}">${dayjs(am.date).format('M.D')}</span>`
+                : `<span class="half-am empty-half" title="오전반차 미사용">·</span>`;
+            const pmSpan = pm
+                ? `<span class="half-pm" data-request-id="${pm.requestId || ''}" data-type="${pm.type || 'formal'}" title="오후반차: ${pm.date}">${dayjs(pm.date).format('M.D')}</span>`
+                : `<span class="half-pm empty-half" title="오후반차 미사용">·</span>`;
+            const titleParts = [];
+            if (am) titleParts.push(`오전반차 ${am.date}`);
+            if (pm) titleParts.push(`오후반차 ${pm.date}`);
+            gridHTML += `<div class="leave-box split type-${boxType}${manual ? ' manual-entry' : ''}" style="background:${bg};" title="${titleParts.join(' / ')}">${amSpan}${pmSpan}</div>`;
         }
+        cumDays += card.dayVal;
+    });
 
-        let boxClass = `leave-box type-${boxType}`;
-        let dataAttrs = '';
-        let displayText = boxLabel;
+    // 2) 미사용 권리 칸: 남은 일수만큼 빈 박스 (반차가 점유한 0.5 슬롯은 올림 처리)
+    const usedWholeSlots = Math.ceil(cumDays - 1e-9);
+    for (let i = usedWholeSlots; i < finalLeaves; i++) {
+        const boxType = bucketFor(i);
+        let displayText;
+        if (boxType === 'carried') displayText = `이${i + 1}`;
+        else if (boxType === 'adjustment') displayText = `조${i - regularEnd + 1}`;
+        else displayText = i + 1;
+        const dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
+        gridHTML += `<div class="leave-box type-${boxType}" ${dataAttrs}>${displayText}</div>`;
+    }
 
-        if (isUsed) {
-            boxClass += ' used';
-            const usedDateObj = emp.usedDates[i];
-
-            // 데이터가 있을 때만 (혹시 모를 인덱스 에러 방지)
-            if (usedDateObj) {
-                const dateVal = usedDateObj.date || usedDateObj;
-                const type = usedDateObj.type || 'formal';
-                const requestId = usedDateObj.requestId || '';
-                const leaveType = usedDateObj.leaveType || 'full';
-
-                displayText = dayjs(dateVal).format('M.D');
-
-                // 반차 표시
-                if (leaveType === 'am_half') {
-                    displayText += '오전';
-                    boxClass += ' half-day';
-                } else if (leaveType === 'pm_half') {
-                    displayText += '오후';
-                    boxClass += ' half-day';
-                }
-
-                if (type === 'manual') {
-                    boxClass += ' manual-entry';
-                }
-
-                const typeTitle = leaveType === 'am_half' ? '오전반차' : leaveType === 'pm_half' ? '오후반차' : (boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용');
-                dataAttrs = `data-request-id="${requestId}" data-type="${type}" title="${typeTitle}: ${dateVal}"`;
-            }
-        }
-        // 미사용 상태 (빈칸)
-        else {
-            if (boxType === 'borrowed') {
-                // 초과분 당겨쓰기 여유칸 (플러스 기호 또는 점선 스타일 적용)
-                boxClass += ' border-dashed border-2 cursor-pointer text-gray-400 font-bold';
-                boxClass = boxClass.replace('bg-fef2f2', 'bg-white').replace('border-fca5a5', 'border-gray-300').replace('text-ef4444', 'text-gray-400');
-                displayText = '+';
-                dataAttrs = `title="추가 연차(당겨쓰기) 등록"`;
-            } else {
-                dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
-            }
-        }
-
-        gridHTML += `<div class="${boxClass}" ${dataAttrs}>${displayText}</div>`;
+    // 3) 한도를 다 채웠으면 당겨쓰기(추가 연차) 여유칸 1개 — 관리자 클릭 입력용
+    if (usedWholeSlots >= finalLeaves) {
+        let boxClass = `leave-box type-borrowed border-dashed border-2 cursor-pointer text-gray-400 font-bold`;
+        boxClass = boxClass.replace('bg-fef2f2', 'bg-white').replace('border-fca5a5', 'border-gray-300').replace('text-ef4444', 'text-gray-400');
+        gridHTML += `<div class="${boxClass}" title="추가 연차(당겨쓰기) 등록">+</div>`;
     }
     gridHTML += `
             </div>
@@ -2978,13 +3016,11 @@ export function addLeaveStatusEventListeners() {
 }
 
 async function handleLeaveBoxClick(e) {
-    const box = e.target.closest('.leave-box');
-    if (!box) return;
-
-    // 사용된 연차인지 확인
-    if (!box.classList.contains('used')) return;
-
-    const requestId = box.dataset.requestId;
+    // 반차 대각선 카드는 오전/오후 각 삼각형(span)에 개별 data-request-id 를 가짐 → 그걸 우선
+    const idEl = e.target.closest('[data-request-id]');
+    if (!idEl) return;
+    // 빈칸/미사용 칸(요청 id 없음)은 무시
+    const requestId = idEl.dataset.requestId;
     if (!requestId) return;
 
     const request = state.management.leaveRequests.find(r => r.id == requestId);
@@ -3040,8 +3076,10 @@ window.viewLeaveApplication = function (requestId) {
     // const submissionDate = dayjs(request.created_at).format('YYYY년 MM월 DD일');
     const submissionDate = request.created_at ? dayjs(request.created_at).format('YYYY년 MM월 DD일') : dayjs(request.dates[0]).format('YYYY년 MM월 DD일');
 
-    const leaveDates = (request.dates || []).join(', ');
-    const daysCount = request.dates?.length || 0;
+    const isHalfApp = request.leave_type === 'am_half' || request.leave_type === 'pm_half';
+    const halfAppLabel = request.leave_type === 'am_half' ? ' (오전반차)' : request.leave_type === 'pm_half' ? ' (오후반차)' : '';
+    const leaveDates = (request.dates || []).join(', ') + halfAppLabel;
+    const daysCount = (request.dates?.length || 0) * (isHalfApp ? 0.5 : 1);
 
     // 서명 이미지 처리
     const signatureHtml = request.signature
@@ -3367,7 +3405,8 @@ async function handleLeaveBoxDblClick(e) {
     const box = e.target.closest('.leave-box');
     if (!box) return;
 
-    if (box.classList.contains('used')) return;
+    // 이미 사용된 칸(종일 used / 반차 대각선 split)은 수동 등록 대상 아님
+    if (box.classList.contains('used') || box.classList.contains('split')) return;
 
     const tr = box.closest('tr');
     if (!tr) return;

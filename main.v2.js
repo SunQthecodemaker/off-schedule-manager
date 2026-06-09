@@ -243,12 +243,13 @@ function renderAdminSummary() {
     // 승인 대기
     const pending = leaveRequests.filter(r => r.status === 'pending').length;
 
-    // 이달 연차 사용일수: 승인된 신청의 dates 중 보는 달 일수
+    // 이달 연차 사용일수: 승인된 신청의 dates 중 보는 달 일수 (반차는 0.5일)
     let monthLeaveUsed = 0;
     leaveRequests.forEach(req => {
         if (req.status !== 'approved') return;
+        const perDay = (req.leave_type === 'am_half' || req.leave_type === 'pm_half') ? 0.5 : 1;
         (req.dates || []).forEach(d => {
-            if (typeof d === 'string' && d.startsWith(monthStr)) monthLeaveUsed++;
+            if (typeof d === 'string' && d.startsWith(monthStr)) monthLeaveUsed += perDay;
         });
     });
 
