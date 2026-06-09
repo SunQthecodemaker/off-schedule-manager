@@ -5017,11 +5017,11 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     // 직원별 검수
     const rows = targetEmployees.map(emp => {
         const rules = emp.regular_holiday_rules;
-
-        // ✅ 의무근무일(분모) = 주 근무일수. 무조건. (공휴일·요일지정과 무관)
-        //   공휴일이 끼어도 분모는 줄지 않고, 부족분은 아래에서 유급으로 보전 → 정상이면 분자=분모.
+        const parsedRules = parseHolidayRules(rules);
         const weeklyWorkDays = emp.weekly_work_days || 5;
-        const expected = weeklyWorkDays;
+
+        // 그 주 회사 공휴일 수 (일요일 제외, 토요일 공휴일 포함)
+        const weekHolidayCount = allDates.filter(d => holidays.has(d)).length;
 
         // 실제 근무 인정일 = 영업일 중 (근무 + 연차[유급]) + 비정상 휴무 수집
         let credit = 0;
@@ -5042,20 +5042,33 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // ✅ 공휴일 유급 보전 — 공휴일 때문에 주 근무일수를 못 채운 부족분만큼만,
-        //   본인 고정휴무가 아닌(=원래 근무했어야 할) 공휴일을 유급으로 인정.
-        //   대체가능(sub:true)=대체근무 / 고정(sub:false)=연차 처리 — 규칙상 둘 다 결과는 "주 근무일수 유지"라 동일.
-        const shortfall = Math.max(0, weeklyWorkDays - credit);
-        const holidaysOnWorkday = allDates.filter(dateStr =>
-            holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
-        ).length;
-        credit += Math.min(shortfall, holidaysOnWorkday);
+        // ✅ 공휴일 처리 규칙 (그룹별)
+        //   • 파트타임(주근무 < 5)·대체보유(sub:true 휴무): 공휴일을 연차/대체로 메꿔 분모(주 근무일수) 유지.
+        //   • 일반 주5일(대체불가): 공휴일 0~1일은 흡수해 유지, 2일 이상이면 근무일수 자체를 줄임.
+        const isPartTime = weeklyWorkDays < 5;
+        const hasSubstitute = parsedRules.some(r => r.sub === true);
+        const reduceWorkdays = weekHolidayCount >= 2 && !isPartTime && !hasSubstitute;
+        let expected;
+        if (reduceWorkdays) {
+            // 공휴일 2일 이상 → 근무일수 감소 (영업일 − 본인 고정휴무). 보전 없음.
+            expected = parsedRules.length > 0
+                ? businessDays.filter(d => !isFixedOffDay(rules, dayjs(d).day(), d)).length
+                : Math.min(weeklyWorkDays, businessDayCount);
+        } else {
+            // 분모 = 주 근무일수 유지. 근무일에 걸린 공휴일은 연차/대체로 분자 보전.
+            expected = weeklyWorkDays;
+            const shortfall = Math.max(0, weeklyWorkDays - credit);
+            const holidaysOnWorkday = allDates.filter(dateStr =>
+                holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
+            ).length;
+            credit += Math.min(shortfall, holidaysOnWorkday);
+        }
 
         const workCount = credit;
         const diff = workCount - expected;
         const hasLeave = leaveCount > 0;
         // 대체가능 휴무 보유 직원 (부족 시 노란/빨강 색상 구분용)
-        const subAvailable = parseHolidayRules(rules).some(r => r.sub === true);
+        const subAvailable = parsedRules.some(r => r.sub === true);
 
         // 색상: 부족+대체가능=노란, 부족=빨간, 초과근무=초록, 연차사용주간=파란, 정상=없음
         let bgColor = 'transparent';
