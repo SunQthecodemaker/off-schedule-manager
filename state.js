@@ -24,7 +24,8 @@ export const state = {
     currentUser: null,
     userRole: 'none',
     viewAs: 'employee',
-    showTestEmployees: false, // app_settings.show_test_employees 부팅 시 fetch 로 갱신 (admin 토글이 source of truth)
+    showTestEmployees: false, // 매니저 화면 테스트 직원 노출 — app_settings.show_test_employees 부팅 시 갱신
+    showTestEmployeesAdmin: true, // 최고관리자 본인 화면 테스트 직원 노출 — app_settings.show_test_employees_admin 부팅 시 갱신 (기본 ON = 현행 유지)
     leaveNoticeDays: 7, // 연차 신청 마감일수 — app_settings.leave_notice_days 부팅 시 갱신. N일 전까지 신청, 이후엔 사유서 필요
     employee: {
         activeFilters: new Set(['pending', 'approved']),
@@ -153,7 +154,11 @@ export function isVisibleIn(context, emp, viewer) {
             if (isAlbaEmployee(emp)) return false; // 알바는 연차 시스템에서 격리
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
-            if (isTestEmployee(emp) && v.userRole !== 'admin' && !state.showTestEmployees) return false;
+            if (isTestEmployee(emp)) {
+                // 테스트 직원 노출: admin 은 본인 토글, 그 외(매니저)는 매니저 토글을 따름
+                const showTest = v.userRole === 'admin' ? state.showTestEmployeesAdmin : state.showTestEmployees;
+                if (!showTest) return false;
+            }
             if (onLeave) return false; // 휴직 직원도 검수칸에서 격리
             return true;
         }
@@ -164,7 +169,10 @@ export function isVisibleIn(context, emp, viewer) {
             if (emp.retired) return false;
             if (emp.resignation_date && today >= startOfNextMonth(emp.resignation_date)) return false;
             if (emp.schedule_visible === false) return false;
-            if (isTestEmployee(emp) && v.userRole !== 'admin' && !state.showTestEmployees) return false;
+            if (isTestEmployee(emp)) {
+                const showTest = v.userRole === 'admin' ? state.showTestEmployeesAdmin : state.showTestEmployees;
+                if (!showTest) return false;
+            }
             if (onLeave) return false;
             return true;
         }

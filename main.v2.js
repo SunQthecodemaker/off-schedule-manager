@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260609f';
+import { state, db } from './state.js?v=20260609g';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260609f';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260609f';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260609f';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609f';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609f';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260609f';
-import { renderWelfareTab } from './welfare-ui.js?v=20260609f';
+import { renderScheduleManagement } from './schedule.js?v=20260609g';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260609g';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260609g';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609g';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609g';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260609g';
+import { renderWelfareTab } from './welfare-ui.js?v=20260609g';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -26,7 +26,7 @@ async function loadManagementData() {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes, settingsAdminRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -38,7 +38,8 @@ async function loadManagementData() {
             db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd),
             db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd),
             db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle(),
-            db.from('app_settings').select('value').eq('key', 'leave_blocked_dates').maybeSingle()
+            db.from('app_settings').select('value').eq('key', 'leave_blocked_dates').maybeSingle(),
+            db.from('app_settings').select('value').eq('key', 'show_test_employees_admin').maybeSingle()
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -56,6 +57,10 @@ async function loadManagementData() {
         state.management.departments = departmentsRes.data || [];
         state.management.documentRequests = docRequestsRes.data || [];
         state.showTestEmployees = !!(settingsRes && settingsRes.data && settingsRes.data.value === true);
+        // 최고관리자 본인 화면 토글: 저장된 값 없으면 기본 ON (현행 admin-항상-노출 동작 유지)
+        state.showTestEmployeesAdmin = (settingsAdminRes && settingsAdminRes.data)
+            ? settingsAdminRes.data.value === true
+            : true;
 
         // 연차 신청 마감일수 (기본 7) — admin 설정
         const ndVal = noticeDaysRes && noticeDaysRes.data && noticeDaysRes.data.value;
@@ -283,12 +288,17 @@ async function renderAdminPortal() {
         ? `<button id="exitManagerViewBtn" class="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors">← 직원 화면으로</button>`
         : '';
 
-    // 테스트 직원 가시성 — admin 은 항상 본인 화면에서 보임. 이 토글은 "매니저에게도 노출할지" 만 제어. admin 화면에만 표시.
+    // 테스트 직원 가시성 — 관리자/매니저 각각 독립 토글. admin 화면에서만 노출(둘 다 관리자가 설정).
     const testToggle = !isManagerView
-        ? `<label class="px-3 py-1 text-xs bg-yellow-50 border border-yellow-300 rounded flex items-center gap-1 cursor-pointer">
-              <input type="checkbox" id="testEmpToggle" ${state.showTestEmployees ? 'checked' : ''}>
-              <span>매니저에게도 테스트 직원 노출</span>
-           </label>`
+        ? `<div class="px-3 py-1 text-xs bg-yellow-50 border border-yellow-300 rounded flex items-center gap-2">
+              <span class="font-semibold">테스트 직원 보기</span>
+              <label class="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" id="testEmpToggleAdmin" ${state.showTestEmployeesAdmin ? 'checked' : ''}><span>관리자</span>
+              </label>
+              <label class="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" id="testEmpToggle" ${state.showTestEmployees ? 'checked' : ''}><span>매니저</span>
+              </label>
+           </div>`
         : '';
 
     portal.innerHTML = `
@@ -317,35 +327,50 @@ async function renderAdminPortal() {
         sessionStorage.setItem('viewAs', 'employee');
         window.dispatchEvent(new CustomEvent('viewAs:change'));
     });
-    _('#testEmpToggle')?.addEventListener('change', async (e) => {
-        const next = !!e.target.checked;
+    // 테스트 직원 토글 공통 핸들러 — app_settings 키에 upsert + 재조회 검증, 실패 시 원복.
+    // applyState(next): state 에 반영, 반환값은 직전 값(원복용).
+    const bindTestToggle = (selector, key, applyState) => {
+        _(selector)?.addEventListener('change', async (e) => {
+            const next = !!e.target.checked;
+            const prev = applyState(next);
+            try {
+                // upsert 로 변경 — UPDATE 실패(키 없음/RLS) 시 즉시 가시화
+                const { data, error } = await db.from('app_settings')
+                    .upsert({ key, value: next, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+                    .select();
+                if (error) throw error;
+                if (!data || data.length === 0) {
+                    throw new Error('UPDATE 가 0 행에 영향 — RLS 또는 키 미존재 의심');
+                }
+                // 영속화 확인 — 즉시 재조회로 더블 체크
+                const { data: verify, error: verr } = await db.from('app_settings')
+                    .select('value').eq('key', key).maybeSingle();
+                if (verr) throw verr;
+                if (!verify || verify.value !== next) {
+                    throw new Error(`저장 후 재조회 값 불일치 — 기대 ${next}, 실제 ${verify?.value}`);
+                }
+            } catch (err) {
+                console.error('app_settings update 실패:', err);
+                alert('설정 저장 실패: ' + (err.message || err) + '\n콘솔 확인 후 다시 시도해주세요.');
+                // 토글 상태 원복
+                applyState(prev);
+                e.target.checked = prev;
+                return;
+            }
+            renderManagementContent();
+        });
+    };
+    // 매니저 화면 노출 토글
+    bindTestToggle('#testEmpToggle', 'show_test_employees', (v) => {
         const prev = state.showTestEmployees;
-        state.showTestEmployees = next;
-        try {
-            // upsert 로 변경 — UPDATE 실패(키 없음/RLS) 시 즉시 가시화
-            const { data, error } = await db.from('app_settings')
-                .upsert({ key: 'show_test_employees', value: next, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-                .select();
-            if (error) throw error;
-            if (!data || data.length === 0) {
-                throw new Error('UPDATE 가 0 행에 영향 — RLS 또는 키 미존재 의심');
-            }
-            // 영속화 확인 — 즉시 재조회로 더블 체크
-            const { data: verify, error: verr } = await db.from('app_settings')
-                .select('value').eq('key', 'show_test_employees').maybeSingle();
-            if (verr) throw verr;
-            if (!verify || verify.value !== next) {
-                throw new Error(`저장 후 재조회 값 불일치 — 기대 ${next}, 실제 ${verify?.value}`);
-            }
-        } catch (err) {
-            console.error('app_settings update 실패:', err);
-            alert('설정 저장 실패: ' + (err.message || err) + '\n콘솔 확인 후 다시 시도해주세요.');
-            // 토글 상태 원복
-            state.showTestEmployees = prev;
-            e.target.checked = prev;
-            return;
-        }
-        renderManagementContent();
+        state.showTestEmployees = v;
+        return prev;
+    });
+    // 관리자 본인 화면 노출 토글
+    bindTestToggle('#testEmpToggleAdmin', 'show_test_employees_admin', (v) => {
+        const prev = state.showTestEmployeesAdmin;
+        state.showTestEmployeesAdmin = v;
+        return prev;
     });
     portal.addEventListener('click', (e) => {
         if (e.target.id === 'open-bulk-register-btn') {

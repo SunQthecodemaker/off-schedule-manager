@@ -3325,12 +3325,15 @@ async function renderScheduleSidebar() {
     const deptNameMap = {};
     departments.forEach(d => { deptNameMap[d.id] = d.name; });
 
-    // 휴직/퇴사 sidebar 부서 풀에서 제외. 테스트는 admin (토글 무관) 또는 showTestEmployees=true 일 때만 포함
+    // 휴직/퇴사 sidebar 부서 풀에서 제외. 테스트는 admin 은 본인 토글, 매니저는 매니저 토글을 따름
     const sidebarPoolEmps = activeRegular.filter(emp => {
         const status = getEmployeeStatus(emp);
         if (status === 'retired' || status === 'on_leave') return false;
         if (status === 'alba') return false; // 알바는 별도 '임시' 그룹에서 처리 (부서 풀 중복 방지)
-        if (status === 'test' && state.userRole !== 'admin' && !state.showTestEmployees) return false;
+        if (status === 'test') {
+            const showTest = state.userRole === 'admin' ? state.showTestEmployeesAdmin : state.showTestEmployees;
+            if (!showTest) return false;
+        }
         return true;
     });
     const sortedPoolEmps = sortByDeptOrder(sidebarPoolEmps, departments);
