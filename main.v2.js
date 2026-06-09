@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260601a';
+import { state, db } from './state.js?v=20260609f';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260609e';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260609e';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609e';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609e';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260601a';
-import { renderWelfareTab } from './welfare-ui.js?v=20260601a';
+import { renderScheduleManagement } from './schedule.js?v=20260609f';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260609f';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260609f';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609f';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609f';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260609f';
+import { renderWelfareTab } from './welfare-ui.js?v=20260609f';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -26,7 +26,7 @@ async function loadManagementData() {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -36,7 +36,9 @@ async function loadManagementData() {
             db.from('document_requests').select('*').order('created_at', { ascending: false }),
             db.from('app_settings').select('value').eq('key', 'show_test_employees').maybeSingle(),
             db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd),
-            db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd)
+            db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd),
+            db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle(),
+            db.from('app_settings').select('value').eq('key', 'leave_blocked_dates').maybeSingle()
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -54,6 +56,14 @@ async function loadManagementData() {
         state.management.departments = departmentsRes.data || [];
         state.management.documentRequests = docRequestsRes.data || [];
         state.showTestEmployees = !!(settingsRes && settingsRes.data && settingsRes.data.value === true);
+
+        // 연차 신청 마감일수 (기본 7) — admin 설정
+        const ndVal = noticeDaysRes && noticeDaysRes.data && noticeDaysRes.data.value;
+        state.leaveNoticeDays = (ndVal != null && !isNaN(Number(ndVal))) ? Number(ndVal) : 7;
+
+        // 연차 신청 불가일 목록 (jsonb 배열) — 스케줄 그리드에서 매니저가 지정
+        const bdVal = blockedDatesRes && blockedDatesRes.data && blockedDatesRes.data.value;
+        state.schedule.leaveBlockedDates = new Set(Array.isArray(bdVal) ? bdVal : []);
 
         // 보는 달 스케줄 미리 로드 (대시보드 평균 직원수/원장수 계산). 스케줄 탭 진입 시 populateMonthData 가 calendar-range 로 다시 채움.
         if (!schedulesRes.error) {

@@ -25,6 +25,7 @@ export const state = {
     userRole: 'none',
     viewAs: 'employee',
     showTestEmployees: false, // app_settings.show_test_employees 부팅 시 fetch 로 갱신 (admin 토글이 source of truth)
+    leaveNoticeDays: 7, // 연차 신청 마감일수 — app_settings.leave_notice_days 부팅 시 갱신. N일 전까지 신청, 이후엔 사유서 필요
     employee: {
         activeFilters: new Set(['pending', 'approved']),
         issues: [],
@@ -39,6 +40,7 @@ export const state = {
     management: {
         activeTab: 'leaveList',
         leaveRequestView: 'list',
+        leaveListSort: 'date', // 연차 목록 정렬 기준: 'date'(휴가 날짜순) | 'created'(신청 시간순)
         leaveRequests: [],
         employees: [],
         departments: [],
@@ -57,6 +59,8 @@ export const state = {
         schedules: [],
         calendarInstance: null,
         sortableInstances: [],
+        companyHolidays: new Set(),
+        leaveBlockedDates: new Set(), // 연차 신청 불가일 — app_settings.leave_blocked_dates 부팅 시 갱신. 매니저가 스케줄 그리드에서 지정
     },
     docSubmission: {
         currentTemplate: null,

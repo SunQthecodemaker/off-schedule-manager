@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260601a';
+import { state, db } from './state.js?v=20260609f';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260609d';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260609d';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260601a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260609f';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260609f';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260609f';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260609f';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1271,11 +1271,21 @@ function renderMyLeaveRequests(requests) {
 
 let selectedDatesForLeave = [];
 let employeeCalendarInstance = null;
+let leaveBlockedDates = new Set(); // 연차 신청 불가일 (매니저가 스케줄 그리드에서 지정)
 
 function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
     const container = _('#employee-calendar-container');
 
     if (!container) return;
+
+    // 연차 신청 불가일 로드 (app_settings.leave_blocked_dates) — 로드 후 달력 마커 갱신
+    db.from('app_settings').select('value').eq('key', 'leave_blocked_dates').maybeSingle()
+        .then(({ data }) => {
+            const arr = data && data.value;
+            leaveBlockedDates = new Set(Array.isArray(arr) ? arr : []);
+            if (employeeCalendarInstance) employeeCalendarInstance.refetchEvents();
+        })
+        .catch(() => { /* 조회 실패 시 차단 없음 */ });
 
     if (employeeCalendarInstance) {
         try {
@@ -1353,6 +1363,14 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                     color: '#3b82f6',
                     textColor: '#ffffff',
                     classNames: ['selected-date']
+                })),
+                ...Array.from(leaveBlockedDates).map(date => ({
+                    title: isMobile ? '신청불가' : '연차 신청 불가',
+                    start: date,
+                    allDay: true,
+                    color: '#9ca3af',
+                    textColor: '#ffffff',
+                    classNames: ['leave-blocked-day']
                 }))
             ];
             successCallback(events);
@@ -1360,6 +1378,10 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
         dateClick: function (info) {
             const dateStr = info.dateStr;
 
+            if (leaveBlockedDates.has(dateStr)) {
+                alert('연차 신청 불가일로 지정된 날짜입니다.\n해당 날짜는 연차를 신청할 수 없습니다.');
+                return;
+            }
             if (approvedDates.includes(dateStr)) {
                 alert('이미 승인된 연차가 있는 날짜입니다.');
                 return;
@@ -1517,6 +1539,13 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
+    // 연차 신청 불가일 방어 (달력 선택 단계에서 1차 차단하지만 안전망)
+    const blockedSelected = dates.filter(d => leaveBlockedDates.has(d));
+    if (blockedSelected.length > 0) {
+        alert('연차 신청 불가일이 포함되어 있습니다:\n' + blockedSelected.join(', ') + '\n\n해당 날짜를 제외하고 신청해주세요.');
+        return;
+    }
+
     if (!signatureData || window.signaturePad.isEmpty()) {
         alert('서명을 해주세요.');
         return;
@@ -1533,15 +1562,22 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
-    // 과거 날짜 포함 여부 체크 (신청 후 서류 요청 자동 생성용)
-    const today = dayjs().format('YYYY-MM-DD');
-    const pastDates = dates.filter(d => d < today);
-    const futureDates = dates.filter(d => d >= today);
-    const hasPastDates = pastDates.length > 0;
+    // 연차 신청 마감일수 — 연차일 기준 N일 전까지 신청. 그보다 임박(과거 포함)하면 사유서 필요.
+    // admin 설정값(app_settings.leave_notice_days), 기본 7일.
+    let noticeDays = 7;
+    try {
+        const { data: nd } = await db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle();
+        if (nd && nd.value != null && !isNaN(Number(nd.value))) noticeDays = Number(nd.value);
+    } catch (_) { /* 설정 조회 실패 시 기본 7일 유지 */ }
 
-    // 과거+미래 날짜 혼합 신청 차단
-    if (hasPastDates && futureDates.length > 0) {
-        alert('⚠️ 과거 날짜와 미래 날짜를 동시에 신청할 수 없습니다.\n\n과거 날짜와 미래 날짜를 각각 따로 신청해주세요.');
+    const cutoff = dayjs().add(noticeDays, 'day').format('YYYY-MM-DD');
+    const lateDates = dates.filter(d => d < cutoff);   // 임박(과거 포함) — 사유서 필요
+    const normalDates = dates.filter(d => d >= cutoff); // 여유 — 사유서 불요
+    const hasLateDates = lateDates.length > 0;
+
+    // 임박 + 여유 혼합 신청 차단 (한 신청서를 한 유형으로 통일)
+    if (hasLateDates && normalDates.length > 0) {
+        alert(`⚠️ 신청기간(${noticeDays}일)이 임박한 날짜와 여유 있는 날짜를 동시에 신청할 수 없습니다.\n\n각각 따로 신청해주세요.`);
         return;
     }
 
@@ -1594,19 +1630,19 @@ export async function handleSubmitLeaveRequest() {
         if (error) throw error;
         state.employee.leaveTypes = {}; // 초기화
 
-        // 과거 날짜가 포함되어 있으면 서류 제출 요청 자동 생성
-        if (hasPastDates) {
-            const pastDateStr = pastDates.join(', ');
+        // 신청기간(N일)이 지난 임박 날짜가 포함되어 있으면 서류 제출 요청 자동 생성
+        if (hasLateDates) {
+            const lateDateStr = lateDates.join(', ');
             await db.from('document_requests').insert({
                 employee_id: state.currentUser.id,
                 document_name: state.currentUser.name,
                 type: '사유서',
-                message: `${pastDateStr} 결근에 대한 사유서 제출 요청 (과거 날짜 연차 신청)`,
-                note: `${pastDateStr} 결근 사유서`,
+                message: `${lateDateStr} 연차 신청기간(${noticeDays}일) 경과 — 사유서 제출 요청`,
+                note: `${lateDateStr} 사유서`,
                 status: 'pending',
                 created_at: new Date().toISOString()
             });
-            alert('연차 신청이 완료되었습니다.\n\n⚠️ 과거 날짜(' + pastDateStr + ')가 포함되어 있어\n사유서 제출이 필요합니다.\n\n"서류 제출" 탭에서 사유서를 작성해주세요.\n서류 미제출 시 추가 연차 신청이 제한됩니다.');
+            alert(`연차 신청이 완료되었습니다.\n\n⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어\n사유서 제출이 필요합니다.\n\n"서류 제출" 탭에서 사유서를 작성해주세요.\n서류 미제출 시 추가 연차 신청이 제한됩니다.`);
         } else {
             alert('연차 신청이 완료되었습니다.');
         }

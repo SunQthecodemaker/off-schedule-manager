@@ -1,10 +1,10 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260601a';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260609f';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 // 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260609d';
+import { registerManualLeave } from './management.js?v=20260609f';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
@@ -2294,6 +2294,7 @@ function renderCalendar() {
         const isSunday = currentLoop.day() === 0;
         const isSaturday = currentLoop.day() === 6;
         const isHoliday = state.schedule.companyHolidays.has(dateStr);
+        const isLeaveBlocked = state.schedule.leaveBlockedDates?.has(dateStr);
 
         // 일요일은 건너뜀 (달력에서 제거)
         if (isSunday) {
@@ -2305,6 +2306,7 @@ function renderCalendar() {
         if (!isCurrentMonth) dayClasses += ' other-month';
         if (isToday) dayClasses += ' today';
         if (isHoliday) dayClasses += ' company-holiday';
+        if (isLeaveBlocked) dayClasses += ' leave-blocked';
 
         let numberClass = 'day-number';
         if (isSaturday) numberClass += ' text-blue-500';
@@ -2382,6 +2384,7 @@ function renderCalendar() {
             <div class="${dayClasses}" data-date="${dateStr}">
                 <div class="day-header">
                     <span class="${numberClass}">${dayNum}</span>
+                    ${isLeaveBlocked ? '<span class="leave-blocked-badge" title="연차 신청 불가일">연차 불가</span>' : ''}
                 </div>
                 <div class="day-events">${eventsHTML}</div>
             </div>`;
@@ -3799,6 +3802,70 @@ function handleDateHeaderDblClick(e) {
 
     const dateStr = dayEl.dataset.date;
 
+    // 날짜 더블클릭 → 휴무일 지정 vs 연차 신청 불가일 지정 선택
+    showDateActionMenu(dateStr);
+}
+
+// 날짜 더블클릭 액션 선택 모달 — 휴무일(전원휴무) / 연차 신청 불가일
+function showDateActionMenu(dateStr) {
+    document.getElementById('date-action-modal')?.remove();
+
+    const isHoliday = state.schedule.companyHolidays?.has(dateStr);
+    const isBlocked = state.schedule.leaveBlockedDates?.has(dateStr);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'date-action-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:10px;padding:20px;min-width:280px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
+            <div style="font-weight:700;font-size:1rem;margin-bottom:4px;">${dateStr}</div>
+            <div style="font-size:0.85rem;color:#666;margin-bottom:14px;">이 날짜에 적용할 작업을 선택하세요.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <button id="date-action-holiday" style="padding:10px;border-radius:6px;border:1px solid #1a1a1a;background:${isHoliday ? '#fff' : '#1a1a1a'};color:${isHoliday ? '#1a1a1a' : '#fff'};font-weight:600;cursor:pointer;">
+                    ${isHoliday ? '휴무일 해제 (전원 근무 복귀)' : '휴무일로 지정 (전원 휴무)'}
+                </button>
+                <button id="date-action-block" style="padding:10px;border-radius:6px;border:1px solid #b8860b;background:${isBlocked ? '#fff' : '#b8860b'};color:${isBlocked ? '#b8860b' : '#fff'};font-weight:600;cursor:pointer;">
+                    ${isBlocked ? '연차 신청 불가일 해제' : '연차 신청 불가일로 지정'}
+                </button>
+                <button id="date-action-cancel" style="padding:8px;border-radius:6px;border:1px solid #ccc;background:#f5f5f5;color:#333;cursor:pointer;">취소</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
+    overlay.querySelector('#date-action-cancel').addEventListener('click', close);
+    overlay.querySelector('#date-action-holiday').addEventListener('click', () => { close(); toggleCompanyHoliday(dateStr); });
+    overlay.querySelector('#date-action-block').addEventListener('click', () => { close(); toggleLeaveBlockedDate(dateStr); });
+}
+
+// 연차 신청 불가일 토글 — app_settings.leave_blocked_dates (jsonb 배열) 영속화
+async function toggleLeaveBlockedDate(dateStr) {
+    if (!state.schedule.leaveBlockedDates) state.schedule.leaveBlockedDates = new Set();
+    const set = state.schedule.leaveBlockedDates;
+    const wasBlocked = set.has(dateStr);
+
+    // 낙관적 토글 후 영속화 실패 시 원복
+    if (wasBlocked) set.delete(dateStr); else set.add(dateStr);
+    renderCalendar();
+
+    const arr = Array.from(set).sort();
+    try {
+        const { error } = await db.from('app_settings')
+            .upsert({ key: 'leave_blocked_dates', value: arr, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (error) throw error;
+    } catch (err) {
+        console.error('leave_blocked_dates 저장 실패:', err);
+        if (wasBlocked) set.add(dateStr); else set.delete(dateStr);
+        renderCalendar();
+        alert('연차 불가일 저장에 실패했습니다: ' + err.message);
+        return;
+    }
+    alert(wasBlocked ? `${dateStr} 연차 신청 불가일이 해제되었습니다.` : `${dateStr}을(를) 연차 신청 불가일로 지정했습니다.`);
+}
+
+// 휴무일(공휴일/전원 휴무) 토글 — 기존 날짜 더블클릭 로직
+function toggleCompanyHoliday(dateStr) {
     const workingSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
     const isHoliday = state.schedule.companyHolidays.has(dateStr);
 

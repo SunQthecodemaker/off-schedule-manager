@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260601a';
+import { state, db, isVisibleIn } from './state.js?v=20260609f';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260601a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260609f';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1007,12 +1007,18 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         });
     });
 
-    // 월 내 행을 휴가 날짜 오름차순으로 정렬 (한 신청이 여러 날이면 그 월의 첫 날짜 기준)
+    // 월 내 행 정렬 — 사용자 선택 기준 (휴가 날짜순 오름차순 / 신청 시간순 최신 먼저)
+    const sortMode = state.management.leaveListSort || 'date';
     Object.values(monthGroups).forEach(entries => {
         entries.sort((a, b) => {
+            if (sortMode === 'created') {
+                const aCreated = a.req.created_at || '';
+                const bCreated = b.req.created_at || '';
+                return bCreated.localeCompare(aCreated); // 최근 신청이 위
+            }
             const aFirst = a.monthDates[0] || '';
             const bFirst = b.monthDates[0] || '';
-            return aFirst.localeCompare(bFirst);
+            return aFirst.localeCompare(bFirst); // 휴가 날짜 오름차순 (월초→월말)
         });
     });
 
@@ -1338,6 +1344,11 @@ export function getLeaveListHTML() {
                         </select>
                     </div>
                 </div>
+                <div class="flex gap-2 mb-2 items-center">
+                    <label class="text-sm font-semibold">정렬 기준:</label>
+                    <button onclick="window.setLeaveListSort('date')" id="sort-date" class="sort-btn px-3 py-1 text-sm rounded ${(state.management.leaveListSort || 'date') === 'date' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">휴가 날짜순</button>
+                    <button onclick="window.setLeaveListSort('created')" id="sort-created" class="sort-btn px-3 py-1 text-sm rounded ${(state.management.leaveListSort || 'date') === 'created' ? 'bg-blue-600 text-white' : 'bg-gray-200'}">신청 시간순</button>
+                </div>
 
                 ${isAdmin ? `
                 <div class="flex flex-wrap gap-2 mb-3 items-center bg-yellow-50 border border-yellow-200 p-2 rounded text-sm">
@@ -1477,6 +1488,58 @@ window.filterLeaveList = function (status) {
 window.filterByEmployee = function (employeeId) {
     currentListEmployee = employeeId;
     applyListFilters();
+};
+
+// 연차 신청 마감일수 저장 (admin) — upsert + 재조회 검증 패턴
+window.saveLeaveNoticeDays = async function () {
+    if (state.currentUser?.role !== 'admin') { alert('관리자만 변경할 수 있습니다.'); return; }
+    const input = document.getElementById('leave-notice-days-input');
+    if (!input) return;
+    const days = parseInt(input.value, 10);
+    if (isNaN(days) || days < 0) { alert('0 이상의 숫자를 입력해주세요.'); return; }
+
+    const prev = state.leaveNoticeDays;
+    try {
+        const { error } = await db.from('app_settings')
+            .upsert({ key: 'leave_notice_days', value: days, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (error) throw error;
+
+        const { data: verify } = await db.from('app_settings')
+            .select('value').eq('key', 'leave_notice_days').maybeSingle();
+        if (!verify || Number(verify.value) !== days) throw new Error('저장 검증 실패');
+
+        state.leaveNoticeDays = days;
+        alert(`연차 신청 마감일수가 ${days}일로 저장되었습니다.`);
+    } catch (err) {
+        console.error('leave_notice_days 저장 실패:', err);
+        state.leaveNoticeDays = prev;
+        if (input) input.value = prev ?? 7;
+        alert('저장에 실패했습니다: ' + err.message);
+    }
+};
+
+// 연차 목록 정렬 기준 토글 (휴가 날짜순 / 신청 시간순)
+window.setLeaveListSort = function (mode) {
+    state.management.leaveListSort = mode;
+
+    // 월별 섹션 재빌드 (현재 표시 월 기준)
+    const month = state.management.currentListMonth || dayjs().format('YYYY-MM');
+    const container = document.getElementById('leave-month-sections');
+    if (container) {
+        container.innerHTML = buildLeaveMonthSectionsHTML(month);
+        applyListFilters(); // 기존 상태/직원 필터 유지
+    }
+
+    // 토글 버튼 활성 표시 갱신
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.classList.remove('bg-blue-600', 'text-white');
+        btn.classList.add('bg-gray-200');
+    });
+    const activeBtn = document.getElementById(`sort-${mode}`);
+    if (activeBtn) {
+        activeBtn.classList.add('bg-blue-600', 'text-white');
+        activeBtn.classList.remove('bg-gray-200');
+    }
 };
 
 // 목록 필터 적용 (월별 아코디언 내 행 필터링)
@@ -1723,7 +1786,8 @@ window.handleMiddleApproval = async function (requestId, status) {
     const confirmed = confirm(status === 'approved' ? '중간 승인하시겠습니까?' : '반려하시겠습니까?');
     if (!confirmed) return;
 
-    if (shouldStage('leave_request_list')) {
+    // 반려는 원장 결재 없이 매니저가 즉시 확정 (승인만 staging 큐 거침)
+    if (status !== 'rejected' && shouldStage('leave_request_list')) {
         const original = state.management.leaveRequests.find(r => r.id === requestId) || null;
         const r = await stageChange('leave_approval', requestId, 'update',
             { decision: status, reason: reason || null }, original);
@@ -2001,6 +2065,12 @@ export function getLeaveManagementHTML() {
         <div class="mb-3">
             <h2 class="text-lg font-semibold">연차 관리</h2>
             <p class="text-sm text-gray-600 mt-1">직원별 ◀▶ 화살표로 주기를 전환하여 조정값을 입력하세요.</p>
+        </div>
+        <div class="mb-4 flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded text-sm">
+            <label class="font-semibold">연차 신청 마감일수:</label>
+            <input type="number" id="leave-notice-days-input" min="0" value="${state.leaveNoticeDays ?? 7}" class="border rounded px-2 py-1 w-20 text-center">
+            <span class="text-gray-600">일 전까지 신청 (이후 신청 시 사유서 제출 필요)</span>
+            <button onclick="window.saveLeaveNoticeDays()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">저장</button>
         </div>
         <div class="overflow-x-auto">
             <table class="fixed-table whitespace-nowrap text-sm mb-6">
@@ -2553,8 +2623,9 @@ export function getLeaveStatusHTML() {
     window.periodOffsets = window.periodOffsets || {};
     const { employees, leaveRequests } = state.management;
 
-    // 임시 직원 필터링
-    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+    // 임시 직원 + 퇴사자 필터링 (퇴사자는 다음달 1일부터 격리 — isVisibleIn('leave_review') 가 처리. 연차 목록과 통일)
+    const validEmployees = employees.filter(emp =>
+        !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')) && isVisibleIn('leave_review', emp));
 
     // 각 직원의 연차 데이터 수집
     const employeeLeaveData = validEmployees.map(emp => {
