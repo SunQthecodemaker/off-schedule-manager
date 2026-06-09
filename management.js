@@ -1309,7 +1309,6 @@ export function getLeaveListHTML() {
                         <button onclick="window.filterLeaveCalendar('all')" id="cal-filter-all" class="cal-filter-btn active px-3 py-1 text-sm rounded bg-blue-600 text-white">전체</button>
                         <button onclick="window.filterLeaveCalendar('pending')" id="cal-filter-pending" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
                         <button onclick="window.filterLeaveCalendar('approved')" id="cal-filter-approved" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
-                        <button onclick="window.filterLeaveCalendar('rejected')" id="cal-filter-rejected" class="cal-filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려</button>
                     </div>
                     <div class="flex gap-2 items-center ml-4">
                         <label class="text-sm font-semibold">직원:</label>
@@ -1581,7 +1580,9 @@ window.renderLeaveCalendar = function (containerSelector) {
     filteredRequests.forEach(req => {
         const employeeName = employeeNameMap[req.employee_id] || '알 수 없음';
         const st = req.final_manager_status || req.status;
-        // 색상은 style.css 의 .fc-leave-{pending|approved|rejected} 가 처리 (cream 톤)
+        // 반려 건은 달력에서 제외 (이력은 우측 목록의 '반려됨' 필터에서 확인)
+        if (st === 'rejected') return;
+        // 색상은 style.css 의 .fc-leave-{pending|approved} 가 처리 (cream 톤)
 
         req.dates?.forEach(date => {
             events.push({
@@ -1595,7 +1596,7 @@ window.renderLeaveCalendar = function (containerSelector) {
                     employeeName: employeeName,
                     reason: req.reason,
                     createdAt: req.created_at,
-                    status: req.status
+                    status: st
                 }
             });
         });
@@ -1625,6 +1626,11 @@ window.renderLeaveCalendar = function (containerSelector) {
 
             if (props.status === 'approved') {
                 alert(`이미 승인된 연차입니다.\n\n직원: ${props.employeeName} \n날짜: ${info.event.start.toLocaleDateString('ko-KR')} `);
+                return;
+            }
+
+            if (props.status === 'rejected') {
+                alert(`반려된 연차입니다.\n\n직원: ${props.employeeName} \n날짜: ${info.event.start.toLocaleDateString('ko-KR')} `);
                 return;
             }
 
