@@ -1,7 +1,7 @@
 import { state, db } from './state.js?v=20260601a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260609b';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260609c';
 import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260608k';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
 import { renderMyWelfareSection } from './employee-welfare.js?v=20260601a';

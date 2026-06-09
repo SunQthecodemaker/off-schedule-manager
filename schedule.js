@@ -5042,27 +5042,27 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             }
         });
 
-        // ✅ 공휴일 처리 규칙 (그룹별)
-        //   • 파트타임(주근무 < 5)·대체보유(sub:true 휴무): 공휴일을 연차/대체로 메꿔 분모(주 근무일수) 유지.
-        //   • 일반 주5일(대체불가): 공휴일 0~1일은 흡수해 유지, 2일 이상이면 근무일수 자체를 줄임.
-        const isPartTime = weeklyWorkDays < 5;
-        const hasSubstitute = parsedRules.some(r => r.sub === true);
-        const reduceWorkdays = weekHolidayCount >= 2 && !isPartTime && !hasSubstitute;
+        // ✅ 의무근무일(분모) 산정 — 직원 유형별 (sub:true 는 분모와 무관, 일반 휴무로 취급)
+        const isPartTime = weeklyWorkDays < 5;                              // 박보현·김민재
+        const hasWeeks = parsedRules.some(r => r.weeks && r.weeks.length);  // 류효경 (주차별 휴무)
+        // 그 주 공휴일 중 본인 근무일(고정휴무 아닌 날)에 걸린 수 — 분자 보전용
+        const holidaysOnWorkday = allDates.filter(dateStr =>
+            holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
+        ).length;
         let expected;
-        if (reduceWorkdays) {
-            // 공휴일 2일 이상 → 근무일수 감소 (영업일 − 본인 고정휴무). 보전 없음.
-            expected = parsedRules.length > 0
-                ? businessDays.filter(d => !isFixedOffDay(rules, dayjs(d).day(), d)).length
-                : Math.min(weeklyWorkDays, businessDayCount);
-        } else {
-            // 분모 = 주 근무일수 유지. 근무일에 걸린 공휴일은 연차/대체로 분자 보전.
+        if (hasWeeks) {
+            // 류효경: 그 주 실제 고정휴무(weeks 반영) 뺀 기준 — 주차별 4 or 5. 공휴일은 분모에서 빼지 않고 분자 보전으로 흡수.
+            expected = allDates.filter(d => !isFixedOffDay(rules, dayjs(d).day(), d)).length;
+        } else if (isPartTime) {
+            // 파트타임: 근무일 공휴일은 연차(유급) 처리 → 분모(주 근무일수) 유지.
             expected = weeklyWorkDays;
-            const shortfall = Math.max(0, weeklyWorkDays - credit);
-            const holidaysOnWorkday = allDates.filter(dateStr =>
-                holidays.has(dateStr) && !isFixedOffDay(rules, dayjs(dateStr).day(), dateStr)
-            ).length;
-            credit += Math.min(shortfall, holidaysOnWorkday);
+        } else {
+            // 일반 주5일: 공휴일 1일은 원래 주중 휴일처럼 흡수(유지), 2일째부터 근무일수 감소.
+            expected = weeklyWorkDays - Math.max(0, weekHolidayCount - 1);
         }
+        // 분자 보전 — 부족분을 근무일에 걸린 공휴일(연차/대체)로 채움
+        const shortfall = Math.max(0, expected - credit);
+        credit += Math.min(shortfall, holidaysOnWorkday);
 
         const workCount = credit;
         const diff = workCount - expected;
