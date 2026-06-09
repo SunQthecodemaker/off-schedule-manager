@@ -1,10 +1,10 @@
 import { state, db } from './state.js?v=20260601a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260609d';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners } from './management.js?v=20260609d';
+import { renderScheduleManagement } from './schedule.js?v=20260609e';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260609e';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260601a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609d';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609d';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609e';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609e';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260601a';
 import { renderWelfareTab } from './welfare-ui.js?v=20260601a';
 
@@ -26,7 +26,7 @@ async function loadManagementData() {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, pendingLeaveRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -36,7 +36,8 @@ async function loadManagementData() {
             db.from('document_requests').select('*').order('created_at', { ascending: false }),
             db.from('app_settings').select('value').eq('key', 'show_test_employees').maybeSingle(),
             db.from('schedules').select('*').gte('date', monthStart).lte('date', monthEnd),
-            db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd)
+            db.from('company_holidays').select('date').gte('date', monthStart).lte('date', monthEnd),
+            db.from('pending_changes').select('*').eq('status', 'pending').eq('entity_type', 'leave_management').order('created_at', { ascending: true })
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -53,6 +54,7 @@ async function loadManagementData() {
         state.management.issues = issuesRes.data || [];
         state.management.departments = departmentsRes.data || [];
         state.management.documentRequests = docRequestsRes.data || [];
+        state.management.pendingLeaveChanges = (pendingLeaveRes && !pendingLeaveRes.error) ? (pendingLeaveRes.data || []) : [];
         state.showTestEmployees = !!(settingsRes && settingsRes.data && settingsRes.data.value === true);
 
         // 보는 달 스케줄 미리 로드 (대시보드 평균 직원수/원장수 계산). 스케줄 탭 진입 시 populateMonthData 가 calendar-range 로 다시 채움.
@@ -489,6 +491,13 @@ function openReviewModal(items) {
 
 function summarizeChange(item) {
     if (!item.payload) return '-';
+    // 연차 관리 변경은 한글 diff 로 (formatLeaveChange 공유)
+    if (item.entity_type === 'leave_management') {
+        const empMap = {};
+        (state.management.employees || []).forEach(e => { empMap[e.id] = e.name; });
+        const who = empMap[item.entity_id] ? `[${empMap[item.entity_id]}] ` : '';
+        return who + formatLeaveChange(item).join('\n');
+    }
     const keys = Object.keys(item.payload).slice(0, 6);
     return keys.map(k => {
         const v = item.payload[k];
