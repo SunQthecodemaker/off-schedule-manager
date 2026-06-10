@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610k';
+import { state, db, isVisibleIn } from './state.js?v=20260611a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610k';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610k';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260611a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260611a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -3054,6 +3054,14 @@ export function getLeaveStatusHTML() {
             .leave-box.split .half-am { top: 2px; left: 3px; }
             .leave-box.split .half-pm { bottom: 2px; right: 3px; }
             .leave-box.split .empty-half { color: #d1d5db; font-weight: normal; cursor: default; }
+            /* 사용 칸 '몇 번째' 번호 (좌상단 작게). 반차 카드는 좌하단(오전 날짜와 겹침 방지) */
+            .leave-box.used { position: relative; }
+            .leave-box .slot-num {
+                position: absolute; top: 0; left: 2px;
+                font-size: 7px; line-height: 1.2; font-weight: 700;
+                color: rgba(31,41,55,0.5); z-index: 2; pointer-events: none;
+            }
+            .leave-box.split .slot-num { top: auto; bottom: 1px; left: 2px; }
         </style>
     <div class="leave-status-container">
         <div class="flex justify-between items-center mb-4">
@@ -3198,6 +3206,12 @@ function getLeaveStatusRow(emp) {
     let cumDays = 0; // 소진한 '일수' (반차 0.5 합산)
     cards.forEach(card => {
         const boxType = bucketFor(cumDays);
+        // 사용 칸에도 '몇 번째 연차'인지 번호 (미사용 칸 번호 체계와 동일: 이N/조N/초N/N)
+        const slotPos = Math.floor(cumDays + 1e-9);
+        const slotLabel = boxType === 'carried' ? '이' + (slotPos + 1)
+            : boxType === 'adjustment' ? '조' + (slotPos - regularEnd + 1)
+            : boxType === 'borrowed' ? '초' + (slotPos - finalLeaves + 1)
+            : String(slotPos + 1);
         const adjSlot = boxType === 'adjustment' ? (adjSlots[adjBoxIdx++] || null) : null;
         const adjReason = adjSlot ? adjSlot.reason : '';
         if (card.kind === 'full') {
@@ -3207,7 +3221,7 @@ function getLeaveStatusRow(emp) {
             const typeTitle = boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용';
             const titleText = `${typeTitle}: ${u.date}${adjReason ? ' · ' + adjReason : ''}`;
             const dataAttrs = `data-request-id="${u.requestId || ''}" data-type="${u.type || 'formal'}" title="${titleText}"`;
-            gridHTML += `<div class="${boxClass}" ${dataAttrs}>${dayjs(u.date).format('M.D')}</div>`;
+            gridHTML += `<div class="${boxClass}" ${dataAttrs}><span class="slot-num">${slotLabel}</span>${dayjs(u.date).format('M.D')}</div>`;
         } else {
             const am = card.am, pm = card.pm;
             const amFill = am ? fillColorOf[boxType] : '#ffffff';
@@ -3224,7 +3238,7 @@ function getLeaveStatusRow(emp) {
             if (am) titleParts.push(`오전반차 ${am.date}`);
             if (pm) titleParts.push(`오후반차 ${pm.date}`);
             if (adjReason) titleParts.push(adjReason);
-            gridHTML += `<div class="leave-box split type-${boxType}${manual ? ' manual-entry' : ''}" style="background:${bg};" title="${titleParts.join(' / ')}">${amSpan}${pmSpan}</div>`;
+            gridHTML += `<div class="leave-box split type-${boxType}${manual ? ' manual-entry' : ''}" style="background:${bg};" title="${titleParts.join(' / ')}"><span class="slot-num">${slotLabel}</span>${amSpan}${pmSpan}</div>`;
         }
         cumDays += card.dayVal;
     });
