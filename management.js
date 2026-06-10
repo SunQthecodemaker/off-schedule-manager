@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610f';
+import { state, db, isVisibleIn } from './state.js?v=20260610g';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610f';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610g';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610g';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2444,10 +2444,17 @@ window.handleSettlementSubmit = async function (e) {
             const currentCarriedOver = emp.carried_over_leave || 0;
             const newCarriedOver = currentCarriedOver + addAmount;
 
+            // 주기별(adjustments)이 정본 — 현재 주기 칸의 이월값도 함께 갱신
+            // (안 하면 getLeaveDetails가 주기별 칸을 읽어 정산 이월이 화면에 반영 안 됨)
+            const curKey = getLeaveDetails(emp).periodStart;
+            const adjustments = { ...(emp.adjustments || {}) };
+            adjustments[curKey] = { ...(adjustments[curKey] || {}), carried: newCarriedOver };
+            const updateData = { carried_over_leave: newCarriedOver, adjustments };
+            const original = { carried_over_leave: currentCarriedOver, adjustments: emp.adjustments || {} };
+
             if (shouldStage('leave_management')) {
                 const r = await stageChange('leave_management', empId, 'update',
-                    { table: 'employees', data: { carried_over_leave: newCarriedOver } },
-                    { carried_over_leave: currentCarriedOver });
+                    { table: 'employees', data: updateData }, original);
                 if (!r.ok) return alert('임시저장 실패: ' + r.error);
                 window.closeSettlementModal();
                 notifyStaged();
@@ -2455,7 +2462,7 @@ window.handleSettlementSubmit = async function (e) {
             }
 
             const { error } = await db.from('employees')
-                .update({ carried_over_leave: newCarriedOver })
+                .update(updateData)
                 .eq('id', empId);
 
             if (error) throw error;
