@@ -1,5 +1,5 @@
 // 진료비 복지 — 관리자/매니저 화면 (계산기 / 전체목록 / 이행체크 / 퇴사정산)
-import { state, db } from './state.js?v=20260610a';
+import { state, db } from './state.js?v=20260610b';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
     loadFulfillmentByRecord, loadFulfillmentByMonth,
