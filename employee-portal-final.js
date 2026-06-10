@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260609h';
+import { state, db } from './state.js?v=20260610a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260609h';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260609h';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260609h';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260609h';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260610a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1249,7 +1249,7 @@ function renderMyLeaveRequests(requests) {
         return `
             <tr class="border-b">
                 <td class="p-3">${dateDisplay}</td>
-                <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')}</td>
+                <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')} <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span></td>
                 <td class="p-3">${statusBadges[req.status] || req.status}</td>
             </tr>
         `;

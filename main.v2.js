@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260609h';
+import { state, db } from './state.js?v=20260610a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260609h';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260609h';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260609h';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260609h';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260609h';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260609h';
-import { renderWelfareTab } from './welfare-ui.js?v=20260609h';
+import { renderScheduleManagement } from './schedule.js?v=20260610a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260610a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260610a';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260610a';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260610a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260610a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
