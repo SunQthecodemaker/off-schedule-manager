@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260610l';
+import { state, db } from './state.js?v=20260610k';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610l';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610l';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610l';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610l';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260610l';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610k';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610k';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610k';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610k';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260610k';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1980,14 +1980,6 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
             .leave-box.split .half-am { top: 2px; left: 3px; }
             .leave-box.split .half-pm { bottom: 2px; right: 3px; }
             .leave-box.split .empty-half { color: #d1d5db; font-weight: normal; }
-            /* 사용 칸 '몇 번째' 번호 (좌상단 작게). 반차 카드는 좌하단(오전 날짜와 겹침 방지) */
-            .leave-box.used { position: relative; }
-            .leave-box .slot-num {
-                position: absolute; top: 0; left: 2px;
-                font-size: 7px; line-height: 1.2; font-weight: 700;
-                color: rgba(31,41,55,0.5); z-index: 2; pointer-events: none;
-            }
-            .leave-box.split .slot-num { top: auto; bottom: 1px; left: 2px; }
             .leave-box:hover { transform: translateY(-1px); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
         </style>
         <div class="flex items-center justify-center gap-2 mb-2">
@@ -2056,12 +2048,6 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
     let cumDays = 0;
     cards.forEach(card => {
         const boxType = bucketFor(cumDays);
-        // 사용 칸에도 '몇 번째 연차'인지 번호 (미사용 칸 번호 체계와 동일: 이N/조N/초N/N)
-        const slotPos = Math.floor(cumDays + 1e-9);
-        const slotLabel = boxType === 'carried' ? '이' + (slotPos + 1)
-            : boxType === 'adjustment' ? '조' + (slotPos - regularEnd + 1)
-            : boxType === 'borrowed' ? '초' + (slotPos - finalLeaves + 1)
-            : String(slotPos + 1);
         const adjSlot = boxType === 'adjustment' ? (adjSlots[adjBoxIdx++] || null) : null;
         const adjReason = adjSlot ? adjSlot.reason : '';
         if (card.kind === 'full') {
@@ -2070,7 +2056,7 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
             if (u.type === 'manual') boxClass += ' manual-entry';
             const typeTitle = boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용';
             const titleText = `${typeTitle}: ${u.date} ${u.reason || ''}${adjReason ? ' · ' + adjReason : ''}`;
-            boxHTML += `<div class="${boxClass}" title="${titleText}"><span class="slot-num">${slotLabel}</span>${dayjs(u.date).format('M.D')}</div>`;
+            boxHTML += `<div class="${boxClass}" title="${titleText}">${dayjs(u.date).format('M.D')}</div>`;
         } else {
             const am = card.am, pm = card.pm;
             const amFill = am ? fillColorOf[boxType] : '#ffffff';
@@ -2083,7 +2069,7 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
             if (am) titleParts.push(`오전반차 ${am.date}`);
             if (pm) titleParts.push(`오후반차 ${pm.date}`);
             if (adjReason) titleParts.push(adjReason);
-            boxHTML += `<div class="leave-box split type-${boxType}${manual ? ' manual-entry' : ''}" style="background:${bg};" title="${titleParts.join(' / ')}"><span class="slot-num">${slotLabel}</span>${amSpan}${pmSpan}</div>`;
+            boxHTML += `<div class="leave-box split type-${boxType}${manual ? ' manual-entry' : ''}" style="background:${bg};" title="${titleParts.join(' / ')}">${amSpan}${pmSpan}</div>`;
         }
         cumDays += card.dayVal;
     });
