@@ -5,7 +5,7 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20260610c';
+import { state, db } from './state.js?v=20260610d';
 import { dataUrlToBlob } from './welfare.js';
 
 // ---------- 매니저 측: 임시저장 ----------

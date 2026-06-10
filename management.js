@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610c';
+import { state, db, isVisibleIn } from './state.js?v=20260610d';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610c';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610d';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -3108,15 +3108,32 @@ function getLeaveStatusRow(emp) {
     curCards.sort((a, b) => new Date(a.sortDate) - new Date(b.sortDate));
     cards.push(...curCards);
 
+    // 조정(추가연차) 사유 매핑: 해당 주기 details(양수)를 일수만큼 펼쳐 칸 순서대로 사유 배열 생성
+    const adjPeriodKey = (emp.periodStart && emp.periodStart.format) ? emp.periodStart.format('YYYY-MM-DD') : '';
+    const adjDetails = ((emp.adjustments || {})[adjPeriodKey] || {}).details || [];
+    const adjReasons = [];
+    adjDetails.forEach(d => {
+        const amt = d.amount || 0;
+        if (amt > 0 && d.reason) {
+            const slots = Math.max(1, Math.ceil(amt - 1e-9));
+            for (let s = 0; s < slots; s++) adjReasons.push(String(d.reason).trim());
+        }
+    });
+    const ADJ_LABEL_LEN = 3; // 칸 안에 표시할 사유 글자수 제한
+    const truncAdj = (s) => (s && s.length > ADJ_LABEL_LEN) ? s.slice(0, ADJ_LABEL_LEN) : (s || '');
+    let adjBoxIdx = 0; // 조정 칸(사용+미사용) 렌더 순서 카운터
+
     let cumDays = 0; // 소진한 '일수' (반차 0.5 합산)
     cards.forEach(card => {
         const boxType = bucketFor(cumDays);
+        const adjReason = boxType === 'adjustment' ? (adjReasons[adjBoxIdx++] || '') : '';
         if (card.kind === 'full') {
             const u = card.full;
             let boxClass = `leave-box type-${boxType} used`;
             if (u.type === 'manual') boxClass += ' manual-entry';
             const typeTitle = boxType === 'borrowed' ? '당겨쓰기(초과)' : '연차사용';
-            const dataAttrs = `data-request-id="${u.requestId || ''}" data-type="${u.type || 'formal'}" title="${typeTitle}: ${u.date}"`;
+            const titleText = `${typeTitle}: ${u.date}${adjReason ? ' · ' + adjReason : ''}`;
+            const dataAttrs = `data-request-id="${u.requestId || ''}" data-type="${u.type || 'formal'}" title="${titleText}"`;
             gridHTML += `<div class="${boxClass}" ${dataAttrs}>${dayjs(u.date).format('M.D')}</div>`;
         } else {
             const am = card.am, pm = card.pm;
@@ -3133,6 +3150,7 @@ function getLeaveStatusRow(emp) {
             const titleParts = [];
             if (am) titleParts.push(`오전반차 ${am.date}`);
             if (pm) titleParts.push(`오후반차 ${pm.date}`);
+            if (adjReason) titleParts.push(adjReason);
             gridHTML += `<div class="leave-box split type-${boxType}${manual ? ' manual-entry' : ''}" style="background:${bg};" title="${titleParts.join(' / ')}">${amSpan}${pmSpan}</div>`;
         }
         cumDays += card.dayVal;
@@ -3142,12 +3160,20 @@ function getLeaveStatusRow(emp) {
     const usedWholeSlots = Math.ceil(cumDays - 1e-9);
     for (let i = usedWholeSlots; i < finalLeaves; i++) {
         const boxType = bucketFor(i);
-        let displayText;
-        if (boxType === 'carried') displayText = `이${i + 1}`;
-        else if (boxType === 'adjustment') displayText = `조${i - regularEnd + 1}`;
-        else displayText = i + 1;
-        const dataAttrs = `title="${boxType === 'carried' ? '이월 연차 (미사용)' : '금년 연차 (미사용)'}"`;
-        gridHTML += `<div class="leave-box type-${boxType}" ${dataAttrs}>${displayText}</div>`;
+        let displayText, titleText, extraStyle = '';
+        if (boxType === 'carried') {
+            displayText = `이${i + 1}`;
+            titleText = '이월 연차 (미사용)';
+        } else if (boxType === 'adjustment') {
+            const adjReason = adjReasons[adjBoxIdx++] || '';
+            displayText = adjReason ? truncAdj(adjReason) : `조${i - regularEnd + 1}`;
+            titleText = adjReason ? `추가 연차: ${adjReason} (미사용)` : '추가 연차 (미사용)';
+            if (adjReason) extraStyle = ' style="font-size:10px;line-height:1.05;"';
+        } else {
+            displayText = i + 1;
+            titleText = '금년 연차 (미사용)';
+        }
+        gridHTML += `<div class="leave-box type-${boxType}"${extraStyle} title="${titleText}">${displayText}</div>`;
     }
 
     // 3) 한도를 다 채웠으면 당겨쓰기(추가 연차) 여유칸 1개 — 관리자 클릭 입력용
