@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260610g';
+import { state, db } from './state.js?v=20260610h';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610g';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610g';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610g';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610g';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260610g';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610h';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610h';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610h';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610h';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260610h';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -998,14 +998,21 @@ async function loadEmployeeData() {
         const finalSansManual = leaveDetails.final - leaveDetails.carriedOverCnt;
         const newFinalLeaves = finalSansManual + actualCarriedOverCnt;
 
+        // 이 주기에서 '다음 주기로 이월해 나간' 일수 = 다음 주기의 이월(IN) 값
+        // → 이 주기 그리드에선 '이월 소진'(회색)으로 표기하고 잔여에서도 제외 (이전·현재 주기 중복 표기 방지)
+        const nextPeriodKey = pEnd.add(1, 'day').format('YYYY-MM-DD');
+        let carriedOutCnt = (state.currentUser.adjustments || {})[nextPeriodKey]?.carried || 0;
+        if (carriedOutCnt < 0) carriedOutCnt = 0;
+        carriedOutCnt = Math.min(carriedOutCnt, Math.max(0, newFinalLeaves - usedDays));
+
         _('#used-leaves').textContent = `${usedDays}일`;
-        _('#remaining-leaves').textContent = `${newFinalLeaves - usedDays}일`;
+        _('#remaining-leaves').textContent = `${newFinalLeaves - usedDays - carriedOutCnt}일`;
 
         // 렌더링 당시의 오프셋 반영용 UI 업데이트 (상단 요약 박스에도 오프셋 주기 라벨 추가를 원할시 추가 작업, 여기서는 잔여수 그대로 표기)
         _('#final-leaves').textContent = `${newFinalLeaves}일`; // id 추가했던 확정연차 업데이트 (타겟 주기의 순수 분량)
 
         // 인라인 연차 박스 컨테이너 렌더링
-        renderEmployeeLeaveGrid(newFinalLeaves, actualCarriedOverCnt, usedDays, state.currentUser.usedDates, offset, pStart, pEnd);
+        renderEmployeeLeaveGrid(newFinalLeaves, actualCarriedOverCnt, usedDays, state.currentUser.usedDates, offset, pStart, pEnd, carriedOutCnt);
 
         const pending = requests.filter(r => r.status === 'pending');
         renderMyLeaveRequests(requests);
@@ -1914,7 +1921,7 @@ window.changeMyLeavePeriod = function (delta) {
     loadEmployeeData(); // 다시 로딩하여 해당 주기로 렌더링
 };
 
-function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr, offset, periodStart, periodEnd) {
+function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr, offset, periodStart, periodEnd, carriedOutCnt = 0) {
     const container = document.getElementById('employee-leave-grid-container');
     if (!container) return;
 
@@ -1947,6 +1954,9 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
             .leave-box.type-regular.used { background-color: #93c5fd; color: #1e40af; font-weight: bold; }
             .leave-box.type-carried { border-color: #d8b4fe; color: #a855f7; background-color: #faf5ff; }
             .leave-box.type-carried.used { background-color: #d8b4fe; color: #6b21a8; font-weight: bold; }
+            /* 이월 소진: 다음 주기로 이월되어 이 주기에선 소진된 칸 (회색 + 대각선 빗금) */
+            .leave-box.type-carried-out { border-color: #d1d5db; color: #6b7280; font-size: 9px; font-weight: bold;
+                background: repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 3px, #e5e7eb 3px, #e5e7eb 6px); }
             .leave-box.type-borrowed { border-color: #fca5a5; color: #ef4444; background-color: #fef2f2; font-weight: bold; }
             .leave-box.type-borrowed.used { background-color: #fca5a5; color: #991b1b; }
             .leave-box.manual-entry::after {
@@ -2033,8 +2043,14 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
     });
 
     // 2) 미사용 권리 칸: 남은 일수만큼 빈 박스 (반차가 점유한 0.5 슬롯은 올림 처리)
+    //    이 중 '다음 주기로 이월되어 나간' 마지막 carriedOutCnt 칸은 '이월 소진'(회색+대각선)으로 표기
     const usedWholeSlots = Math.ceil(cumDays - 1e-9);
+    const carriedOutStart = finalLeaves - carriedOutCnt; // 이 인덱스 이상 = 이월 소진
     for (let i = usedWholeSlots; i < finalLeaves; i++) {
+        if (carriedOutCnt > 0 && i >= carriedOutStart - 1e-9) {
+            boxHTML += `<div class="leave-box type-carried-out" title="이월 소진 (다음 주기로 이월됨)">이월</div>`;
+            continue;
+        }
         const boxType = bucketFor(i);
         const boxLabel = boxType === 'carried' ? `이${i + 1}` : (i + 1);
         const dataAttrs = `title="${boxType === 'carried' ? '이월 연차' : '금년 연차'} (미사용)"`;
@@ -2052,6 +2068,7 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
         </div>
         <div class="flex flex-wrap gap-3 mt-2 text-xs text-gray-500 justify-end">
             <span class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-200 border border-purple-400 rounded"></span>이월 연차</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded border border-gray-300" style="background:repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 2px,#e5e7eb 2px,#e5e7eb 4px)"></span>이월 소진</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 border border-blue-400 rounded"></span>금년 연차</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 border border-red-400 rounded"></span>올해 당겨쓰기</span>
             <span class="flex items-center gap-1"><span class="w-3 h-3 bg-white border border-gray-200 rounded relative"><span class="w-1.5 h-1.5 bg-yellow-500 rounded-full absolute top-[1px] right-[1px]"></span></span>수동 차감건</span>

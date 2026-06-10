@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610g';
+import { state, db, isVisibleIn } from './state.js?v=20260610h';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610g';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610g';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610h';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610h';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2231,7 +2231,12 @@ function renderLeaveMgmtRow(emp) {
             return sum + validDates.length;
         }, 0);
 
-    const remaining = finalLeaves - used;
+    // 다음 주기로 이월해 나간 일수는 잔여에서 제외 (그리드 '이월 소진'과 일관, 중복 표기 방지)
+    const nextPeriodKey = pEnd.add(1, 'day').format('YYYY-MM-DD');
+    let carriedOut = (emp.adjustments || {})[nextPeriodKey]?.carried || 0;
+    if (carriedOut < 0) carriedOut = 0;
+    carriedOut = Math.min(carriedOut, Math.max(0, finalLeaves - used));
+    const remaining = finalLeaves - used - carriedOut;
     const entryDateValue = (emp.entryDate || emp.entry_date) ? dayjs(emp.entryDate || emp.entry_date).format('YY.MM.DD') : '';
     const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : '';
     const workDaysValue = emp.weekly_work_days || 5;
@@ -2884,7 +2889,13 @@ export function getLeaveStatusHTML() {
         const finalSansManual = leaveDetails.final - leaveDetails.carriedOverCnt;
         const newFinalLeaves = finalSansManual + actualCarriedOverCnt;
 
-        const remainingDays = newFinalLeaves - usedDays;
+        // 다음 주기로 이월해 나간 일수 = 다음 주기의 이월(IN) 값. 이 주기 그리드에선 '이월 소진'으로 표기, 잔여에서 제외
+        const nextKey = pEnd.add(1, 'day').format('YYYY-MM-DD');
+        let carriedOutCnt = (emp.adjustments || {})[nextKey]?.carried || 0;
+        if (carriedOutCnt < 0) carriedOutCnt = 0;
+        carriedOutCnt = Math.min(carriedOutCnt, Math.max(0, newFinalLeaves - usedDays));
+
+        const remainingDays = newFinalLeaves - usedDays - carriedOutCnt;
         const usagePercent = newFinalLeaves > 0 ? Math.round((usedDays / newFinalLeaves) * 100) : 0;
 
         return {
@@ -2897,6 +2908,7 @@ export function getLeaveStatusHTML() {
             usedDays,
             remainingDays,
             usagePercent,
+            carriedOutCnt,
             usedDates,
             periodOffset: offset, // 렌더링을 위한 오프셋 기록
             periodStart: pStart,
@@ -2952,6 +2964,15 @@ export function getLeaveStatusHTML() {
             .leave-box.type-carried.used {
                 background-color: #d8b4fe;
                 color: #6b21a8;
+            }
+
+            /* 이월 소진: 다음 주기로 이월되어 이 주기에선 소진된 칸 (회색 + 대각선 빗금) */
+            .leave-box.type-carried-out {
+                border-color: #d1d5db;
+                color: #6b7280;
+                font-size: 9px;
+                font-weight: bold;
+                background: repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 3px, #e5e7eb 3px, #e5e7eb 6px);
             }
 
             /* 일반 연차 스타일 (파랑) */
@@ -3206,8 +3227,15 @@ function getLeaveStatusRow(emp) {
     });
 
     // 2) 미사용 권리 칸: 남은 일수만큼 빈 박스 (반차가 점유한 0.5 슬롯은 올림 처리)
+    //    마지막 carriedOutCnt 칸은 '다음 주기로 이월되어 소진'된 것 → 회색+대각선
+    const carriedOutCnt = emp.carriedOutCnt || 0;
+    const carriedOutStart = finalLeaves - carriedOutCnt; // 이 인덱스 이상 = 이월 소진
     const usedWholeSlots = Math.ceil(cumDays - 1e-9);
     for (let i = usedWholeSlots; i < finalLeaves; i++) {
+        if (carriedOutCnt > 0 && i >= carriedOutStart - 1e-9) {
+            gridHTML += `<div class="leave-box type-carried-out" title="이월 소진 (다음 주기로 이월됨)">이월</div>`;
+            continue;
+        }
         const boxType = bucketFor(i);
         let displayText, titleText, extraStyle = '';
         if (boxType === 'carried') {
