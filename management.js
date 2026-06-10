@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610i';
+import { state, db, isVisibleIn } from './state.js?v=20260610j';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610i';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610i';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610j';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610j';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -266,6 +266,10 @@ async function handleUpdateEmployee(id) {
     const leave_start_date = leaveStartInput ? (leaveStartInput.value || null) : null;
     const returnInput = _(`#return-${id}`);
     const return_date = returnInput ? (returnInput.value || null) : null;
+    // 연차기준일(변환입사일) + 연차갱신일 (날짜 관리는 직원 관리 탭에서)
+    const leave_base_date = _(`#leave-base-${id}`)?.value || null;
+    const renewalRaw = _(`#emp-renewal-${id}`)?.value || '';
+    const leave_renewal_date = /^\d{2}-\d{2}$/.test(renewalRaw) ? `2000-${renewalRaw}` : (renewalRaw || null);
 
     const payload = {
         name,
@@ -277,7 +281,9 @@ async function handleUpdateEmployee(id) {
         resignation_date,
         schedule_visible,
         leave_start_date,
-        return_date
+        return_date,
+        leave_base_date,
+        leave_renewal_date
     };
 
     if (shouldStage('employee_management')) {
@@ -320,6 +326,9 @@ async function handleSaveAllEmployees() {
         const schedule_visible = visibleCheckbox ? visibleCheckbox.checked : true;
         const leave_start_date = _(`#leave-start-${id}`)?.value || null;
         const return_date = _(`#return-${id}`)?.value || null;
+        const leave_base_date = _(`#leave-base-${id}`)?.value || null;
+        const renewalRaw = _(`#emp-renewal-${id}`)?.value || '';
+        const leave_renewal_date = /^\d{2}-\d{2}$/.test(renewalRaw) ? `2000-${renewalRaw}` : (renewalRaw || null);
 
         // 변경 감지 (원본 state 와 비교) — 안 바뀐 행은 건너뜀 (불필요한 쓰기·덮어쓰기 방지)
         const changed =
@@ -331,14 +340,17 @@ async function handleSaveAllEmployees() {
             (resignation_date) !== (emp.resignation_date || null) ||
             schedule_visible !== (emp.schedule_visible !== false) ||
             (leave_start_date) !== (emp.leave_start_date || null) ||
-            (return_date) !== (emp.return_date || null);
+            (return_date) !== (emp.return_date || null) ||
+            (leave_base_date) !== (emp.leave_base_date || null) ||
+            (leave_renewal_date) !== (emp.leave_renewal_date || null);
         if (!changed) continue;
 
         const payload = {
             name, entry_date, email, department_id,
             // 매니저 토글/role 변경은 admin만 — staging payload에서 제외 (handleUpdateEmployee 와 동일)
             ...(staging ? {} : { isManager }),
-            resignation_date, schedule_visible, leave_start_date, return_date
+            resignation_date, schedule_visible, leave_start_date, return_date,
+            leave_base_date, leave_renewal_date
         };
 
         if (staging) {
@@ -732,7 +744,9 @@ export function getManagementHTML() {
         <th class="p-2" style="width:40px"><input type="checkbox" id="selectAllCheckbox"></th>
         <th class="p-2 text-left" style="width:140px">이름</th>
         <th class="p-2 text-left" style="width:140px">부서</th>
-        <th class="p-2 text-left" style="width:140px">입사일</th>
+        <th class="p-2 text-left" style="width:140px" title="실제 입사일 (원장 전용)">입사일</th>
+        <th class="p-2 text-left" style="width:140px" title="연차기준일(변환입사일) — 연차 근속 계산 기준. 비우면 입사일 사용">연차기준일</th>
+        <th class="p-2 text-left" style="width:80px" title="연차 갱신일 (MM-DD)">갱신일</th>
         <th class="p-2 text-left">이메일</th>
         <th class="p-2 text-center" style="width:70px">매니저</th>
         <th class="p-2 text-center" style="width:180px">근무 규칙</th>
@@ -772,6 +786,8 @@ export function getManagementHTML() {
                     </select>
                 </td>
                 <td class="p-2"><input type="date" id="entry-${emp.id}" class="table-input emp-date-input" value="${emp.entryDate}"></td>
+                <td class="p-2"><input type="date" id="leave-base-${emp.id}" class="table-input emp-date-input" value="${emp.leave_base_date || ''}" title="연차기준일(변환입사일) — 비우면 입사일 사용"></td>
+                <td class="p-2"><input type="text" id="emp-renewal-${emp.id}" class="table-input text-center" style="width:64px" maxlength="5" placeholder="MM-DD" value="${emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : ''}" title="연차 갱신일 (MM-DD)"></td>
                 <td class="p-2" style="overflow:hidden;"><input type="email" id="email-${emp.id}" class="table-input" value="${emp.email}"></td>
                 <td class="p-2 text-center" style="white-space:nowrap;">
                     <input type="checkbox" id="manager-${emp.id}" ${isManagerChecked}>
@@ -3074,10 +3090,11 @@ export function getLeaveStatusHTML() {
                     <tr>
                         <th class="p-2 w-20 text-center">이름</th>
                         <th class="p-2 w-28 text-center">부서</th>
-                        <th class="p-2 w-24 text-center">입사일</th>
+                        <th class="p-2 w-24 text-center" title="연차기준일(변환입사일)">연차기준일</th>
                         <th class="p-2 w-16 text-center">확정</th>
                         <th class="p-2 w-16 text-center">사용</th>
                         <th class="p-2 w-16 text-center">잔여</th>
+                        <th class="p-2 w-28 text-center" title="연차 갱신일 / 주기 이동">연차갱신일</th>
                         <th class="p-2 text-left pl-4">
                             <div class="flex items-center gap-4">
                                 <span>연차 사용 현황</span>
@@ -3120,14 +3137,15 @@ function getLeaveStatusRow(emp) {
     const periodLabel = `${emp.periodStart.format('YY.MM.DD')} ~`;
     const labelColor = isCurrentPeriod ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-blue-100 text-blue-700 font-bold border-blue-200';
 
-    let gridHTML = `
-        <div class="flex items-center gap-1">
-            <button onclick="window.changeLeavePeriod('${emp.id}', -1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">
-                ◀
-            </button>
-            <div class="text-[10px] w-auto px-1 shrink-0 text-center border rounded py-1 whitespace-nowrap ${labelColor}" title="해당 주기 기준일">${periodLabel}</div>
-            <div class="leave-grid-container flex-1 mx-1">
-    `;
+    // 연차갱신일(주기 이동) 네비 — 연차 사용 현황과 별도 칸으로 분리
+    const navHTML = `
+        <div class="flex items-center justify-center gap-1">
+            <button onclick="window.changeLeavePeriod('${emp.id}', -1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="이전 주기">◀</button>
+            <div class="text-[10px] px-1 text-center border rounded py-1 whitespace-nowrap ${labelColor}" title="연차 갱신일 / 주기">${periodLabel}</div>
+            <button onclick="window.changeLeavePeriod('${emp.id}', 1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="다음 주기">▶</button>
+        </div>`;
+
+    let gridHTML = `<div class="leave-grid-container">`;
 
     // 연차 소진 순서: 이월 -> 법정 -> 조정 -> 당겨쓰기. 소진 위치 판정은 '일수 누적'(반차=0.5)으로.
     const regularEnd = carriedCnt + legalCnt; // 이월 + 법정 끝나는 지점
@@ -3264,13 +3282,7 @@ function getLeaveStatusRow(emp) {
         boxClass = boxClass.replace('bg-fef2f2', 'bg-white').replace('border-fca5a5', 'border-gray-300').replace('text-ef4444', 'text-gray-400');
         gridHTML += `<div class="${boxClass}" title="추가 연차(당겨쓰기) 등록">+</div>`;
     }
-    gridHTML += `
-            </div>
-            <button onclick="window.changeLeavePeriod('${emp.id}', 1)" class="p-1 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors" title="다음 주기">
-                ▶
-            </button>
-        </div>
-    `;
+    gridHTML += `</div>`;
 
     return `
         <tr class="leave-status-row border-b hover:bg-gray-50 transition-colors" data-employee-id="${emp.id}" data-dept="${deptName}" data-remaining="${emp.remainingDays}" data-usage="${emp.usagePercent}" data-period-start="${emp.periodStart.format ? emp.periodStart.format('YYYY-MM-DD') : emp.periodStart}">
@@ -3278,10 +3290,11 @@ function getLeaveStatusRow(emp) {
                 ${emp.name}
             </td>
             <td class="p-2 text-center text-gray-600">${deptName}</td>
-            <td class="p-2 text-center text-gray-500">${dayjs(emp.entryDate).format('YY.MM.DD')}</td>
+            <td class="p-2 text-center text-gray-500" title="연차기준일(변환입사일)">${dayjs(emp.leave_base_date || emp.entryDate).format('YY.MM.DD')}</td>
             <td class="p-2 text-center font-bold">${emp.leaveDetails.final}</td>
             <td class="p-2 text-center text-blue-600">${emp.usedDays}</td>
             <td class="p-2 text-center font-bold ${emp.remainingDays <= 3 ? 'text-red-600' : 'text-green-600'}">${emp.remainingDays}</td>
+            <td class="p-2 text-center">${navHTML}</td>
             <td class="p-2 text-left pl-4" style="max-width: 800px; overflow-x: auto;">
                 ${gridHTML}
             </td>

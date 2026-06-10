@@ -6,11 +6,11 @@
 //   - 4탭: 스케줄 조회 / 연차 승인 대기 / 연차 목록·현황 / 복지 현황
 //   - 기존 읽기전용 렌더를 최대한 재사용 (짜집기 회피).
 // =========================================================================================
-import { state, db, isVisibleIn } from './state.js?v=20260610i';
+import { state, db, isVisibleIn } from './state.js?v=20260610j';
 import { _ } from './utils.js';
-import { buildLeaveMonthSectionsHTML } from './management.js?v=20260610i';
-import { renderEmployeeMobileScheduleList } from './employee-portal-final.js?v=20260610i';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610i';
+import { buildLeaveMonthSectionsHTML } from './management.js?v=20260610j';
+import { renderEmployeeMobileScheduleList } from './employee-portal-final.js?v=20260610j';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610j';
 import { loadConfig, loadAllRecords, computeRemaining, elapsedMonthList, formatNum } from './welfare.js';
 
 const TABS = [

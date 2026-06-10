@@ -1,5 +1,7 @@
 export function getLeaveDetails(employee, referenceDate = null) {
-    const entryDateVal = employee?.entryDate || employee?.entry_date;
+    // 연차 근속 기준 = 연차기준일(변환입사일) 우선, 없으면 실제 입사일
+    // (알바기간/재입사 공백 제외 보정용. leave_base_date 가 정본)
+    const entryDateVal = employee?.leave_base_date || employee?.leaveBaseDate || employee?.entryDate || employee?.entry_date;
     if (!employee || !entryDateVal) return { legal: 0, adjustment: 0, final: 0, carriedOver: 0, note: '', periodStart: '', periodEnd: '' };
 
     const { leave_renewal_date, leave_adjustment, weekly_work_days } = employee;
