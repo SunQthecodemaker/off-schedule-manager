@@ -80,26 +80,14 @@ export function getLeaveDetails(employee, referenceDate = null) {
     }
 
     // ═══════════════════════════════════════
-    // 3. 이월·조정 — 주기별(adjustments JSONB)이 정본
-    //    확정연차 = 법정 + 이월(주기) + 조정(주기)
-    //    · adjustments[주기시작일] 항목이 있으면 그 값을 사용 (주기마다 독립)
-    //    · 항목이 없고 + 그 주기가 '실제 현재 주기'이며 + 아직 주기별 저장을
-    //      한 번도 한 적 없는 구(舊) 데이터일 때만 옛 단일 필드로 폴백
-    //      (주기별 저장이 1회라도 있으면 그 직원은 더 이상 폴백 안 함 → 연도 경계 넘어도 stale 값 안 샘)
+    // 3. 이월·조정 — 주기마다 직접 입력한 값만 사용
+    //    확정연차 = 법정 + 이월(그 주기) + 조정(그 주기)
+    //    해당 주기에 입력한 게 없으면 0. 다른 주기 값을 끌어오거나 자동 이관하지 않음.
     // ═══════════════════════════════════════
     const periodKey = periodStart.format('YYYY-MM-DD');
-    const allAdjustments = employee.adjustments || {};
-    const periodEntry = allAdjustments[periodKey];
-    const isLegacy = Object.keys(allAdjustments).length === 0;
-    const realToday = dayjs();
-    const isCurrentPeriod = !realToday.isBefore(periodStart) && !realToday.isAfter(periodEnd);
-
-    const adjustment = periodEntry
-        ? (periodEntry.adjustment || 0)
-        : ((isCurrentPeriod && isLegacy) ? (leave_adjustment || 0) : 0);
-    const carriedOverLeave = periodEntry
-        ? (periodEntry.carried || 0)
-        : ((isCurrentPeriod && isLegacy) ? (employee.carried_over_leave || 0) : 0);
+    const periodEntry = (employee.adjustments || {})[periodKey];
+    const adjustment = periodEntry ? (periodEntry.adjustment || 0) : 0;
+    const carriedOverLeave = periodEntry ? (periodEntry.carried || 0) : 0;
     const finalLeaves = prorataLeaves + adjustment + carriedOverLeave;
 
     return {

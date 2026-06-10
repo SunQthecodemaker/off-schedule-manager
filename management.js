@@ -2029,13 +2029,12 @@ window.changeLeaveMgmtEmpPeriod = function(empId, delta) {
     }
 };
 
-// 주기별 조정값 읽기
+// 주기별 조정값 읽기 — 그 주기에 직접 입력한 값만. 없으면 0 (다른 주기 값 끌어오기·자동 이관 없음)
 function getPeriodAdjustment(emp, periodStartStr, offset) {
-    const adjs = emp.adjustments || {};
-    const entry = adjs[periodStartStr];
+    const entry = (emp.adjustments || {})[periodStartStr];
     return {
-        adjustment: entry?.adjustment ?? (offset === 0 ? (emp.leave_adjustment || 0) : 0),
-        carried: entry?.carried ?? (offset === 0 ? (emp.carried_over_leave || 0) : 0)
+        adjustment: entry?.adjustment || 0,
+        carried: entry?.carried || 0
     };
 }
 
@@ -2701,21 +2700,20 @@ window.removeAdjustmentDetail = async function (empId, periodStartStr, index) {
 // 연차 현황 기능
 // =========================================================================================
 window.handleUpdateLeave = async function (id, periodStartStr) {
-    const leave_adjustment = parseFloat(_(`#leave-adj-${id}`).value) || 0;
     const carried_over_leave = parseFloat(_(`#leave-carried-${id}`).value) || 0;
 
-    // 현재 주기: 기존 필드에 저장 + adjustments에도 저장
-    // 이전 주기: adjustments JSONB에만 저장
     const emp = state.management.employees.find(e => e.id === id);
     if (!emp) { alert('직원을 찾을 수 없습니다.'); return; }
 
-    // 기존 adjustments 읽기
+    // 조정(adjustment)·내역(details)은 '조정 내역' 모달이 정본 — 행 저장은 이월(carried)만 갱신, 나머지는 보존.
+    // (옛 버그: 행 저장이 화면 표시값을 그대로 그 주기에 도장 찍어 '유령 조정'을 만들고 내역을 지웠음)
     const adjustments = { ...(emp.adjustments || {}) };
-    adjustments[periodStartStr] = { adjustment: leave_adjustment, carried: carried_over_leave };
+    const prevEntry = adjustments[periodStartStr] || {};
+    adjustments[periodStartStr] = { ...prevEntry, carried: carried_over_leave };
 
     let updateData = { adjustments };
 
-    // 현재 주기면 기존 필드도 함께 업데이트
+    // 현재 주기면 근무일·갱신일·이월(carried)만 함께 업데이트 (조정은 건드리지 않음)
     const empOffset = leaveMgmtOffsets[id] || 0;
     if (empOffset === 0) {
         let leave_renewal_date = _(`#leave-renewal-${id}`)?.value || null;
@@ -2724,7 +2722,6 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
         }
         const weekly_work_days = parseInt(_(`#leave-workdays-${id}`)?.value) || 5;
         updateData.leave_renewal_date = leave_renewal_date;
-        updateData.leave_adjustment = leave_adjustment;
         updateData.carried_over_leave = carried_over_leave;
         updateData.weekly_work_days = weekly_work_days;
     }
