@@ -1,6 +1,6 @@
 // 진료비 복지 — 직원 본인 화면 ("내 복지 현황")
 // 자기 진료기록만 조회. 잔액 + 월별 이행 현황 + 동의서 보기.
-import { state, db } from './state.js?v=20260610b';
+import { state, db } from './state.js?v=20260610c';
 import {
     loadConfig, loadFulfillmentByRecord,
     calculateCosts, computeRemaining, elapsedMonthList,

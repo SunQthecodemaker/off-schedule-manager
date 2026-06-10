@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610b';
+import { state, db, isVisibleIn } from './state.js?v=20260610c';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610c';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1069,8 +1069,7 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
             ${checkboxCell}
             <td class="py-1 px-2 text-sm">${employeeName}</td>
-            <td class="py-1 px-2 text-sm">${datesText}</td>
-            <td class="py-1 px-2 text-xs text-gray-500 whitespace-nowrap">${req.created_at ? dayjs(req.created_at).format('YY.MM.DD') + ' <span class="text-[10px] text-gray-400">' + dayjs(req.created_at).format('HH:mm') + '</span>' : '-'}</td>
+            <td class="py-1 px-2 text-sm">${datesText}${req.created_at ? ` <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span>` : ''}</td>
             <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
             <td class="py-1 px-2 text-sm text-center">
                 <div class="text-xs">
@@ -1099,7 +1098,6 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
                                 ${(isAdmin && !readOnly) ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
                                 <th class="py-1 px-2 text-left text-xs font-semibold">직원</th>
                                 <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
-                                <th class="py-1 px-2 text-left text-xs font-semibold">신청일시</th>
                                 <th class="py-1 px-2 text-center text-xs font-semibold">일수</th>
                                 <th class="py-1 px-2 text-center text-xs font-semibold">결재현황</th>
                                 <th class="py-1 px-2 text-center text-xs font-semibold">처리</th>
