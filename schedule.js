@@ -1,10 +1,10 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260610e';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260610f';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 // 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260610e';
+import { registerManualLeave } from './management.js?v=20260610f';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();

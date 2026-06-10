@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260610e';
+import { state, db } from './state.js?v=20260610f';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610e';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610e';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610e';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260610e';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260610f';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260610f';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260610f';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260610f';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)

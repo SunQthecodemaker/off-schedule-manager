@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610e';
+import { state, db, isVisibleIn } from './state.js?v=20260610f';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610e';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610f';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2508,7 +2508,7 @@ window.openAdjustmentModal = function (empId, periodStartStr) {
             <td class="p-2 text-center text-sm font-bold ${d.amount > 0 ? 'text-green-600' : 'text-red-600'}">${d.amount > 0 ? '+' : ''}${d.amount}</td>
             <td class="p-2 text-sm">${d.reason || '-'}</td>
             <td class="p-2">${d.amount > 0
-                ? `<input type="text" value="${(d.label || '').replace(/"/g, '&quot;')}" placeholder="${(d.reason || '').slice(0, ADJ_MODAL_LABEL_LEN)}" maxlength="6" onchange="window.updateAdjustmentLabel(${empId},'${periodStartStr}',${i},this.value)" class="table-input text-sm w-full text-center" style="min-width:54px;" title="연차 현황 칸에 표시할 글자 (여러 일수면 뒤에 번호 자동)">`
+                ? `<input type="text" value="${(d.label || '').replace(/"/g, '&quot;')}" placeholder="${(d.reason || '').slice(0, ADJ_MODAL_LABEL_LEN)}" maxlength="12" onchange="window.updateAdjustmentLabel(${empId},'${periodStartStr}',${i},this.value)" class="table-input text-sm w-full text-center" style="min-width:54px;" title="연차 현황 칸에 표시할 글자 (길면 폰트 자동 축소, 여러 일수면 뒤에 번호 자동)">`
                 : '<span class="text-xs text-gray-400">-</span>'}</td>
             <td class="p-2 text-xs text-gray-500">${d.date || '-'}</td>
             <td class="p-2 text-center"><button onclick="window.removeAdjustmentDetail(${empId},'${periodStartStr}',${i})" class="text-red-400 hover:text-red-600">×</button></td>
@@ -3212,8 +3212,9 @@ function getLeaveStatusRow(emp) {
                 const txt = adjSlot.base + (adjSlot.num ? adjSlot.num : '');
                 displayText = txt;
                 titleText = `추가 연차: ${adjSlot.reason || adjSlot.base} (미사용)`;
-                const fs = txt.length >= 5 ? 8 : (txt.length >= 4 ? 9 : 10);
-                extraStyle = ` style="font-size:${fs}px;line-height:1.05;"`;
+                // 입력 글자를 자르지 않고 길이에 맞춰 폰트 자동 축소 (42px 칸에 맞춤, 6~11px)
+                const fs = Math.max(6, Math.min(11, Math.floor(38 / Math.max(1, txt.length))));
+                extraStyle = ` style="font-size:${fs}px;line-height:1.05;letter-spacing:-0.3px;padding:0 1px;"`;
             } else {
                 displayText = `조${i - regularEnd + 1}`;
                 titleText = '추가 연차 (미사용)';
