@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610j';
+import { state, db, isVisibleIn } from './state.js?v=20260610k';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610j';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610j';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260610k';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610k';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2157,9 +2157,9 @@ export function getLeaveManagementHTML() {
 
     const headers = [
         { name: '이름', width: '8%' },
-        { name: '입사일', width: '7%' },
+        { name: '연차기준일', width: '7%' },
         { name: '근무', width: '5%' },
-        { name: '기준일', width: '6%' },
+        { name: '갱신일', width: '6%' },
         { name: '주기', width: '10%' },
         { name: '법정', width: '4%' },
         { name: '이월', width: '6%' },
@@ -2252,21 +2252,16 @@ function renderLeaveMgmtRow(emp) {
     if (carriedOut < 0) carriedOut = 0;
     carriedOut = Math.min(carriedOut, Math.max(0, finalLeaves - used));
     const remaining = finalLeaves - used - carriedOut;
-    const entryDateValue = (emp.entryDate || emp.entry_date) ? dayjs(emp.entryDate || emp.entry_date).format('YY.MM.DD') : '';
+    // 날짜·근무는 표기용(직원 관리 탭에서 관리). 연차기준일 = leave_base_date 우선
+    const baseDateValue = (emp.leave_base_date || emp.entryDate || emp.entry_date) ? dayjs(emp.leave_base_date || emp.entryDate || emp.entry_date).format('YY.MM.DD') : '';
     const renewalDateValue = emp.leave_renewal_date ? dayjs(emp.leave_renewal_date).format('MM-DD') : '';
     const workDaysValue = emp.weekly_work_days || 5;
 
     return `<tr class="border-t" id="leave-mgmt-row-${emp.id}" data-period-start="${periodStartStr}">
         <td class="p-2 text-sm text-center font-semibold">${emp.name}</td>
-        <td class="p-2 text-xs text-center">${entryDateValue}</td>
-        <td class="p-2 text-center">
-            ${isCurrentPeriod ? `<select id="leave-workdays-${emp.id}" class="table-input text-center text-xs w-14">
-                ${[1,2,3,4,5,6,7].map(n => `<option value="${n}" ${workDaysValue===n?'selected':''}>주${n}일</option>`).join('')}
-            </select>` : `<span class="text-xs text-gray-500">주${workDaysValue}일</span>`}
-        </td>
-        <td class="p-2 text-center">
-            ${isCurrentPeriod ? `<input type="text" id="leave-renewal-${emp.id}" value="${renewalDateValue}" placeholder="MM-DD" maxlength="5" class="table-input text-center text-xs w-14">` : `<span class="text-xs">${renewalDateValue || '-'}</span>`}
-        </td>
+        <td class="p-2 text-xs text-center" title="연차기준일(변환입사일)">${baseDateValue}</td>
+        <td class="p-2 text-center"><span class="text-xs text-gray-500">주${workDaysValue}일</span></td>
+        <td class="p-2 text-center"><span class="text-xs">${renewalDateValue || '-'}</span></td>
         <td class="p-2 text-center">
             <div class="flex items-center justify-center gap-1">
                 <button onclick="window.changeLeaveMgmtEmpPeriod(${emp.id},-1)" class="text-gray-400 hover:text-gray-700 text-xs">◀</button>
@@ -2729,17 +2724,10 @@ window.handleUpdateLeave = async function (id, periodStartStr) {
 
     let updateData = { adjustments };
 
-    // 현재 주기면 근무일·갱신일·이월(carried)만 함께 업데이트 (조정은 건드리지 않음)
+    // 갱신일·근무일은 직원 관리 탭에서 관리(여기선 표기용) — 행 저장은 이월(carried)만 미러
     const empOffset = leaveMgmtOffsets[id] || 0;
     if (empOffset === 0) {
-        let leave_renewal_date = _(`#leave-renewal-${id}`)?.value || null;
-        if (leave_renewal_date && /^\d{2}-\d{2}$/.test(leave_renewal_date)) {
-            leave_renewal_date = `2000-${leave_renewal_date}`;
-        }
-        const weekly_work_days = parseInt(_(`#leave-workdays-${id}`)?.value) || 5;
-        updateData.leave_renewal_date = leave_renewal_date;
         updateData.carried_over_leave = carried_over_leave;
-        updateData.weekly_work_days = weekly_work_days;
     }
 
     if (shouldStage('leave_management')) {
