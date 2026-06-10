@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260610d';
+import { state, db, isVisibleIn } from './state.js?v=20260610e';
 import { _, _all, show, hide } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610d';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260610e';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2498,6 +2498,7 @@ window.openAdjustmentModal = function (empId, periodStartStr) {
     const adjs = emp.adjustments || {};
     const periodData = adjs[periodStartStr] || {};
     const details = periodData.details || [];
+    const ADJ_MODAL_LABEL_LEN = 3; // 표시 입력칸 placeholder용 (사유 앞 N자)
 
     // 기존 모달 제거
     document.getElementById('adjustment-detail-modal')?.remove();
@@ -2506,6 +2507,9 @@ window.openAdjustmentModal = function (empId, periodStartStr) {
         <tr class="border-b">
             <td class="p-2 text-center text-sm font-bold ${d.amount > 0 ? 'text-green-600' : 'text-red-600'}">${d.amount > 0 ? '+' : ''}${d.amount}</td>
             <td class="p-2 text-sm">${d.reason || '-'}</td>
+            <td class="p-2">${d.amount > 0
+                ? `<input type="text" value="${(d.label || '').replace(/"/g, '&quot;')}" placeholder="${(d.reason || '').slice(0, ADJ_MODAL_LABEL_LEN)}" maxlength="6" onchange="window.updateAdjustmentLabel(${empId},'${periodStartStr}',${i},this.value)" class="table-input text-sm w-full text-center" style="min-width:54px;" title="연차 현황 칸에 표시할 글자 (여러 일수면 뒤에 번호 자동)">`
+                : '<span class="text-xs text-gray-400">-</span>'}</td>
             <td class="p-2 text-xs text-gray-500">${d.date || '-'}</td>
             <td class="p-2 text-center"><button onclick="window.removeAdjustmentDetail(${empId},'${periodStartStr}',${i})" class="text-red-400 hover:text-red-600">×</button></td>
         </tr>
@@ -2519,12 +2523,13 @@ window.openAdjustmentModal = function (empId, periodStartStr) {
             <h3 class="text-lg font-bold mb-3">${emp.name} — 연차 조정 내역</h3>
             <table class="w-full text-sm mb-3">
                 <thead class="bg-gray-100"><tr>
-                    <th class="p-2 w-16">일수</th>
+                    <th class="p-2 w-12">일수</th>
                     <th class="p-2 text-left">사유</th>
+                    <th class="p-2 w-20">표시(칸)</th>
                     <th class="p-2 w-20">등록일</th>
                     <th class="p-2 w-10"></th>
                 </tr></thead>
-                <tbody id="adj-detail-tbody">${detailRows || '<tr><td colspan="4" class="p-3 text-center text-gray-400">내역 없음</td></tr>'}</tbody>
+                <tbody id="adj-detail-tbody">${detailRows || '<tr><td colspan="5" class="p-3 text-center text-gray-400">내역 없음</td></tr>'}</tbody>
             </table>
             <div class="text-right text-sm font-bold mb-4">합계: <span class="${total > 0 ? 'text-green-600' : total < 0 ? 'text-red-600' : ''}">${total > 0 ? '+' : ''}${total}일</span></div>
 
@@ -2603,6 +2608,39 @@ window.addAdjustmentDetail = async function (empId, periodStartStr) {
     window.openAdjustmentModal(empId, periodStartStr);
     // 연차 관리 목록 갱신
     await window.loadAndRenderManagement();
+};
+
+// 조정 상세의 '표시(칸)' 라벨만 수정 — 연차 현황 그리드 조정 칸에 보일 글자. 일수/사유는 그대로.
+window.updateAdjustmentLabel = async function (empId, periodStartStr, index, value) {
+    const emp = state.management.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const adjustments = { ...(emp.adjustments || {}) };
+    const periodData = { ...(adjustments[periodStartStr] || {}) };
+    const details = [...(periodData.details || [])];
+    if (!details[index]) return;
+
+    details[index] = { ...details[index], label: (value || '').trim() };
+    periodData.details = details;
+    adjustments[periodStartStr] = periodData;
+    const updateData = { adjustments }; // 라벨만 변경 — leave_adjustment(합계)는 불변
+
+    if (shouldStage('leave_management')) {
+        const original = { adjustments: emp.adjustments || {}, leave_adjustment: emp.leave_adjustment };
+        const r = await stageChange('leave_management', empId, 'update',
+            { table: 'employees', data: updateData }, original);
+        if (!r.ok) { alert('임시저장 실패: ' + r.error); return; }
+        emp.adjustments = adjustments;
+        notifyStaged();
+        return;
+    }
+
+    const { error } = await db.from('employees').update(updateData).eq('id', empId);
+    if (error) { alert('표시 저장 실패: ' + error.message); return; }
+
+    emp.adjustments = adjustments;
+    // 연차 현황 그리드에 즉시 반영
+    if (window.loadAndRenderManagement) await window.loadAndRenderManagement();
 };
 
 window.removeAdjustmentDetail = async function (empId, periodStartStr, index) {
@@ -3108,25 +3146,29 @@ function getLeaveStatusRow(emp) {
     curCards.sort((a, b) => new Date(a.sortDate) - new Date(b.sortDate));
     cards.push(...curCards);
 
-    // 조정(추가연차) 사유 매핑: 해당 주기 details(양수)를 일수만큼 펼쳐 칸 순서대로 사유 배열 생성
+    // 조정(추가연차) 매핑: 해당 주기 details(양수)를 일수만큼 펼쳐 칸 순서대로 슬롯 생성
+    // 슬롯 = { base(칸 표시 글자), reason(전체 사유=툴팁), num(그룹 내 번호, 그룹이 2일↑일 때만) }
+    const ADJ_LABEL_LEN = 3; // label 미설정 시 사유 앞 N자만 자동 표시
+    const truncAdj = (s) => (s && s.length > ADJ_LABEL_LEN) ? s.slice(0, ADJ_LABEL_LEN) : (s || '');
     const adjPeriodKey = (emp.periodStart && emp.periodStart.format) ? emp.periodStart.format('YYYY-MM-DD') : '';
     const adjDetails = ((emp.adjustments || {})[adjPeriodKey] || {}).details || [];
-    const adjReasons = [];
+    const adjSlots = [];
     adjDetails.forEach(d => {
         const amt = d.amount || 0;
-        if (amt > 0 && d.reason) {
+        if (amt > 0) {
             const slots = Math.max(1, Math.ceil(amt - 1e-9));
-            for (let s = 0; s < slots; s++) adjReasons.push(String(d.reason).trim());
+            const reason = String(d.reason || '').trim();
+            const base = (d.label && String(d.label).trim()) ? String(d.label).trim() : truncAdj(reason);
+            for (let s = 0; s < slots; s++) adjSlots.push({ base, reason, num: slots > 1 ? (s + 1) : 0 });
         }
     });
-    const ADJ_LABEL_LEN = 3; // 칸 안에 표시할 사유 글자수 제한
-    const truncAdj = (s) => (s && s.length > ADJ_LABEL_LEN) ? s.slice(0, ADJ_LABEL_LEN) : (s || '');
     let adjBoxIdx = 0; // 조정 칸(사용+미사용) 렌더 순서 카운터
 
     let cumDays = 0; // 소진한 '일수' (반차 0.5 합산)
     cards.forEach(card => {
         const boxType = bucketFor(cumDays);
-        const adjReason = boxType === 'adjustment' ? (adjReasons[adjBoxIdx++] || '') : '';
+        const adjSlot = boxType === 'adjustment' ? (adjSlots[adjBoxIdx++] || null) : null;
+        const adjReason = adjSlot ? adjSlot.reason : '';
         if (card.kind === 'full') {
             const u = card.full;
             let boxClass = `leave-box type-${boxType} used`;
@@ -3165,10 +3207,17 @@ function getLeaveStatusRow(emp) {
             displayText = `이${i + 1}`;
             titleText = '이월 연차 (미사용)';
         } else if (boxType === 'adjustment') {
-            const adjReason = adjReasons[adjBoxIdx++] || '';
-            displayText = adjReason ? truncAdj(adjReason) : `조${i - regularEnd + 1}`;
-            titleText = adjReason ? `추가 연차: ${adjReason} (미사용)` : '추가 연차 (미사용)';
-            if (adjReason) extraStyle = ' style="font-size:10px;line-height:1.05;"';
+            const adjSlot = adjSlots[adjBoxIdx++] || null;
+            if (adjSlot && adjSlot.base) {
+                const txt = adjSlot.base + (adjSlot.num ? adjSlot.num : '');
+                displayText = txt;
+                titleText = `추가 연차: ${adjSlot.reason || adjSlot.base} (미사용)`;
+                const fs = txt.length >= 5 ? 8 : (txt.length >= 4 ? 9 : 10);
+                extraStyle = ` style="font-size:${fs}px;line-height:1.05;"`;
+            } else {
+                displayText = `조${i - regularEnd + 1}`;
+                titleText = '추가 연차 (미사용)';
+            }
         } else {
             displayText = i + 1;
             titleText = '금년 연차 (미사용)';
