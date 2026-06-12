@@ -21,6 +21,54 @@ if (window.dayjs_plugin_isSameOrBefore) {
     console.warn('⚠️ dayjs_plugin_isSameOrBefore not loaded');
 }
 
+// =========================================================================================
+// 매니저 staging 대기건(pending_changes) 의 메뉴별 분리 표시
+// - 상단 배너: 메뉴별 요약 칩 (클릭 시 해당 탭 점프)
+// - 탭 배지: 각 탭 버튼에 대기 수 빨간 배지
+// - 탭 안 리스트: 현재 탭의 대기건만 "내가 승인할 항목" 으로 노출 + 행별 승인/반려
+// admin 전용 (매니저는 제출자라 표시 안 함).
+// =========================================================================================
+const ENTITY_TO_TAB = {
+    leave_request: 'leaveList', leave_approval: 'leaveList',
+    leave_management: 'leaveManagement',
+    document: 'submittedDocs', document_request: 'submittedDocs',
+    employee: 'management', department: 'department',
+    form_template: 'templates',
+    welfare_record: 'welfare', welfare_fulfillment: 'welfare',
+};
+const ENTITY_LABEL = {
+    employee: '직원', department: '부서', leave_management: '연차관리',
+    leave_request: '연차', leave_approval: '연차결재',
+    document: '서류', document_request: '서류요청', form_template: '서식',
+    welfare_record: '복지', welfare_fulfillment: '복지이행',
+};
+const ACTION_LABEL = { create: '생성', update: '수정', delete: '삭제' };
+// 상단 요약 칩 / 탭 전체승인 라벨 (탭 id 기준)
+const TAB_SUMMARY_LABEL = {
+    leaveList: '연차', leaveManagement: '연차관리', submittedDocs: '서류',
+    management: '직원', department: '부서', templates: '서식', welfare: '복지',
+};
+
+let _pendingCache = [];
+async function loadPendingCache() {
+    _pendingCache = await loadPendingChanges();
+    return _pendingCache;
+}
+function getPendingForTab(tabId) {
+    return _pendingCache.filter(it => ENTITY_TO_TAB[it.entity_type] === tabId);
+}
+function isAdminView() {
+    return !(state.userRole !== 'admin' && state.currentUser?.isManager);
+}
+// 승인/반려 후: 캐시 갱신 + 배너·탭·콘텐츠 재렌더 (외부에서도 호출 가능)
+async function refreshPending() {
+    if (!isAdminView()) return;
+    await loadPendingCache();
+    renderManagementTabs();
+    renderManagementContent();
+    renderApprovalBanner();
+}
+
 async function loadManagementData() {
     try {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
@@ -147,6 +195,114 @@ function renderManagementContent() {
         default:
             container.innerHTML = `<p>${activeTab} 탭의 콘텐츠가 준비되지 않았습니다.</p>`;
     }
+    renderTabPending();
+}
+
+// #admin-tabs 와 #admin-content 사이에 현재 탭의 staging 대기건 리스트를 노출.
+// #admin-content 와 형제(별도 컨테이너)라 콘텐츠 innerHTML 교체에 영향받지 않음.
+function renderTabPending() {
+    const content = _('#admin-content');
+    if (!content) return;
+    let host = document.getElementById('tab-pending-container');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'tab-pending-container';
+        content.parentNode.insertBefore(host, content);
+        host.addEventListener('click', onPendingSectionClick);
+    }
+    host.innerHTML = isAdminView() ? renderTabPendingSection(state.management.activeTab) : '';
+}
+
+// 대상 직원명 해석: create 는 payload.employee_id, employee/leave_management update·delete 는 entity_id.
+function pendingTargetName(it, empMap) {
+    if (it.payload && it.payload.employee_id && empMap[it.payload.employee_id]) return empMap[it.payload.employee_id];
+    if ((it.entity_type === 'employee' || it.entity_type === 'leave_management') && empMap[it.entity_id]) return empMap[it.entity_id];
+    return '';
+}
+
+function renderTabPendingSection(tabId) {
+    const items = getPendingForTab(tabId);
+    if (!items.length) return '';
+    const empMap = {};
+    (state.management.employees || []).forEach(e => { empMap[e.id] = e.name; });
+
+    const rows = items.map(it => {
+        const creator = empMap[it.created_by] || `매니저 #${it.created_by}`;
+        const time = dayjs(it.created_at).format('MM-DD HH:mm');
+        const target = pendingTargetName(it, empMap);
+        const summary = summarizeChange(it);
+        const actCls = it.action === 'delete' ? 'bg-red-100 text-red-700'
+            : it.action === 'create' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700';
+        return `
+            <div class="flex items-start gap-2 py-2 border-b border-yellow-200 last:border-b-0" data-pending-id="${it.id}">
+                <span class="px-1.5 py-0.5 rounded text-xs shrink-0 ${actCls}">${ACTION_LABEL[it.action] || it.action}</span>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-semibold">${creator}${target ? ` <span class="text-gray-400">→</span> ${target}` : ''} <span class="text-gray-400 font-normal text-xs ml-1">${time}</span></div>
+                    <div class="text-sm text-gray-700 whitespace-pre-wrap break-words">${summary}</div>
+                </div>
+                <div class="shrink-0 whitespace-nowrap">
+                    <button data-pending-action="approve" data-id="${it.id}" class="px-2 py-1 bg-green-500 text-white text-xs rounded">✅ 승인</button>
+                    <button data-pending-action="reject" data-id="${it.id}" class="px-2 py-1 bg-red-500 text-white text-xs rounded ml-1">❌ 반려</button>
+                </div>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="mb-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3">
+            <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                <p class="font-bold text-yellow-800">⏳ 내가 승인할 항목 (${items.length}건)</p>
+                <div class="flex gap-2">
+                    <button data-pending-action="approve-all-tab" data-tab="${tabId}" class="px-3 py-1 bg-green-600 text-white text-xs rounded font-bold">이 메뉴 전체 승인</button>
+                    <button data-pending-action="reject-all-tab" data-tab="${tabId}" class="px-3 py-1 bg-red-600 text-white text-xs rounded">전체 반려</button>
+                </div>
+            </div>
+            ${rows}
+        </div>`;
+}
+
+async function onPendingSectionClick(e) {
+    const btn = e.target.closest('button[data-pending-action]');
+    if (!btn) return;
+    const act = btn.dataset.pendingAction;
+
+    if (act === 'approve') {
+        if (!confirm('이 변경을 승인하여 실제 데이터에 반영하시겠습니까?')) return;
+        const r = await approvePendingChange(parseInt(btn.dataset.id, 10));
+        if (!r.ok) return alert('승인 실패: ' + r.error);
+    } else if (act === 'reject') {
+        const reason = prompt('반려 사유를 입력하세요:');
+        if (!reason) return;
+        const r = await rejectPendingChange(parseInt(btn.dataset.id, 10), reason);
+        if (!r.ok) return alert('반려 실패: ' + r.error);
+    } else if (act === 'approve-all-tab') {
+        const tab = btn.dataset.tab;
+        const list = getPendingForTab(tab);
+        if (!list.length) return;
+        if (!confirm(`${TAB_SUMMARY_LABEL[tab] || tab} 대기 ${list.length}건을 모두 승인하시겠습니까?\n실제 데이터에 즉시 반영됩니다.`)) return;
+        let ok = 0, fail = 0; const errs = [];
+        for (const it of list) {
+            const r = await approvePendingChange(it.id);
+            if (r.ok) ok++; else { fail++; errs.push(`#${it.id}: ${r.error}`); }
+        }
+        alert(`승인 ${ok}건 완료${fail ? `, ${fail}건 실패\n${errs.join('\n')}` : ''}`);
+    } else if (act === 'reject-all-tab') {
+        const tab = btn.dataset.tab;
+        const list = getPendingForTab(tab);
+        if (!list.length) return;
+        const reason = prompt(`${TAB_SUMMARY_LABEL[tab] || tab} 대기 ${list.length}건을 모두 반려합니다.\n반려 사유를 입력하세요:`);
+        if (!reason) return;
+        let ok = 0, fail = 0;
+        for (const it of list) {
+            const r = await rejectPendingChange(it.id, reason);
+            if (r.ok) ok++; else fail++;
+        }
+        alert(`반려 ${ok}건 완료${fail ? `, ${fail}건 실패` : ''}`);
+    } else {
+        return;
+    }
+
+    await window.loadAndRenderManagement?.();
+    await refreshPending();
 }
 
 // admin-portal 탭 ↔ manager_permissions 메뉴 키 매핑
@@ -190,9 +346,13 @@ function renderManagementTabs() {
         state.management.activeTab = tabs[0].id;
     }
 
-    container.innerHTML = tabs.map(tab => `
-        <button data-tab="${tab.id}" class="main-tab-btn px-3 py-2 text-sm ${tab.id === state.management.activeTab ? 'active' : ''}">${tab.text}</button>
-    `).join('');
+    container.innerHTML = tabs.map(tab => {
+        const cnt = isManagerView ? 0 : getPendingForTab(tab.id).length;
+        const badge = cnt
+            ? ` <span class="ml-1 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 bg-red-500 text-white rounded-full text-xs align-middle">${cnt}</span>`
+            : '';
+        return `<button data-tab="${tab.id}" class="main-tab-btn px-3 py-2 text-sm ${tab.id === state.management.activeTab ? 'active' : ''}">${tab.text}${badge}</button>`;
+    }).join('');
 }
 
 /** 매니저 화면에서 perm.edit=false 인 탭의 input/button 비활성화 */
@@ -383,41 +543,58 @@ async function renderAdminPortal() {
     });
 
     await loadManagementData();
+    if (!isManagerView) await loadPendingCache();
     renderAdminSummary();
     renderManagementTabs();
     renderManagementContent();
-    if (!isManagerView) await renderApprovalBanner();
+    if (!isManagerView) renderApprovalBanner();
 }
 
 // =========================================================================================
 // 매니저 임시저장 승인 배너 (관리자 포털 상단)
 // =========================================================================================
-async function renderApprovalBanner() {
+// 상단 배너: 메뉴별 요약 칩(클릭 시 탭 점프) + 전체 승인/반려. _pendingCache 동기 참조.
+function renderApprovalBanner() {
     const container = _('#approval-banner-container');
     if (!container) return;
 
-    const items = await loadPendingChanges();
+    const items = _pendingCache;
     if (!items.length) {
         container.innerHTML = '';
         return;
     }
 
+    const byTab = {};
+    items.forEach(it => {
+        const tab = ENTITY_TO_TAB[it.entity_type] || 'management';
+        byTab[tab] = (byTab[tab] || 0) + 1;
+    });
+    const chips = Object.keys(byTab).map(tab =>
+        `<button data-jump-tab="${tab}" class="px-2.5 py-1 bg-white border border-yellow-400 rounded text-sm text-yellow-800 hover:bg-yellow-100">${TAB_SUMMARY_LABEL[tab] || tab} <b>${byTab[tab]}</b></button>`
+    ).join('');
+
     container.innerHTML = `
-        <div class="mb-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
+        <div class="mb-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-3 flex-wrap">
                 <span class="text-2xl">⏳</span>
-                <div>
-                    <p class="font-bold text-yellow-800">매니저가 제출한 변경 ${items.length}건 대기 중</p>
-                    <p class="text-sm text-yellow-700">실제 데이터에 반영하려면 검토 후 승인하세요.</p>
-                </div>
+                <span class="font-bold text-yellow-800">승인 대기 ${items.length}건</span>
+                <div class="flex gap-2 flex-wrap">${chips}</div>
             </div>
             <div class="flex gap-2">
                 <button id="approve-all-pending-btn" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-bold">전체 승인</button>
-                <button id="review-pending-btn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">개별 검토</button>
                 <button id="reject-all-pending-btn" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">전체 반려</button>
             </div>
         </div>
     `;
+
+    container.querySelectorAll('[data-jump-tab]').forEach(btn => {
+        btn.onclick = () => {
+            state.management.activeTab = btn.dataset.jumpTab;
+            renderManagementTabs();
+            renderManagementContent();
+            renderAdminSummary();
+        };
+    });
 
     _('#approve-all-pending-btn').onclick = async () => {
         if (!confirm(`임시저장된 ${items.length}건을 모두 승인하시겠습니까?\n실제 데이터에 즉시 반영됩니다.`)) return;
@@ -426,7 +603,7 @@ async function renderApprovalBanner() {
         if (r.failed) msg += `, ${r.failed}건 실패\n${r.errors.join('\n')}`;
         alert(msg);
         await window.loadAndRenderManagement?.();
-        await renderApprovalBanner();
+        await refreshPending();
     };
 
     _('#reject-all-pending-btn').onclick = async () => {
@@ -434,10 +611,8 @@ async function renderApprovalBanner() {
         if (!reason) return;
         const r = await rejectAllPending(reason);
         alert(`반려 ${r.success}건 완료${r.failed ? `, ${r.failed}건 실패` : ''}`);
-        await renderApprovalBanner();
+        await refreshPending();
     };
-
-    _('#review-pending-btn').onclick = () => openReviewModal(items);
 }
 
 function openReviewModal(items) {
@@ -524,6 +699,37 @@ function openReviewModal(items) {
     });
 }
 
+const LEAVE_TYPE_LABEL = { full: '종일', am_half: '오전반차', pm_half: '오후반차' };
+
+// 연차 수동등록·삭제(leave_request) 를 사람말로. dates → M/D, leave_type → 한글,
+// reason 의 [TARGET_PERIOD: YYYY-MM-DD] 는 'YYYY-MM 차감' 으로 분리.
+function formatLeaveRequest(item) {
+    const p = item.payload || {};
+    const dates = Array.isArray(p.dates)
+        ? p.dates.map(d => (dayjs(d).isValid() ? dayjs(d).format('M/D') : d)).join(', ')
+        : '';
+    const typeLabel = LEAVE_TYPE_LABEL[p.leave_type] || (p.leave_type || '');
+    let reason = p.reason || '';
+    let period = '';
+    const m = reason.match(/\[TARGET_PERIOD:\s*([0-9-]+)\]/);
+    if (m) { period = m[1].slice(0, 7); reason = reason.replace(m[0], '').trim(); }
+    const verb = item.action === 'delete' ? '취소' : item.action === 'update' ? '변경' : '추가';
+    const head = [dates, typeLabel].filter(Boolean).join(' ');
+    const parts = [];
+    parts.push(`${head} ${verb}`.trim());
+    if (period) parts.push(`${period} 차감`);
+    if (reason) parts.push(reason);
+    return parts.join(' · ');
+}
+
+// 매니저 [중간 승인]/[중간 반려] → admin 결재 대상(leave_approval).
+function formatLeaveApproval(item) {
+    const p = item.payload || {};
+    if (p.decision === 'approved') return '연차신청 승인';
+    if (p.decision === 'rejected') return '연차신청 반려' + (p.reason ? ` · 사유: ${p.reason}` : '');
+    return '연차신청 결재';
+}
+
 function summarizeChange(item) {
     if (!item.payload) return '-';
     // 연차 관리 변경은 한글 diff 로 (formatLeaveChange 공유)
@@ -533,6 +739,9 @@ function summarizeChange(item) {
         const who = empMap[item.entity_id] ? `[${empMap[item.entity_id]}] ` : '';
         return who + formatLeaveChange(item).join('\n');
     }
+    if (item.entity_type === 'leave_request') return formatLeaveRequest(item);
+    if (item.entity_type === 'leave_approval') return formatLeaveApproval(item);
+
     const keys = Object.keys(item.payload).slice(0, 6);
     return keys.map(k => {
         const v = item.payload[k];
@@ -541,8 +750,9 @@ function summarizeChange(item) {
     }).join(' / ');
 }
 
-// 다른 모듈(staging 승인 후, 매니저 페이지 등)에서 호출 가능
-window.refreshApprovalBanner = renderApprovalBanner;
+// 다른 모듈(staging 승인 후, 매니저 페이지 등)에서 호출 가능 — 캐시 갱신 + 배너·탭·콘텐츠 재렌더
+window.refreshApprovalBanner = refreshPending;
+window.refreshPendingUI = refreshPending;
 
 const handleManagementTabClick = (e) => {
     if (e.target.matches('.main-tab-btn')) {
