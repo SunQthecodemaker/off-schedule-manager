@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260611a';
+import { state, db } from './state.js?v=20260612b';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260611a';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260611a';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260611a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260611a';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260611a';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612b';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260612b';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260612b';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260612b';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260612b';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -966,9 +966,16 @@ async function loadEmployeeData() {
         });
 
         lastYearDates.sort((a, b) => new Date(a.date) - new Date(b.date));
+        // 초과분 판정은 '일수 누적'(반차=0.5)으로 — 개수 비교 시 반차쌍이 있으면 마지막 1건이
+        // 가짜로 다음 주기에 새던 버그 방지 (관리자 연차현황과 동일 로직).
         let borrowedPastDates = [];
-        if (lastYearDates.length > lastYearDetails.final) {
-            borrowedPastDates = lastYearDates.slice(lastYearDetails.final);
+        {
+            let acc = 0;
+            for (const d of lastYearDates) {
+                const w = (d.leaveType === 'am_half' || d.leaveType === 'pm_half') ? 0.5 : 1;
+                if (acc + w > lastYearDetails.final + 1e-9) borrowedPastDates.push(d);
+                else acc += w;
+            }
         }
 
         // --- 금년 정상 사용분 추출 ---

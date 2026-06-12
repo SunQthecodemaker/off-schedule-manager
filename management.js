@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260611a';
+import { state, db, isVisibleIn } from './state.js?v=20260612b';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260611a';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260611a';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260612b';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2153,7 +2153,7 @@ window.rejectLeaveChange = async function (id) {
 
 export function getLeaveManagementHTML() {
     const { employees } = state.management;
-    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')));
+    const validEmployees = employees.filter(emp => !emp.is_temp && !(emp.email && emp.email.startsWith('temp-')) && isVisibleIn('leave_review', emp));
 
     const headers = [
         { name: '이름', width: '8%' },
@@ -2852,9 +2852,16 @@ export function getLeaveStatusHTML() {
         lastYearDates.sort((a, b) => new Date(a.date) - new Date(b.date));
 
         // 작년 할당량(final)을 초과한 날짜들만 추출 = 당겨쓰기한 실제 날짜들
+        // 초과분 판정은 '일수 누적'(반차=0.5)으로. 개수(.length)로 비교하면 반차쌍이 있을 때
+        // 마지막 1건이 가짜로 다음 주기에 새던 버그 → 일수 가중 누적으로 교체.
         let borrowedPastDates = [];
-        if (lastYearDates.length > lastYearDetails.final) {
-            borrowedPastDates = lastYearDates.slice(lastYearDetails.final);
+        {
+            let acc = 0;
+            for (const d of lastYearDates) {
+                const w = (d.leaveType === 'am_half' || d.leaveType === 'pm_half') ? 0.5 : 1;
+                if (acc + w > lastYearDetails.final + 1e-9) borrowedPastDates.push(d);
+                else acc += w;
+            }
         }
         // ----------------------------------------------------------------
 
