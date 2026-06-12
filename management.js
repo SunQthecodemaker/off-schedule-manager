@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260612b';
+import { state, db, isVisibleIn } from './state.js?v=20260612c';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612b';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260612b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612c';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260612c';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -3215,12 +3215,13 @@ function getLeaveStatusRow(emp) {
         const boxType = bucketFor(cumDays);
         // 사용 칸에도 '몇 번째 연차'인지 번호 (미사용 칸 번호 체계와 동일: 이N/조N/초N/N)
         const slotPos = Math.floor(cumDays + 1e-9);
-        const slotLabel = boxType === 'carried' ? '이' + (slotPos + 1)
-            : boxType === 'adjustment' ? '조' + (slotPos - regularEnd + 1)
-            : boxType === 'borrowed' ? '초' + (slotPos - finalLeaves + 1)
-            : String(slotPos + 1);
         const adjSlot = boxType === 'adjustment' ? (adjSlots[adjBoxIdx++] || null) : null;
         const adjReason = adjSlot ? adjSlot.reason : '';
+        // 조정 사용 칸은 '조N' 대신 실제 라벨(포상/대체 등)으로 — 초과(초N)와 혼동 방지
+        const slotLabel = boxType === 'carried' ? '이' + (slotPos + 1)
+            : boxType === 'adjustment' ? ((adjSlot && adjSlot.base) ? (adjSlot.base + (adjSlot.num ? adjSlot.num : '')) : '조' + (slotPos - regularEnd + 1))
+            : boxType === 'borrowed' ? '초' + (slotPos - finalLeaves + 1)
+            : String(slotPos + 1);
         if (card.kind === 'full') {
             const u = card.full;
             let boxClass = `leave-box type-${boxType} used`;

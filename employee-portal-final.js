@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260612b';
+import { state, db } from './state.js?v=20260612c';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260612b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260612b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260612b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260612b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612c';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260612c';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260612c';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260612c';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260612c';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -2065,12 +2065,13 @@ function renderEmployeeLeaveGrid(finalLeaves, carriedCnt, usedCnt, usedDatesArr,
         const boxType = bucketFor(cumDays);
         // 사용 칸에도 '몇 번째 연차'인지 번호 (미사용 칸 번호 체계와 동일: 이N/조N/초N/N)
         const slotPos = Math.floor(cumDays + 1e-9);
-        const slotLabel = boxType === 'carried' ? '이' + (slotPos + 1)
-            : boxType === 'adjustment' ? '조' + (slotPos - regularEnd + 1)
-            : boxType === 'borrowed' ? '초' + (slotPos - finalLeaves + 1)
-            : String(slotPos + 1);
         const adjSlot = boxType === 'adjustment' ? (adjSlots[adjBoxIdx++] || null) : null;
         const adjReason = adjSlot ? adjSlot.reason : '';
+        // 조정 사용 칸은 '조N' 대신 실제 라벨(포상/대체 등)으로 — 초과(초N)와 혼동 방지
+        const slotLabel = boxType === 'carried' ? '이' + (slotPos + 1)
+            : boxType === 'adjustment' ? ((adjSlot && adjSlot.base) ? (adjSlot.base + (adjSlot.num ? adjSlot.num : '')) : '조' + (slotPos - regularEnd + 1))
+            : boxType === 'borrowed' ? '초' + (slotPos - finalLeaves + 1)
+            : String(slotPos + 1);
         if (card.kind === 'full') {
             const u = card.full;
             let boxClass = `leave-box type-${boxType} used`;
