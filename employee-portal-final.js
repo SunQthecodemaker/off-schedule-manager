@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260612c';
+import { state, db } from './state.js?v=20260623a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612c';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260612c';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260612c';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260612c';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260612c';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260623a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260623a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260623a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260623a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260623a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -916,15 +916,46 @@ async function loadEmployeeData() {
     try {
         const userId = state.currentUser.id;
 
-        const [requestsRes, docRequestsRes, submittedDocsRes] = await Promise.all([
+        const [requestsRes, docRequestsRes, submittedDocsRes, othersLeaveRes, allEmpRes, myCancelRes] = await Promise.all([
             db.from('leave_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
             db.from('document_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
-            db.from('submitted_documents').select('*').eq('employee_id', userId).order('created_at', { ascending: false })
+            db.from('submitted_documents').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
+            // 다른 직원 연차(같은 날 피해서 신청하도록 공유) — approved/pending 만, 사유는 미조회(프라이버시)
+            db.from('leave_requests').select('employee_id, dates, leave_type, status').in('status', ['approved', 'pending']),
+            db.from('employees').select('id, name, is_temp, resignation_date, email, role'),
+            // 본인이 올린 취소 요청(승인 대기) — entity_id(연차id) 기준
+            db.from('pending_changes').select('id, entity_id').eq('entity_type', 'leave_cancel').eq('status', 'pending').eq('created_by', userId)
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
 
         const requests = requestsRes.data || [];
+
+        // 본인 취소 요청 맵 (연차id → 취소요청 row)
+        const myCancelMap = {};
+        (myCancelRes && !myCancelRes.error ? myCancelRes.data || [] : []).forEach(c => { myCancelMap[c.entity_id] = c; });
+
+        // 다른 직원 연차 → 달력 표시용 {date, name, status}. 본인·테스트직원·알바·퇴사자 제외.
+        const empMap = {};
+        (allEmpRes && !allEmpRes.error ? allEmpRes.data || [] : []).forEach(e => { empMap[e.id] = e; });
+        const todayStr = dayjs().format('YYYY-MM-DD');
+        const othersApproved = [];
+        const othersPending = [];
+        (othersLeaveRes && !othersLeaveRes.error ? othersLeaveRes.data || [] : []).forEach(r => {
+            if (r.employee_id === userId) return;                       // 본인 제외 (본인은 별도 표시)
+            const emp = empMap[r.employee_id];
+            if (!emp) return;
+            if (emp.is_temp) return;                                    // 알바 제외
+            if (emp.name && emp.name.includes('테스트')) return;         // 테스트직원 제외
+            if (emp.email && emp.email.startsWith('test-')) return;      // 테스트직원 제외
+            if (emp.resignation_date && emp.resignation_date < todayStr) return; // 퇴사자 제외
+            const half = r.leave_type === 'am_half' ? ' (오전)' : r.leave_type === 'pm_half' ? ' (오후)' : '';
+            (r.dates || []).forEach(d => {
+                const item = { date: d, name: (emp.name || '') + half };
+                if (r.status === 'approved') othersApproved.push(item);
+                else othersPending.push(item);
+            });
+        });
         state.employee.documentRequests = docRequestsRes.data || [];
         state.employee.submittedDocuments = submittedDocsRes.data || [];
 
@@ -1029,8 +1060,8 @@ async function loadEmployeeData() {
         renderEmployeeLeaveGrid(newFinalLeaves, actualCarriedOverCnt, usedDays, state.currentUser.usedDates, offset, pStart, pEnd, carriedOutCnt, legalCntG, adjustmentCntG, adjDetailsG);
 
         const pending = requests.filter(r => r.status === 'pending');
-        renderMyLeaveRequests(requests);
-        initializeEmployeeCalendar(approved, pending);
+        renderMyLeaveRequests(requests, myCancelMap);
+        initializeEmployeeCalendar(approved, pending, othersApproved, othersPending);
         renderDocumentRequests();
         renderSubmittedDocuments();
         updateDocumentBadge();
@@ -1226,7 +1257,7 @@ window.viewSubmittedDocument = function (docId) {
     });
 };
 
-function renderMyLeaveRequests(requests) {
+function renderMyLeaveRequests(requests, cancelMap = {}) {
     const container = _('#my-leave-requests');
 
     if (requests.length === 0) {
@@ -1234,10 +1265,13 @@ function renderMyLeaveRequests(requests) {
         return;
     }
 
+    const todayStr = dayjs().format('YYYY-MM-DD');
+
     const statusBadges = {
         pending: '<span class="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">대기중</span>',
         approved: '<span class="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">승인됨</span>',
-        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">반려됨</span>'
+        rejected: '<span class="bg-red-200 text-red-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">반려됨</span>',
+        cancelled: '<span class="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full whitespace-nowrap">취소됨</span>'
     };
 
     const rows = requests.map(req => {
@@ -1267,11 +1301,26 @@ function renderMyLeaveRequests(requests) {
         const halfLabel = req.leave_type === 'am_half' ? ' (오전반차)' : req.leave_type === 'pm_half' ? ' (오후반차)' : '';
         if (halfLabel) dateDisplay += `<span class="text-[10px] text-amber-600">${halfLabel}</span>`;
 
+        // 취소 셀: 취소됨 / 취소 요청 중(철회 가능) / 취소 요청 버튼(오늘 이후 날짜 포함 시) / -
+        let cancelCell;
+        const hasFuture = dates.some(d => d >= todayStr);
+        if (req.status === 'cancelled') {
+            cancelCell = '<span class="text-xs text-gray-400">취소됨</span>';
+        } else if (cancelMap[req.id]) {
+            cancelCell = `<span class="text-xs text-orange-600 font-semibold">취소 요청 중</span>
+                <button onclick="window.handleWithdrawCancel(${cancelMap[req.id].id})" class="ml-1 text-[11px] text-gray-500 underline">철회</button>`;
+        } else if (req.status !== 'rejected' && hasFuture) {
+            cancelCell = `<button onclick="window.handleRequestCancel(${req.id})" class="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600">취소 요청</button>`;
+        } else {
+            cancelCell = '<span class="text-xs text-gray-300">-</span>';
+        }
+
         return `
             <tr class="border-b">
                 <td class="p-3">${dateDisplay}</td>
                 <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')} <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span></td>
                 <td class="p-3">${statusBadges[req.status] || req.status}</td>
+                <td class="p-3 text-center">${cancelCell}</td>
             </tr>
         `;
     }).join('');
@@ -1283,6 +1332,7 @@ function renderMyLeaveRequests(requests) {
                     <th class="p-3 text-left">신청 날짜</th>
                     <th class="p-3 text-left">신청 일시</th>
                     <th class="p-3 text-left">상태</th>
+                    <th class="p-3 text-center">취소</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -1290,11 +1340,52 @@ function renderMyLeaveRequests(requests) {
     `;
 }
 
+// 직원 본인 연차 취소 요청 (오늘 이후 날짜) → pending_changes(leave_cancel) INSERT. 매니저/원장 승인 후 반영.
+window.handleRequestCancel = async function (leaveId) {
+    const userId = state.currentUser.id;
+    const { data: req, error } = await db.from('leave_requests')
+        .select('id, dates, status, employee_id').eq('id', leaveId).maybeSingle();
+    if (error || !req) { alert('연차 정보를 찾을 수 없습니다.'); return; }
+    if (req.employee_id !== userId) { alert('본인 연차만 취소할 수 있습니다.'); return; }
+
+    const todayStr = dayjs().format('YYYY-MM-DD');
+    const futureDates = (req.dates || []).filter(d => d >= todayStr);
+    if (futureDates.length === 0) { alert('오늘 이후의 연차만 취소할 수 있습니다.'); return; }
+
+    // 중복 요청 방지
+    const { data: existing } = await db.from('pending_changes').select('id')
+        .eq('entity_type', 'leave_cancel').eq('entity_id', leaveId).eq('status', 'pending').maybeSingle();
+    if (existing) { alert('이미 취소 요청이 접수되어 승인 대기 중입니다.'); return; }
+
+    if (!confirm(`다음 날짜의 연차 취소를 요청하시겠습니까?\n${futureDates.join(', ')}\n\n매니저(또는 원장) 승인 후 취소됩니다.`)) return;
+
+    const { error: insErr } = await db.from('pending_changes').insert({
+        entity_type: 'leave_cancel',
+        entity_id: leaveId,
+        action: 'delete',
+        payload: { dates: futureDates },
+        created_by: userId,
+        status: 'pending'
+    });
+    if (insErr) { alert('취소 요청 실패: ' + insErr.message); return; }
+    alert('취소 요청이 접수되었습니다. 승인 후 반영됩니다.');
+    await renderEmployeePortal();
+};
+
+// 취소 요청 철회 (승인 전 본인이 거둬들임)
+window.handleWithdrawCancel = async function (changeId) {
+    if (!confirm('취소 요청을 철회하시겠습니까?')) return;
+    const { error } = await db.from('pending_changes').delete()
+        .eq('id', changeId).eq('created_by', state.currentUser.id);
+    if (error) { alert('철회 실패: ' + error.message); return; }
+    await renderEmployeePortal();
+};
+
 let selectedDatesForLeave = [];
 let employeeCalendarInstance = null;
 let leaveBlockedDates = new Set(); // 연차 신청 불가일 (매니저가 스케줄 그리드에서 지정)
 
-function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
+function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othersApproved = [], othersPending = []) {
     const container = _('#employee-calendar-container');
 
     if (!container) return;
@@ -1376,6 +1467,24 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = []) {
                     color: '#f59e0b',
                     textColor: '#ffffff',
                     classNames: ['pending-leave']
+                })),
+                // 다른 직원 — 확정(approved): 또렷하게 이름 표시
+                ...othersApproved.map(o => ({
+                    title: o.name,
+                    start: o.date,
+                    allDay: true,
+                    color: '#64748b',
+                    textColor: '#ffffff',
+                    classNames: ['other-approved']
+                })),
+                // 다른 직원 — 확정 전(pending): 흐리게/점선 + 이름
+                ...othersPending.map(o => ({
+                    title: o.name,
+                    start: o.date,
+                    allDay: true,
+                    color: '#e5e7eb',
+                    textColor: '#6b7280',
+                    classNames: ['other-pending']
                 })),
                 ...selectedDatesForLeave.map(date => ({
                     title: selectedTitle,

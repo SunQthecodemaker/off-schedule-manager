@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260612c';
+import { state, db, isVisibleIn } from './state.js?v=20260623a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260612c';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260612c';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260623a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260623a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -999,7 +999,12 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         return map;
     }, {});
 
-    const filteredRequests = leaveRequests.filter(req => employeeNameMap[req.employee_id]);
+    // 취소 완료(soft cancel)된 신청은 목록에서 제외
+    const filteredRequests = leaveRequests.filter(req => employeeNameMap[req.employee_id] && req.status !== 'cancelled');
+
+    // 직원의 연차 취소 요청(pending) — entity_id(연차id) → pending_changes row
+    const cancelMap = {};
+    (state.management.pendingCancels || []).forEach(c => { cancelMap[c.entity_id] = c; });
 
     // 월별 그룹핑 (한 신청이 월을 걸치면 각 월에 분해)
     const monthGroups = {};
@@ -1052,8 +1057,16 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
             middleText = '생략'; middleColor = 'text-gray-400 line-through'; middleStatus = 'skipped';
         }
         const currentUser = state.currentUser;
+        const cancelReq = cancelMap[req.id];
         let actions = '';
-        if (readOnly) {
+        if (cancelReq && !readOnly && (currentUser.role === 'admin' || currentUser.isManager)) {
+            // 직원이 취소 요청한 신청 — 매니저 단독으로도 승인/반려 가능 (즉시 확정)
+            actions = `<div class="text-[11px] text-orange-600 font-semibold mb-1">🗑 취소 요청</div>
+                <button onclick="window.handleCancelApproval(${cancelReq.id})" class="text-xs bg-orange-600 text-white px-2 py-1 rounded hover:bg-orange-700">취소 승인</button>
+                <button onclick="window.handleCancelReject(${cancelReq.id})" class="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 ml-1">취소 반려</button>`;
+        } else if (cancelReq && readOnly) {
+            actions = `<span class="text-xs text-orange-600 font-semibold">취소 요청됨</span>`;
+        } else if (readOnly) {
             actions = `<span class="text-xs ${finalColor} font-semibold">${finalText}</span>`;
         } else if (finalStatus === 'rejected') {
             actions = '<span class="text-xs text-red-400">반려됨</span>';
@@ -1808,7 +1821,16 @@ window.handleMiddleApproval = async function (requestId, status) {
         const r = await stageChange('leave_approval', requestId, 'update',
             { decision: status, reason: reason || null }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
+        // 매니저 1차 도장은 즉시 leave_requests 에도 기록 → 매니저 본인 화면 결재현황에 "매니저: 승인" 반영.
+        // status(최종)는 그대로 pending → 일반 직원에겐 여전히 "대기"(원장 최종확정 원칙 유지).
+        // 원장 staging 승인 시 applyLeaveApproval 이 동일 값 idempotent 재기록.
+        await db.from('leave_requests').update({
+            middle_manager_id: currentUser.id,
+            middle_manager_status: 'approved',
+            middle_approved_at: new Date().toISOString()
+        }).eq('id', requestId);
         notifyStaged();
+        await window.loadAndRenderManagement();
         return;
     }
 
@@ -1838,6 +1860,45 @@ window.handleMiddleApproval = async function (requestId, status) {
     } catch (error) {
         console.error('중간 승인 처리 오류:', error);
         alert('처리 중 오류가 발생했습니다: ' + error.message);
+    }
+};
+
+// 연차 취소 요청 승인 (매니저 단독 또는 원장 — 즉시 확정, 원장 최종결재 불필요)
+window.handleCancelApproval = async function (changeId) {
+    const currentUser = state.currentUser;
+    if (currentUser.role !== 'admin' && !currentUser.isManager) {
+        alert('권한이 없습니다.');
+        return;
+    }
+    if (!confirm('이 연차 취소 요청을 승인하시겠습니까?\n승인하면 해당 연차가 취소됩니다.')) return;
+    try {
+        const r = await approvePendingChange(changeId);
+        if (!r.ok) throw new Error(r.error);
+        alert('취소 요청이 승인되었습니다.');
+        await window.loadAndRenderManagement();
+    } catch (e) {
+        console.error('취소 승인 오류:', e);
+        alert('처리 중 오류가 발생했습니다: ' + e.message);
+    }
+};
+
+// 연차 취소 요청 반려 (매니저 단독 또는 원장)
+window.handleCancelReject = async function (changeId) {
+    const currentUser = state.currentUser;
+    if (currentUser.role !== 'admin' && !currentUser.isManager) {
+        alert('권한이 없습니다.');
+        return;
+    }
+    const reason = prompt('취소 반려 사유를 입력해주세요 (선택):') ?? '';
+    if (!confirm('이 취소 요청을 반려하시겠습니까?\n반려하면 연차는 그대로 유지됩니다.')) return;
+    try {
+        const r = await rejectPendingChange(changeId, reason || null);
+        if (!r.ok) throw new Error(r.error);
+        alert('취소 요청이 반려되었습니다.');
+        await window.loadAndRenderManagement();
+    } catch (e) {
+        console.error('취소 반려 오류:', e);
+        alert('처리 중 오류가 발생했습니다: ' + e.message);
     }
 };
 

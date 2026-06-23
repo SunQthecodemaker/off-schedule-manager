@@ -5,7 +5,7 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20260612c';
+import { state, db } from './state.js?v=20260623a';
 import { dataUrlToBlob } from './welfare.js';
 
 // ---------- 매니저 측: 임시저장 ----------
@@ -169,6 +169,8 @@ async function applyChange(change) {
                 return await applyLeaveApproval(action, entity_id, payload, change.reviewed_by);
             case 'leave_request':
                 return await applyLeaveRequest(action, entity_id, payload);
+            case 'leave_cancel':
+                return await applyLeaveCancel(entity_id, payload);
             case 'document_request':
                 return await applyDocumentRequest(action, entity_id, payload);
             case 'document':
@@ -325,6 +327,31 @@ async function applyLeaveRequest(action, id, payload) {
         return error ? { ok: false, error: error.message } : { ok: true };
     }
     return { ok: false, error: 'unknown action' };
+}
+
+// 직원의 연차 취소 요청 승인 (매니저 단독 또는 원장).
+// payload: { dates: [취소할 날짜들 — 보통 '오늘 이후'], reason? }
+// - 취소 대상 날짜를 leave_requests.dates 에서 제거.
+// - 남는 날짜가 없으면 status='cancelled' (DELETE 안 함 — anon DELETE RLS 회피 + 감사 추적 보존).
+// - 일부만 취소(과거+미래 혼합)면 dates 만 갱신하고 status 유지.
+async function applyLeaveCancel(id, payload) {
+    const cancelDates = Array.isArray(payload?.dates) ? payload.dates : [];
+    const { data: req, error: loadErr } = await db.from('leave_requests')
+        .select('dates, status').eq('id', id).maybeSingle();
+    if (loadErr) return { ok: false, error: loadErr.message };
+    if (!req) return { ok: false, error: '연차 신청을 찾을 수 없습니다 (이미 삭제/취소됨).' };
+
+    const curDates = Array.isArray(req.dates) ? req.dates : [];
+    const remaining = cancelDates.length > 0
+        ? curDates.filter(d => !cancelDates.includes(d))
+        : [];  // 취소 날짜 미지정 → 전체 취소로 간주
+
+    const updateData = (remaining.length > 0)
+        ? { dates: remaining }                       // 일부 취소 — status 유지
+        : { dates: [], status: 'cancelled' };        // 전체 취소 — soft cancel
+
+    const { error } = await db.from('leave_requests').update(updateData).eq('id', id);
+    return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 async function applyDocumentRequest(action, id, payload) {

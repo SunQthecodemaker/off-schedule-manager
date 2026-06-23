@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260612c';
+import { state, db } from './state.js?v=20260623a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260612c';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260612c';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260612c';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260612c';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260612c';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260612c';
-import { renderWelfareTab } from './welfare-ui.js?v=20260612c';
+import { renderScheduleManagement } from './schedule.js?v=20260623a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260623a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260623a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260623a';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260623a';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260623a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260623a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -29,7 +29,7 @@ if (window.dayjs_plugin_isSameOrBefore) {
 // admin 전용 (매니저는 제출자라 표시 안 함).
 // =========================================================================================
 const ENTITY_TO_TAB = {
-    leave_request: 'leaveList', leave_approval: 'leaveList',
+    leave_request: 'leaveList', leave_approval: 'leaveList', leave_cancel: 'leaveList',
     leave_management: 'leaveManagement',
     document: 'submittedDocs', document_request: 'submittedDocs',
     employee: 'management', department: 'department',
@@ -38,7 +38,7 @@ const ENTITY_TO_TAB = {
 };
 const ENTITY_LABEL = {
     employee: '직원', department: '부서', leave_management: '연차관리',
-    leave_request: '연차', leave_approval: '연차결재',
+    leave_request: '연차', leave_approval: '연차결재', leave_cancel: '연차취소',
     document: '서류', document_request: '서류요청', form_template: '서식',
     welfare_record: '복지', welfare_fulfillment: '복지이행',
 };
@@ -74,7 +74,7 @@ async function loadManagementData() {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes, settingsAdminRes, pendingLeaveRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes, settingsAdminRes, pendingLeaveRes, pendingCancelRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -88,7 +88,8 @@ async function loadManagementData() {
             db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle(),
             db.from('app_settings').select('value').eq('key', 'leave_blocked_dates').maybeSingle(),
             db.from('app_settings').select('value').eq('key', 'show_test_employees_admin').maybeSingle(),
-            db.from('pending_changes').select('*').eq('status', 'pending').eq('entity_type', 'leave_management').order('created_at', { ascending: true })
+            db.from('pending_changes').select('*').eq('status', 'pending').eq('entity_type', 'leave_management').order('created_at', { ascending: true }),
+            db.from('pending_changes').select('*').eq('status', 'pending').eq('entity_type', 'leave_cancel').order('created_at', { ascending: true })
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -106,6 +107,8 @@ async function loadManagementData() {
         state.management.departments = departmentsRes.data || [];
         state.management.documentRequests = docRequestsRes.data || [];
         state.management.pendingLeaveChanges = (pendingLeaveRes && !pendingLeaveRes.error) ? (pendingLeaveRes.data || []) : [];
+        // 연차 취소 요청(직원 → 매니저/원장 승인) — entity_type='leave_cancel'
+        state.management.pendingCancels = (pendingCancelRes && !pendingCancelRes.error) ? (pendingCancelRes.data || []) : [];
         state.showTestEmployees = !!(settingsRes && settingsRes.data && settingsRes.data.value === true);
         // 최고관리자 본인 화면 토글: 저장된 값 없으면 기본 ON (현행 admin-항상-노출 동작 유지)
         state.showTestEmployeesAdmin = (settingsAdminRes && settingsAdminRes.data)
@@ -741,6 +744,10 @@ function summarizeChange(item) {
     }
     if (item.entity_type === 'leave_request') return formatLeaveRequest(item);
     if (item.entity_type === 'leave_approval') return formatLeaveApproval(item);
+    if (item.entity_type === 'leave_cancel') {
+        const ds = (item.payload && Array.isArray(item.payload.dates)) ? item.payload.dates.join(', ') : '';
+        return '연차 취소 요청' + (ds ? ` · ${ds}` : '');
+    }
 
     const keys = Object.keys(item.payload).slice(0, 6);
     return keys.map(k => {

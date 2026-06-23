@@ -2122,6 +2122,19 @@ body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화�
     background-color: #3b82f6 !important;
     color: #ffffff !important;
 }
+/* 다른 직원 연차 — 확정(approved): 또렷한 슬레이트 + 이름 */
+#employee-calendar .fc-daygrid-event.other-approved {
+    background-color: #64748b !important;
+    color: #ffffff !important;
+    border-color: #64748b !important;
+}
+/* 다른 직원 연차 — 확정 전(pending): 흐리게 + 점선 (아직 확정 안 됨) */
+#employee-calendar .fc-daygrid-event.other-pending {
+    background-color: #f3f4f6 !important;
+    color: #9ca3af !important;
+    border: 1px dashed #cbd5e1 !important;
+    opacity: 0.7;
+}
 
 /* pending — 연골드 배경 + 진골드 글자 */
 .fc-leave-pending,
