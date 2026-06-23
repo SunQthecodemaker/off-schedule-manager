@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260623a';
+import { state, db, isVisibleIn } from './state.js?v=20260623b';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260623a';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260623a';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260623b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260623b';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1006,6 +1006,12 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
     const cancelMap = {};
     (state.management.pendingCancels || []).forEach(c => { cancelMap[c.entity_id] = c; });
 
+    // 매니저가 승인했지만 원장 최종결재 전(staging) — pending_changes(leave_approval, decision=approved) overlay.
+    // 매니저=임시저장 원칙상 leave_requests 는 안 건드리므로, 결재현황 "매니저: 승인" 은 이 큐를 읽어 표기.
+    const stagedApprovalSet = new Set((state.management.pendingApprovals || [])
+        .filter(p => p.payload?.decision === 'approved')
+        .map(p => p.entity_id));
+
     // 월별 그룹핑 (한 신청이 월을 걸치면 각 월에 분해)
     const monthGroups = {};
     filteredRequests.forEach(req => {
@@ -1049,6 +1055,8 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         const finalText = { pending: '대기', approved: '승인', rejected: '반려' }[finalStatus] || '대기';
         const finalColor = { pending: 'text-yellow-600', approved: 'text-green-600', rejected: 'text-red-600' }[finalStatus] || 'text-yellow-600';
         let middleStatus = req.middle_manager_status || 'pending';
+        // staging 큐에 매니저 승인이 들어와 있으면(아직 원장 결재 전) "매니저: 승인" 으로 표기
+        if (middleStatus === 'pending' && stagedApprovalSet.has(req.id)) middleStatus = 'approved';
         let middleText = '대기', middleColor = 'text-yellow-600';
         if (middleStatus === 'approved') { middleText = '승인'; middleColor = 'text-green-600'; }
         else if (middleStatus === 'rejected') { middleText = '반려'; middleColor = 'text-red-600'; }
@@ -1821,15 +1829,9 @@ window.handleMiddleApproval = async function (requestId, status) {
         const r = await stageChange('leave_approval', requestId, 'update',
             { decision: status, reason: reason || null }, original);
         if (!r.ok) return alert('임시저장 실패: ' + r.error);
-        // 매니저 1차 도장은 즉시 leave_requests 에도 기록 → 매니저 본인 화면 결재현황에 "매니저: 승인" 반영.
-        // status(최종)는 그대로 pending → 일반 직원에겐 여전히 "대기"(원장 최종확정 원칙 유지).
-        // 원장 staging 승인 시 applyLeaveApproval 이 동일 값 idempotent 재기록.
-        await db.from('leave_requests').update({
-            middle_manager_id: currentUser.id,
-            middle_manager_status: 'approved',
-            middle_approved_at: new Date().toISOString()
-        }).eq('id', requestId);
         notifyStaged();
+        // 매니저 1차 승인은 leave_requests 를 직접 안 건드림(매니저=임시저장 원칙). 결재현황의 "매니저: 승인" 은
+        // buildRow 가 pending_changes(leave_approval) overlay 로 읽어 표기 → 과거 승인분도 자동 반영, 원장 반려 시 자동 환원.
         await window.loadAndRenderManagement();
         return;
     }
