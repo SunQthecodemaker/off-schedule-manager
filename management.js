@@ -1103,7 +1103,7 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         const checkboxCell = (isAdmin && !readOnly)
             ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
             : '';
-        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
+        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-middle="${middleStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
             ${checkboxCell}
             <td class="py-1 px-2 text-sm">${employeeName}</td>
             <td class="py-1 px-2 text-sm">${datesText}${req.created_at ? ` <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span>` : ''}</td>
@@ -1372,6 +1372,7 @@ export function getLeaveListHTML() {
                         <button onclick="window.filterLeaveList('pending')" id="filter-pending" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">대기중</button>
                         <button onclick="window.filterLeaveList('approved')" id="filter-approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">승인됨</button>
                         <button onclick="window.filterLeaveList('rejected')" id="filter-rejected" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">반려됨</button>
+                        ${isAdmin ? `<button onclick="window.filterLeaveList('manager_approved')" id="filter-manager_approved" class="filter-btn px-3 py-1 text-sm rounded bg-gray-200">매니저승인✓ 최종대기</button>` : ''}
                     </div>
                     <div class="flex gap-2 items-center ml-4">
                         <label class="text-sm font-semibold ml-2">직원:</label>
@@ -1449,29 +1450,14 @@ window.toggleAllLeaveSelection = function (checked) {
     document.querySelectorAll('.leave-select-check').forEach(cb => { cb.checked = checked; });
 };
 
-// 일괄 최종 승인 helper (handleFinalApproval 의 confirm 우회 + db 직접 update)
+// 일괄 최종 승인 helper (handleFinalApproval 의 confirm 우회 + finalizeApproval 공통 경로)
+// finalizeApproval 가 매니저 staging 승인 소비 + 매니저='승인'/'생략' 도장을 일관 처리.
 async function bulkApproveLeavesHelper(ids) {
-    const currentUser = state.currentUser;
     let success = 0, fail = 0;
     for (const id of ids) {
         try {
-            // 매니저 단계 미처리면 skipped 로 표기
-            const { data: req } = await db.from('leave_requests')
-                .select('middle_manager_status')
-                .eq('id', id)
-                .single();
-            const updateData = {
-                final_manager_id: currentUser.id,
-                final_manager_status: 'approved',
-                final_approved_at: new Date().toISOString(),
-                status: 'approved'
-            };
-            if (req && req.middle_manager_status !== 'approved' && req.middle_manager_status !== 'rejected') {
-                updateData.middle_manager_status = 'skipped';
-            }
-            const { error } = await db.from('leave_requests').update(updateData).eq('id', id);
-            if (error) throw error;
-            await syncLeaveToSchedules(id);
+            const r = await finalizeApproval(id);
+            if (!r.ok) throw new Error(r.error);
             success++;
         } catch (e) {
             console.error('일괄 승인 실패:', id, e);
@@ -1498,9 +1484,7 @@ window.bulkApproveLeaves = async function (scope) {
     if (!confirm(`${ids.length}건을 일괄 최종 승인합니다. 계속할까요?`)) return;
     const { success, fail } = await bulkApproveLeavesHelper(ids);
     alert(`승인 완료: ${success}건` + (fail > 0 ? ` / 실패: ${fail}건` : ''));
-    if (typeof window.loadAndRenderManagement === 'function') {
-        await window.loadAndRenderManagement();
-    }
+    await refreshAfterLeaveDecision();
 };
 
 // 목록 필터
@@ -1584,7 +1568,15 @@ function applyListFilters() {
     const rows = document.querySelectorAll('.leave-row');
 
     rows.forEach(row => {
-        const statusMatch = currentListStatus === 'all' || row.dataset.status === currentListStatus;
+        let statusMatch;
+        if (currentListStatus === 'all') {
+            statusMatch = true;
+        } else if (currentListStatus === 'manager_approved') {
+            // 매니저 승인 완료(실제 도장 또는 staging overlay) & 원장 최종 대기만
+            statusMatch = row.dataset.middle === 'approved' && row.dataset.status === 'pending';
+        } else {
+            statusMatch = row.dataset.status === currentListStatus;
+        }
         const employeeMatch = currentListEmployee === 'all' || row.dataset.employeeId === currentListEmployee;
         row.style.display = (statusMatch && employeeMatch) ? '' : 'none';
     });
@@ -1904,7 +1896,47 @@ window.handleCancelReject = async function (changeId) {
     }
 };
 
-// 최종 승인 처리 (관리자)
+// 특정 신청에 걸린 매니저 1차 승인(staging) 행 — overlay/소비 판정 공통.
+function getStagedApproval(requestId) {
+    return (state.management.pendingApprovals || [])
+        .find(p => p.entity_id === requestId && p.payload?.decision === 'approved') || null;
+}
+
+// 원장 최종 승인 1건 처리 공통 진입점.
+// - 매니저 staging 승인이 있으면 그 경로(approvePendingChange)로 소비 → 매니저='승인'·최종='승인'
+//   ·schedules 동기화 + pending_changes 행 소비(상단 배너 정리)가 한 번에.
+// - 없으면 원장 단독 확정 → 매니저 단계 '생략'(skipped) 도장.
+async function finalizeApproval(requestId) {
+    const currentUser = state.currentUser;
+    const stagedRow = getStagedApproval(requestId);
+    if (stagedRow) {
+        return await approvePendingChange(stagedRow.id);
+    }
+    const { data: req } = await db.from('leave_requests')
+        .select('middle_manager_status').eq('id', requestId).single();
+    const updateData = {
+        final_manager_id: currentUser.id,
+        final_manager_status: 'approved',
+        final_approved_at: new Date().toISOString(),
+        status: 'approved'
+    };
+    if (req && req.middle_manager_status !== 'approved' && req.middle_manager_status !== 'rejected') {
+        updateData.middle_manager_status = 'skipped';
+    }
+    const { error } = await db.from('leave_requests').update(updateData).eq('id', requestId);
+    if (error) return { ok: false, error: error.message };
+    await syncLeaveToSchedules(requestId);
+    return { ok: true };
+}
+
+// 연차 승인/반려 후 목록 + 상단 알람 배너 + 대시보드 "승인 대기" 카드 일괄 동기화.
+async function refreshAfterLeaveDecision() {
+    await window.loadAndRenderManagement?.();
+    await window.refreshApprovalBanner?.();   // _pendingCache 재로드 + 배너/탭/콘텐츠 재렌더
+    window.refreshAdminSummary?.();           // 대시보드 카드(승인 대기 건수)
+}
+
+// 최종 승인/반려 처리 (관리자)
 window.handleFinalApproval = async function (requestId, status) {
     const currentUser = state.currentUser;
 
@@ -1913,46 +1945,47 @@ window.handleFinalApproval = async function (requestId, status) {
         return;
     }
 
+    // 매니저 승인 여부 (실제 도장 또는 staging overlay) — 생략 확인 메시지 분기용
+    const reqObj = state.management.leaveRequests.find(r => r.id === requestId);
+    const managerApproved = !!getStagedApproval(requestId) || reqObj?.middle_manager_status === 'approved';
+
     if (status === 'rejected') {
         const reason = prompt('반려 사유를 입력해주세요:');
         if (!reason) return;
+        if (!confirm('반려하시겠습니까?')) return;
+        try {
+            const { error } = await db.from('leave_requests').update({
+                final_manager_id: currentUser.id,
+                final_manager_status: 'rejected',
+                final_approved_at: new Date().toISOString(),
+                status: 'rejected',
+                rejection_reason: reason
+            }).eq('id', requestId);
+            if (error) throw error;
+            // 매니저 임시저장 승인이 걸려 있으면 함께 소비 (배너 정리)
+            const stagedRow = (state.management.pendingApprovals || [])
+                .find(p => p.entity_id === requestId);
+            if (stagedRow) await rejectPendingChange(stagedRow.id, reason);
+            alert('반려되었습니다.');
+            await refreshAfterLeaveDecision();
+        } catch (error) {
+            console.error('최종 반려 처리 오류:', error);
+            alert('처리 중 오류가 발생했습니다: ' + error.message);
+        }
+        return;
     }
 
-    const confirmed = confirm(status === 'approved' ? '최종 승인하시겠습니까?' : '반려하시겠습니까?');
-    if (!confirmed) return;
+    // status === 'approved'
+    const confirmMsg = managerApproved
+        ? '최종 승인하시겠습니까?'
+        : '⚠️ 이 신청은 아직 매니저 승인 전입니다.\n매니저 승인을 생략하고 바로 최종 확정하시겠습니까?';
+    if (!confirm(confirmMsg)) return;
 
     try {
-        const updateData = {
-            final_manager_id: currentUser.id,
-            final_manager_status: status,
-            final_approved_at: new Date().toISOString(),
-            status: status // 기존 status 필드도 업데이트
-        };
-
-        // 매니저 승인을 건너뛴 경우
-        const { data: request } = await db.from('leave_requests')
-            .select('middle_manager_status')
-            .eq('id', requestId)
-            .single();
-
-        if (request && request.middle_manager_status !== 'approved' && request.middle_manager_status !== 'rejected') {
-            updateData.middle_manager_status = 'skipped';
-        }
-
-        const { error } = await db.from('leave_requests')
-            .update(updateData)
-            .eq('id', requestId);
-
-        if (error) throw error;
-
-        // 승인 시 schedules 테이블 동기화
-        if (status === 'approved') {
-            await syncLeaveToSchedules(requestId);
-        }
-
-        alert(status === 'approved' ? '최종 승인이 완료되었습니다.' : '반려되었습니다.');
-        await window.loadAndRenderManagement();
-
+        const r = await finalizeApproval(requestId);
+        if (!r.ok) throw new Error(r.error);
+        alert(managerApproved ? '최종 승인이 완료되었습니다.' : '매니저 승인을 생략하고 최종 확정했습니다.');
+        await refreshAfterLeaveDecision();
     } catch (error) {
         console.error('최종 승인 처리 오류:', error);
         alert('처리 중 오류가 발생했습니다: ' + error.message);
