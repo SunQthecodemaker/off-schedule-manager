@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260623b';
+import { state, db } from './state.js?v=20260624a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260623b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260623b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260623b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260623b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260623b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260624a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260624a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260624a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260624a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260624a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -965,7 +965,9 @@ async function loadEmployeeData() {
         const baseCurrentDetails = getLeaveDetails(state.currentUser);
 
         // offset 만큼 이동한 기준일(simDate) 생성
-        const simDate = dayjs(baseCurrentDetails.periodStart).add(offset, 'year').add(1, 'day').toDate();
+        // ⚠️ 주기 끝(periodEnd)에 앵커 — 관리자(management.js:2861)와 동일. 주기 시작에 앵커하면
+        //    입사 첫 해(월차) 구간에서 법정연차가 0으로 잡혀 관리자 값과 어긋남(직전주기 확정 13→2 버그).
+        const simDate = dayjs(baseCurrentDetails.periodEnd).add(offset, 'year').toDate();
 
         // 타겟 주기 계산 (offset !== 0 인 과거/미래 주기는 수동 이월분을 미반영하여 순수 발생량만 계측)
         const targetUser = { ...state.currentUser, carried_over_leave: offset === 0 ? state.currentUser.carried_over_leave : 0 };
@@ -978,7 +980,8 @@ async function loadEmployeeData() {
         // --- 작년도(타겟 주기의 직전 주기) 연차 당겨쓰기(초과분) 추출 범위 산출 ---
         const lastYearStart = pStart.subtract(1, 'year');
         const lastYearEnd = pEnd.subtract(1, 'year');
-        const lastYearDetails = getLeaveDetails({ ...state.currentUser, carried_over_leave: 0 }, lastYearStart.add(1, 'day').toDate());
+        // 직전 주기도 주기 끝(lastYearEnd)에 앵커 — 관리자(management.js:2884)와 동일.
+        const lastYearDetails = getLeaveDetails({ ...state.currentUser, carried_over_leave: 0 }, lastYearEnd.toDate());
 
         let lastYearDates = [];
         approved.forEach(req => {
