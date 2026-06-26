@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260624b';
+import { state, db, isVisibleIn } from './state.js?v=20260626a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260624b';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260624b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260626a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260626a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1868,7 +1868,7 @@ window.handleCancelApproval = async function (changeId) {
     try {
         const r = await approvePendingChange(changeId);
         if (!r.ok) throw new Error(r.error);
-        alert('취소 요청이 승인되었습니다.');
+        alert(r.alreadyGone ? '이미 삭제된 연차라 알림만 정리했습니다.' : '취소 요청이 승인되었습니다.');
         await window.loadAndRenderManagement();
     } catch (e) {
         console.error('취소 승인 오류:', e);

@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260624b';
+import { state, db } from './state.js?v=20260626a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260624b';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260624b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260624b';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260624b';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260624b';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260624b';
-import { renderWelfareTab } from './welfare-ui.js?v=20260624b';
+import { renderScheduleManagement } from './schedule.js?v=20260626a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260626a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260626a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260626a';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260626a';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260626a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260626a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -275,6 +275,7 @@ async function onPendingSectionClick(e) {
         if (!confirm('이 변경을 승인하여 실제 데이터에 반영하시겠습니까?')) return;
         const r = await approvePendingChange(parseInt(btn.dataset.id, 10));
         if (!r.ok) return alert('승인 실패: ' + r.error);
+        if (r.alreadyGone) alert('이미 삭제된 연차라 알림만 정리했습니다.');
     } else if (act === 'reject') {
         const reason = prompt('반려 사유를 입력하세요:');
         if (!reason) return;

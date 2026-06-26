@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260624b';
+import { state, db } from './state.js?v=20260626a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260624b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260624b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260624b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260624b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260624b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260626a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260626a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260626a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260626a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260626a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -916,7 +916,7 @@ async function loadEmployeeData() {
     try {
         const userId = state.currentUser.id;
 
-        const [requestsRes, docRequestsRes, submittedDocsRes, othersLeaveRes, allEmpRes, myCancelRes] = await Promise.all([
+        const [requestsRes, docRequestsRes, submittedDocsRes, othersLeaveRes, allEmpRes, myCancelRes, holidaysRes] = await Promise.all([
             db.from('leave_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
             db.from('document_requests').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
             db.from('submitted_documents').select('*').eq('employee_id', userId).order('created_at', { ascending: false }),
@@ -924,12 +924,17 @@ async function loadEmployeeData() {
             db.from('leave_requests').select('employee_id, dates, leave_type, status').in('status', ['approved', 'pending']),
             db.from('employees').select('id, name, is_temp, resignation_date, email, role'),
             // 본인이 올린 취소 요청(승인 대기) — entity_id(연차id) 기준
-            db.from('pending_changes').select('id, entity_id').eq('entity_type', 'leave_cancel').eq('status', 'pending').eq('created_by', userId)
+            db.from('pending_changes').select('id, entity_id').eq('entity_type', 'leave_cancel').eq('status', 'pending').eq('created_by', userId),
+            // 공휴일/전원 휴무일 — 달력 배경색 표시용(월 이동 대비 전체 조회)
+            db.from('company_holidays').select('date')
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
 
         const requests = requestsRes.data || [];
+
+        // 공휴일/전원 휴무일 날짜 배열 (조회 실패 시 빈 배열)
+        const holidayDates = (holidaysRes && !holidaysRes.error ? holidaysRes.data || [] : []).map(h => h.date);
 
         // 본인 취소 요청 맵 (연차id → 취소요청 row)
         const myCancelMap = {};
@@ -1064,7 +1069,7 @@ async function loadEmployeeData() {
 
         const pending = requests.filter(r => r.status === 'pending');
         renderMyLeaveRequests(requests, myCancelMap);
-        initializeEmployeeCalendar(approved, pending, othersApproved, othersPending);
+        initializeEmployeeCalendar(approved, pending, othersApproved, othersPending, holidayDates);
         renderDocumentRequests();
         renderSubmittedDocuments();
         updateDocumentBadge();
@@ -1388,7 +1393,7 @@ let selectedDatesForLeave = [];
 let employeeCalendarInstance = null;
 let leaveBlockedDates = new Set(); // 연차 신청 불가일 (매니저가 스케줄 그리드에서 지정)
 
-function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othersApproved = [], othersPending = []) {
+function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othersApproved = [], othersPending = [], holidayDates = []) {
     const container = _('#employee-calendar-container');
 
     if (!container) return;
@@ -1455,6 +1460,14 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othe
             const pendingTitle = isMobile ? '대기' : '승인 대기중';
             const selectedTitle = isMobile ? '선택' : '선택됨';
             const events = [
+                // 공휴일/전원 휴무일 — 셀 배경색만 칠함(연차 카드와 안 겹침). 표시 전용(신청 차단 X)
+                ...holidayDates.map(date => ({
+                    start: date,
+                    allDay: true,
+                    display: 'background',
+                    color: '#fde2e2',
+                    classNames: ['company-holiday-day']
+                })),
                 ...approvedDates.map(date => ({
                     title: approvedTitle,
                     start: date,

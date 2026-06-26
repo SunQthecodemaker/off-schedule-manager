@@ -5,7 +5,7 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20260624b';
+import { state, db } from './state.js?v=20260626a';
 import { dataUrlToBlob } from './welfare.js';
 
 // ---------- 매니저 측: 임시저장 ----------
@@ -116,7 +116,7 @@ export async function approvePendingChange(id) {
         reviewed_at: new Date().toISOString()
     }).eq('id', id);
     if (updErr) return { ok: false, error: updErr.message };
-    return { ok: true };
+    return { ok: true, alreadyGone: applyResult.alreadyGone || false };
 }
 
 export async function rejectPendingChange(id, reason) {
@@ -339,7 +339,9 @@ async function applyLeaveCancel(id, payload) {
     const { data: req, error: loadErr } = await db.from('leave_requests')
         .select('dates, status').eq('id', id).maybeSingle();
     if (loadErr) return { ok: false, error: loadErr.message };
-    if (!req) return { ok: false, error: '연차 신청을 찾을 수 없습니다 (이미 삭제/취소됨).' };
+    // 대상 연차가 이미 삭제/취소됨 → 취소(=삭제) 목적이 이미 달성된 상태(멱등 성공).
+    // 에러로 막으면 고아 알림이 영구히 박혀 [승인]으로 정리가 안 됨 → ok 처리해 알림만 정리.
+    if (!req) return { ok: true, alreadyGone: true };
 
     const curDates = Array.isArray(req.dates) ? req.dates : [];
     const remaining = cancelDates.length > 0
