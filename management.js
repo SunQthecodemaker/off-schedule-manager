@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260626a';
+import { state, db, isVisibleIn } from './state.js?v=20260627a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260626a';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260626a';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260627a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260627a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -2875,6 +2875,76 @@ export function changeLeavePeriod(employeeId, delta) {
 // 전역 사용을 위해 window에 할당
 window.changeLeavePeriod = changeLeavePeriod;
 
+// 파트타임 '근무일 공휴일 = 유급 연차' 자동등록 식별 태그 (reason 에 포함)
+export const AUTO_HOLIDAY_LEAVE_TAG = '[자동] 공휴일 유급 연차';
+
+// 파트타임(주<5) 직원의 '근무일 공휴일'을 신청서 없이 유급 연차로 자동 정합(생성/제거).
+// - admin 세션에서만 실행. 멱등 — 차이 있을 때만 write. 변경 있으면 true 반환(호출부가 leave_requests 재조회).
+// - 일반 주5(이고은 등)·류효경(weeks/대체)은 getPartTimeHolidayLeaveDates 가 [] 반환 → 건드리지 않음.
+// - 본인이 직접 신청한 연차가 그 날짜를 이미 덮으면 자동등록 안 함(이중 차감 방지).
+// - 공휴일/근무규칙이 바뀌어 더는 대상 아닌 자동행은 제거(stale 차감 방지).
+export async function reconcileHolidayLeaves() {
+    if (state.userRole !== 'admin') return false;
+    const employees = state.management.employees || [];
+    const partTimers = employees.filter(e => (e.weekly_work_days || 5) < 5 && !e.is_temp
+        && !(e.email && e.email.startsWith('temp-')));
+    if (!partTimers.length) return false;
+
+    const ids = partTimers.map(e => e.id);
+    const [holRes, leaveRes] = await Promise.all([
+        db.from('company_holidays').select('date'),
+        db.from('leave_requests').select('id, employee_id, dates, reason, status').in('employee_id', ids)
+    ]);
+    if (holRes.error || leaveRes.error) {
+        console.warn('[holiday-leave] 정합 로드 실패:', holRes.error || leaveRes.error);
+        return false;
+    }
+    const holidayDates = (holRes.data || []).map(h => h.date);
+    const allLeaves = leaveRes.data || [];
+
+    let changed = false;
+    for (const emp of partTimers) {
+        const shouldHave = new Set(getPartTimeHolidayLeaveDates(emp, holidayDates));
+        const empLeaves = allLeaves.filter(l => l.employee_id === emp.id);
+        const manualCovered = new Set();   // 비-자동(본인 신청·수동) 연차가 덮은 날짜
+        const autoRows = [];               // 자동 등록 행 {id, date}
+        empLeaves.forEach(l => {
+            const isAuto = (l.reason || '').includes(AUTO_HOLIDAY_LEAVE_TAG);
+            const st = l.status || '';
+            (l.dates || []).forEach(d => {
+                if (isAuto) autoRows.push({ id: l.id, date: d });
+                else if (st !== 'rejected' && st !== 'cancelled') manualCovered.add(d);
+            });
+        });
+        const autoDates = new Set(autoRows.map(a => a.date));
+
+        // 생성: 대상인데 (수동 미적용 & 자동 미존재)
+        for (const d of shouldHave) {
+            if (manualCovered.has(d) || autoDates.has(d)) continue;
+            const { error } = await db.from('leave_requests').insert({
+                employee_id: emp.id,
+                employee_name: emp.name,
+                dates: [d],
+                leave_type: 'full',
+                status: 'approved',
+                middle_manager_status: 'approved',
+                final_manager_status: 'approved',
+                reason: `${AUTO_HOLIDAY_LEAVE_TAG} (신청서 없음)`
+            });
+            if (!error) changed = true;
+            else console.warn('[holiday-leave] 생성 실패', emp.name, d, error.message);
+        }
+        // 제거: 자동행인데 더는 대상 아님(공휴일/근무규칙 변경) 또는 수동 연차가 덮음(이중 차감)
+        for (const a of autoRows) {
+            if (!shouldHave.has(a.date) || manualCovered.has(a.date)) {
+                const { error } = await db.from('leave_requests').delete().eq('id', a.id);
+                if (!error) changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
 export function getLeaveStatusHTML() {
     window.periodOffsets = window.periodOffsets || {};
     const { employees, leaveRequests } = state.management;
@@ -3022,6 +3092,31 @@ export function getLeaveStatusHTML() {
 
     // 부서별 필터링을 위한 부서 목록
     const departments = [...new Set(validEmployees.map(e => e.dept || e.departments?.name).filter(Boolean))];
+
+    // 신청서 없이 공휴일로 자동 등록된 유급 연차 알림 (파트타임 근무일 공휴일 → 자동 차감)
+    const nameById = {};
+    validEmployees.forEach(e => { nameById[e.id] = e.name; });
+    const autoByName = {};
+    (leaveRequests || []).forEach(r => {
+        if (!nameById[r.employee_id]) return;
+        if (!(r.reason || '').includes(AUTO_HOLIDAY_LEAVE_TAG)) return;
+        if ((r.status || '') === 'cancelled' || (r.status || '') === 'rejected') return;
+        (r.dates || []).forEach(d => {
+            const nm = nameById[r.employee_id];
+            (autoByName[nm] = autoByName[nm] || []).push(d);
+        });
+    });
+    const autoEntries = Object.entries(autoByName);
+    const autoCount = autoEntries.reduce((s, [, ds]) => s + ds.length, 0);
+    const autoHolidayBannerHTML = autoCount === 0 ? '' : `
+        <div class="mb-4 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
+            <div class="font-bold text-amber-800">ℹ️ 신청서 없이 공휴일로 자동 등록된 유급 연차 (${autoCount}건)</div>
+            <div class="mt-1 text-amber-700">파트타임 직원의 <b>근무일에 공휴일이 겹쳐</b> 자동으로 유급 연차 차감되었습니다 (직원 신청서 없음):
+                ${autoEntries.map(([nm, ds]) =>
+                    `<span class="inline-block mr-2 mt-1"><b>${nm}</b> ${ds.sort().map(d => dayjs(d).format('M/D')).join('·')}</span>`
+                ).join('')}
+            </div>
+        </div>`;
 
     return `
         <style>
@@ -3182,6 +3277,8 @@ export function getLeaveStatusHTML() {
                 </select>
             </div>
         </div>
+
+        ${autoHolidayBannerHTML}
 
         <div class="leave-status-table-wrapper overflow-x-auto">
             <table class="leave-status-table min-w-full text-sm border">

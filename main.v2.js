@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260626a';
+import { state, db } from './state.js?v=20260627a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260626a';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange } from './management.js?v=20260626a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260626a';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260626a';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260626a';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260626a';
-import { renderWelfareTab } from './welfare-ui.js?v=20260626a';
+import { renderScheduleManagement } from './schedule.js?v=20260627a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange, reconcileHolidayLeaves } from './management.js?v=20260627a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260627a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260627a';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260627a';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260627a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260627a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -136,6 +136,17 @@ async function loadManagementData() {
         // 보는 달 등록 휴일 로드 (대시보드 근무일수 계산용 — 일요일과 함께 제외)
         if (!holidaysRes.error) {
             state.schedule.companyHolidays = new Set((holidaysRes.data || []).map(h => h.date));
+        }
+
+        // 파트타임 '근무일 공휴일 = 유급 연차' 자동 정합 (admin 세션, 멱등). 변경 시 연차 재조회.
+        try {
+            const changed = await reconcileHolidayLeaves();
+            if (changed) {
+                const reload = await db.from('leave_requests').select('*').order('created_at', { ascending: false });
+                if (!reload.error) state.management.leaveRequests = reload.data || [];
+            }
+        } catch (e) {
+            console.warn('[holiday-leave] 자동 정합 예외(비치명적):', e);
         }
     } catch (error) {
         console.error("관리 데이터 로딩 중 에러:", error);

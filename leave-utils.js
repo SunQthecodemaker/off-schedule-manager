@@ -105,6 +105,51 @@ export function getLeaveDetails(employee, referenceDate = null) {
 }
 
 // =========================================================================================
+// 파트타임 '근무일 공휴일 = 유급 연차' 감지 유틸 (schedule.js isFixedOffDay 와 동일 규칙)
+// 근거: .intent/schedule.md 파트타임 행 + grid_principles 15단계.
+//   - 파트타임(주<5, 김민재·박보현)은 근무요일 고정 계약 → 공휴일이 근무일과 겹치면 메울 수 없어 연차 차감.
+//   - 일반 주5·류효경(weeks/대체)은 대상 아님 → 이 함수가 [] 반환(주<5 게이트).
+// =========================================================================================
+function getCalWeekRow(dateStr) {
+    const d = dayjs(dateStr);
+    const firstOfMonth = d.startOf('month');
+    const firstDow = firstOfMonth.day();
+    const firstMonday = firstDow <= 1
+        ? firstOfMonth.subtract(firstDow === 0 ? 6 : 0, 'day')
+        : firstOfMonth.subtract(firstDow - 1, 'day');
+    const dow = d.day();
+    const thisMonday = dow === 0 ? d.subtract(6, 'day') : d.subtract(dow - 1, 'day');
+    return Math.floor(thisMonday.diff(firstMonday, 'day') / 7) + 1;
+}
+
+/** 특정 날짜가 그 직원의 고정 휴무일인지 (주차 규칙 weeks 포함) */
+function isFixedOffDate(rules, dateStr) {
+    if (!rules || !Array.isArray(rules) || rules.length === 0) return false;
+    const parsed = (typeof rules[0] === 'number') ? rules.map(d => ({ day: d, sub: true })) : rules;
+    const dow = dayjs(dateStr).day();
+    return parsed.some(r => {
+        if (r.day !== dow) return false;
+        if (!r.weeks) return true;
+        return r.weeks.includes(getCalWeekRow(dateStr));
+    });
+}
+
+/**
+ * 파트타임(주<5) 직원의 '근무일에 걸린 공휴일' 날짜 목록.
+ * = 공휴일 중 일요일 아님 + 그 직원 고정휴무일 아님(= 원래 근무했어야 할 날) → 신청서 없어도 유급 연차 차감 대상.
+ * @param {object} emp 직원 (weekly_work_days, regular_holiday_rules)
+ * @param {string[]} holidayDates company_holidays 날짜 배열
+ * @returns {string[]} 대상 날짜 (오름차순)
+ */
+export function getPartTimeHolidayLeaveDates(emp, holidayDates) {
+    if (!emp || (emp.weekly_work_days || 5) >= 5) return [];
+    const rules = emp.regular_holiday_rules;
+    return (holidayDates || [])
+        .filter(d => dayjs(d).day() !== 0 && !isFixedOffDate(rules, d))
+        .sort();
+}
+
+// =========================================================================================
 // 연차 소속 주기 판별 유틸리티 (수동 강제 배정 대응)
 // =========================================================================================
 export function isLeaveInPeriod(request, dateStr, periodStart, periodEnd) {
