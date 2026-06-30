@@ -1,6 +1,6 @@
 {
-  "name": "연차 관리 시스템",
-  "short_name": "연차관리",
+  "name": "프라임S 스케줄러",
+  "short_name": "프라임S",
   "start_url": "/index.html",
   "display": "standalone",
   "theme_color": "#ffffff",
