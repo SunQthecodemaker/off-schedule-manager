@@ -23,7 +23,7 @@
         };
     </script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
-    <link rel="stylesheet" href="style.css?v=20260703a" />
+    <link rel="stylesheet" href="style.css?v=20260703b" />
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
@@ -299,9 +299,9 @@
         }
     </style>
 
-    <script type="module" src="main.v2.js?v=20260703a"></script>
+    <script type="module" src="main.v2.js?v=20260703b"></script>
     <script type="module">
-        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20260703a';
+        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20260703b';
 
         document.addEventListener('DOMContentLoaded', () => {
             // 연차 신청 모달 관련
@@ -341,6 +341,9 @@
     <div id="date-context-menu" class="context-menu hidden">
         <div id="ctx-toggle-holiday" class="menu-item">
             📅 휴일 지정/해제
+        </div>
+        <div id="ctx-toggle-leaveblock" class="menu-item">
+            🚫 연차 불가일 지정/해제
         </div>
         <div class="border-t my-1"></div>
         <div id="ctx-copy-date" class="menu-item">

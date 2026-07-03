@@ -1,10 +1,10 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260703a';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260703b';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 // 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260703a';
+import { registerManualLeave } from './management.js?v=20260703b';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
@@ -4274,7 +4274,7 @@ function handleGlobalClickForMenu(e) {
     }
 }
 
-// ✨ 날짜 메뉴: 휴일 지정/해제
+// ✨ 날짜 메뉴: 휴일 지정/해제 — 휴무일(전원 휴무) 직접 토글
 function handleMenuToggleHoliday() {
     const dateContextMenu = document.getElementById('date-context-menu');
     const dateStr = dateContextMenu.dataset.date;
@@ -4282,11 +4282,25 @@ function handleMenuToggleHoliday() {
 
     dateContextMenu.classList.add('hidden');
 
-    // 날짜 헤더 더블클릭 로직을 활용하기 위해 가상 이벤트 생성 (코드 중복 방지)
-    const dayEl = document.querySelector(`.calendar-day[data-date="${dateStr}"]`);
-    if (dayEl) {
-        handleDateHeaderDblClick({ target: dayEl });
-    }
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트 안전망)
+    if (state.schedule?.isReadOnly) return;
+
+    // 우클릭 = 휴무일만 직접 토글 (연차 불가일은 별도 메뉴). 모달 없이 즉시.
+    toggleCompanyHoliday(dateStr);
+}
+
+// ✨ 날짜 메뉴: 연차 불가일 지정/해제 — 휴무일과 별개. 근무일이지만 연차 신청만 차단
+function handleMenuToggleLeaveBlock() {
+    const dateContextMenu = document.getElementById('date-context-menu');
+    const dateStr = dateContextMenu.dataset.date;
+    if (!dateStr) return;
+
+    dateContextMenu.classList.add('hidden');
+
+    // 원칙 16단계: 읽기 전용 모드에서는 모든 mutation 차단 (단일 게이트 안전망)
+    if (state.schedule?.isReadOnly) return;
+
+    toggleLeaveBlockedDate(dateStr);
 }
 
 // ✨ 날짜 메뉴: 복사
@@ -4449,6 +4463,7 @@ function initializeCalendarEvents() {
 
     // Binding new date menu
     const toggleHolidayBtn = document.getElementById('ctx-toggle-holiday');
+    const toggleLeaveBlockBtn = document.getElementById('ctx-toggle-leaveblock');
     const copyDateBtn = document.getElementById('ctx-copy-date');
     const pasteDateBtn = document.getElementById('ctx-paste-date');
     const selectAllDateBtn = document.getElementById('ctx-select-all-date');
@@ -4456,6 +4471,7 @@ function initializeCalendarEvents() {
     const applyLayoutDateBtn = document.getElementById('ctx-apply-layout-date');
 
     if (toggleHolidayBtn) toggleHolidayBtn.onclick = handleMenuToggleHoliday;
+    if (toggleLeaveBlockBtn) toggleLeaveBlockBtn.onclick = handleMenuToggleLeaveBlock;
     if (copyDateBtn) copyDateBtn.onclick = handleMenuCopyDate;
     if (pasteDateBtn) pasteDateBtn.onclick = handleMenuPasteDate;
     if (selectAllDateBtn) selectAllDateBtn.onclick = handleMenuSelectAllDate;
