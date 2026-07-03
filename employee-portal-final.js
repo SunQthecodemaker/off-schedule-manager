@@ -1,10 +1,10 @@
-import { state, db } from './state.js?v=20260627a';
+import { state, db } from './state.js?v=20260703a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260627a';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260627a';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260627a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260627a';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260627a';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260703a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260703a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260703a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260703a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260703a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1309,7 +1309,8 @@ function renderMyLeaveRequests(requests, cancelMap = {}) {
         const halfLabel = req.leave_type === 'am_half' ? ' (오전반차)' : req.leave_type === 'pm_half' ? ' (오후반차)' : '';
         if (halfLabel) dateDisplay += `<span class="text-[10px] text-amber-600">${halfLabel}</span>`;
 
-        // 취소 셀: 취소됨 / 취소 요청 중(철회 가능) / 취소 요청 버튼(오늘 이후 날짜 포함 시) / -
+        // 취소 셀: 취소됨 / 취소 요청 중(철회 가능) / 취소 버튼(오늘 이후 날짜 포함 시) / -
+        //  - 미승인(pending) = "취소"(즉시) / 승인됨(approved) = "취소 요청"(승인 필요)
         let cancelCell;
         const hasFuture = dates.some(d => d >= todayStr);
         if (req.status === 'cancelled') {
@@ -1318,7 +1319,10 @@ function renderMyLeaveRequests(requests, cancelMap = {}) {
             cancelCell = `<span class="text-xs text-orange-600 font-semibold">취소 요청 중</span>
                 <button onclick="window.handleWithdrawCancel(${cancelMap[req.id].id})" class="ml-1 text-[11px] text-gray-500 underline">철회</button>`;
         } else if (req.status !== 'rejected' && hasFuture) {
-            cancelCell = `<button onclick="window.handleRequestCancel(${req.id})" class="text-xs bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600">취소 요청</button>`;
+            const isPending = req.status === 'pending';
+            const btnLabel = isPending ? '취소' : '취소 요청';
+            const btnCls = isPending ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-500 hover:bg-gray-600';
+            cancelCell = `<button onclick="window.handleRequestCancel(${req.id})" class="text-xs ${btnCls} text-white px-2 py-1 rounded">${btnLabel}</button>`;
         } else {
             cancelCell = '<span class="text-xs text-gray-300">-</span>';
         }
@@ -1348,7 +1352,9 @@ function renderMyLeaveRequests(requests, cancelMap = {}) {
     `;
 }
 
-// 직원 본인 연차 취소 요청 (오늘 이후 날짜) → pending_changes(leave_cancel) INSERT. 매니저/원장 승인 후 반영.
+// 직원 본인 연차 취소 (오늘 이후 날짜). 상태별 분기:
+//  - 미승인(status='pending'): 승인 절차 없이 즉시 취소 (요청→승인 불필요).
+//  - 승인됨(status='approved'): pending_changes(leave_cancel) INSERT → 매니저/원장 승인 후 반영.
 window.handleRequestCancel = async function (leaveId) {
     const userId = state.currentUser.id;
     const { data: req, error } = await db.from('leave_requests')
@@ -1360,6 +1366,30 @@ window.handleRequestCancel = async function (leaveId) {
     const futureDates = (req.dates || []).filter(d => d >= todayStr);
     if (futureDates.length === 0) { alert('오늘 이후의 연차만 취소할 수 있습니다.'); return; }
 
+    // ── 미승인 연차 = 즉시 취소 (승인 절차 불필요) ──────────────────────────
+    if (req.status === 'pending') {
+        if (!confirm(`다음 날짜의 연차 신청을 취소하시겠습니까?\n${futureDates.join(', ')}\n\n(승인 전이라 즉시 취소됩니다.)`)) return;
+
+        // applyLeaveCancel 과 동일 로직: 미래 날짜만 제거, 전부 제거되면 soft cancel.
+        const curDates = Array.isArray(req.dates) ? req.dates : [];
+        const remaining = curDates.filter(d => !futureDates.includes(d));
+        const updateData = (remaining.length > 0)
+            ? { dates: remaining }
+            : { dates: [], status: 'cancelled' };
+        const { error: updErr } = await db.from('leave_requests').update(updateData).eq('id', leaveId);
+        if (updErr) { alert('취소 실패: ' + updErr.message); return; }
+
+        // 매니저가 이미 staging 승인만 해둔 잔여행 정리 — 안 그러면 나중에
+        // 원장이 그 leave_approval staging 을 승인할 때 취소된 연차가 되살아남.
+        await db.from('pending_changes').delete()
+            .eq('entity_type', 'leave_approval').eq('entity_id', leaveId).eq('status', 'pending');
+
+        alert('연차 신청이 취소되었습니다.');
+        await renderEmployeePortal();
+        return;
+    }
+
+    // ── 승인된 연차 = 요청→승인 (매니저/원장 확정 후 반영) ────────────────────
     // 중복 요청 방지
     const { data: existing } = await db.from('pending_changes').select('id')
         .eq('entity_type', 'leave_cancel').eq('entity_id', leaveId).eq('status', 'pending').maybeSingle();
