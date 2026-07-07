@@ -5227,13 +5227,23 @@ function handlePrintSchedule() {
     const holidays = state.schedule.companyHolidays || new Set();
     const DIRECTOR_DEPT_ID = 4; // 원장 부서 ID
 
-    // 부서 색상 맵 + 원장 여부 맵
+    // 부서 색상 맵 + 원장 여부 맵 (department_id·departments.id 혼용 대비 둘 다 확인)
     const deptColorMap = {};
     const isDirectorMap = {};
     allEmployees.forEach(emp => {
-        if (emp.departments?.id) deptColorMap[emp.id] = getDepartmentColor(emp.departments.id);
-        if (emp.department_id === DIRECTOR_DEPT_ID) isDirectorMap[emp.id] = true;
+        const deptId = emp.departments?.id ?? emp.department_id;
+        if (deptId != null) deptColorMap[emp.id] = getDepartmentColor(deptId);
+        if (emp.department_id === DIRECTOR_DEPT_ID || emp.departments?.id === DIRECTOR_DEPT_ID) {
+            isDirectorMap[emp.id] = true;
+        }
     });
+
+    // ✅ 화면 달력과 동일한 배치 정본을 쓰기 위한 컨텍스트 (루프 밖 1회 계산)
+    //    인쇄가 자체 필터(레코드 있는 직원만)로 배치하던 옛 방식은 기본배치(basePositions)로만
+    //    뜨는 원장 등을 누락시켜 화면과 불일치했음 → computeDayGridSlots 정본으로 통일.
+    const printBasePositions = getEmployeeBasePositions();
+    const printExcludedIds = getExcludedEmployeeIds();
+    const printActiveEmps = allEmployees.filter(e => isGridEmployee(e));
 
     // 주 단위로 날짜 모으기 (월~토)
     const weeks = [];
@@ -5246,22 +5256,27 @@ function handlePrintSchedule() {
             const isSaturday = current.day() === 6;
             const isHoliday = holidays.has(dateStr);
 
-            // 이 날짜의 직원을 grid_position 기반 32칸 그리드에 배치 (팀 구분 유지)
-            const daySchedules = state.schedule.schedules.filter(s => s.date === dateStr);
+            // 이 날짜의 직원을 화면 달력과 동일한 정본(computeDayGridSlots)으로 배치.
+            // (기본배치로만 뜨는 원장 포함 전원이 화면과 100% 일치하게 표기됨)
+            const rawSlots = computeDayGridSlots(dateStr, {
+                basePositions: printBasePositions,
+                excludedIds: printExcludedIds,
+                activeEmps: printActiveEmps
+            });
             const gridSlots = new Array(GRID_SIZE).fill(null);
 
-            daySchedules.forEach(s => {
-                if (s.employee_id <= 0) return; // 레거시 스페이서 레코드 skip (원칙 11단계)
-                const emp = allEmployees.find(e => e.id === s.employee_id);
+            rawSlots.forEach((slot, pos) => {
+                if (!slot) return;
+                const empStatus = slot._empStatus; // 'working' | 'off' | 'leave'
+
+                // 인쇄 viewMode 필터 (화면 렌더링과 동일 규칙)
+                if (viewMode === 'working' && empStatus !== 'working') return;
+                if (viewMode === 'off' && empStatus === 'working') return;
+
+                const emp = allEmployees.find(e => e.id === slot.employee_id);
                 if (!emp) return;
 
-                const pos = (s.grid_position >= 0 && s.grid_position < GRID_SIZE) ? s.grid_position : null;
-                if (pos == null) return;
-
-                if (viewMode === 'working' && s.status !== '근무') return;
-                if (viewMode === 'off' && s.status !== '휴무' && s.status !== '연차') return;
-
-                const status = s.status === '연차' ? 'leave' : s.status === '휴무' ? 'off' : 'working';
+                const status = empStatus === 'leave' ? 'leave' : empStatus === 'off' ? 'off' : 'working';
                 const isDirector = !!isDirectorMap[emp.id];
                 gridSlots[pos] = { name: emp.name, color: deptColorMap[emp.id] || '#999', status, isDirector };
             });
