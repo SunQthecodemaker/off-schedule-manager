@@ -4083,6 +4083,12 @@ function openRegularHolidayModal(employeeId, employeeName) {
                     </div>
                 </div>
 
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">적용 시작일</label>
+                    <p class="text-xs text-gray-400 mb-2">이 날짜부터 위 규칙 적용. <b>이전 날짜의 스케줄·검수는 옛 규칙 그대로</b> 유지됩니다.</p>
+                    <input type="date" id="modal-effective-from" class="w-full border rounded px-3 py-2" value="${dayjs().format('YYYY-MM-DD')}">
+                </div>
+
                 <div class="flex justify-end gap-2">
                     <button id="close-regular-modal" class="px-4 py-2 border rounded hover:bg-gray-100">취소</button>
                     <button onclick="handleSaveRegularHoliday(${employeeId})" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">저장</button>
@@ -4134,9 +4140,37 @@ window.handleSaveRegularHoliday = async function (employeeId) {
     const workDaysInput = document.getElementById('modal-work-days');
     const weeklyWorkDays = workDaysInput ? parseInt(workDaysInput.value) : 5;
 
+    // ── 효력일 타임라인 갱신 ──────────────────────────────────────────────
+    // 적용 시작일(effectiveFrom)부터 새 규칙 적용, 그 이전 날짜는 옛 규칙 보존.
+    const effInput = document.getElementById('modal-effective-from');
+    const effectiveFrom = (effInput && effInput.value) || dayjs().format('YYYY-MM-DD');
+    const todayStr = dayjs().format('YYYY-MM-DD');
+
+    const emp = state.management.employees.find(e => e.id === employeeId);
+    let timeline = Array.isArray(emp?.regular_holiday_timeline) ? [...emp.regular_holiday_timeline] : [];
+
+    // 최초 변경이면 과거 전체를 덮는 seed(현재 규칙)를 먼저 깔아 옛 규칙을 보존.
+    if (timeline.length === 0) {
+        timeline.push({ from: '0000-01-01', rules: emp?.regular_holiday_rules || [] });
+    }
+    // 같은/이후 효력일 항목은 재편집으로 간주하고 제거 후 새로 추가.
+    timeline = timeline.filter(e => e && e.from && e.from < effectiveFrom);
+    timeline.push({ from: effectiveFrom, rules: selectedRules });
+    timeline.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+
+    // 현재값 포인터(regular_holiday_rules) = 오늘 기준 유효 규칙.
+    let currentRules = selectedRules;
+    for (const e of timeline) {
+        if (e.from <= todayStr) currentRules = e.rules || [];
+    }
+
     try {
         const { error } = await db.from('employees')
-            .update({ regular_holiday_rules: selectedRules, weekly_work_days: weeklyWorkDays })
+            .update({
+                regular_holiday_rules: currentRules,
+                regular_holiday_timeline: timeline,
+                weekly_work_days: weeklyWorkDays
+            })
             .eq('id', employeeId);
 
         if (error) {
@@ -4147,7 +4181,12 @@ window.handleSaveRegularHoliday = async function (employeeId) {
                 throw error;
             }
         } else {
-            alert('근무 규칙이 저장되었습니다.');
+            const applyMsg = effectiveFrom > todayStr
+                ? `\n(${effectiveFrom}부터 적용 — 그 전날까지는 기존 규칙 유지)`
+                : effectiveFrom < todayStr
+                    ? `\n(${effectiveFrom}부터 소급 적용 — 그 전 날짜는 기존 규칙 유지)`
+                    : '';
+            alert('근무 규칙이 저장되었습니다.' + applyMsg);
             document.getElementById('regular-holiday-modal').remove();
             await window.loadAndRenderManagement();
         }

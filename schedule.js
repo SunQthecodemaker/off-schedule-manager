@@ -220,6 +220,27 @@ function isSubstitutable(rules, dayOfWeek, dateStr) {
     return rule ? rule.sub !== false : false;
 }
 
+/**
+ * 특정 날짜에 유효한 정기휴무 규칙 반환 (효력일 이력 반영).
+ * emp.regular_holiday_timeline = [{from:'YYYY-MM-DD', rules:[...]}].
+ * from <= dateStr 중 가장 최근 항목의 rules 를 그 날짜에 적용.
+ * 타임라인이 없거나(=[]) dateStr 미제공 시 현재값 포인터(regular_holiday_rules)로 폴백.
+ * → 정기휴무를 특정일부터 바꿔도 과거 날짜는 옛 규칙을 그대로 유지.
+ */
+export function getEffectiveHolidayRules(emp, dateStr) {
+    if (!emp) return [];
+    const timeline = emp.regular_holiday_timeline;
+    if (dateStr && Array.isArray(timeline) && timeline.length > 0) {
+        let best = null;
+        for (const entry of timeline) {
+            if (!entry || !entry.from) continue;
+            if (entry.from <= dateStr && (!best || entry.from > best.from)) best = entry;
+        }
+        if (best) return best.rules || [];
+    }
+    return emp.regular_holiday_rules || [];
+}
+
 // ═══════════════════════════════════════════════════════
 // ✅ 통합 네임카드 조작 헬퍼 (모든 이동/붙여넣기가 이 함수를 사용)
 // 공통 규칙:
@@ -1154,7 +1175,7 @@ function applyLayoutToSchedules(positionMap, targetDates, options = {}) {
                 const emp = empById.get(s.employee_id);
                 if (emp) {
                     const dow = dayjs(s.date).day();
-                    if (isFixedOffDay(emp.regular_holiday_rules, dow, s.date)) {
+                    if (isFixedOffDay(getEffectiveHolidayRules(emp, s.date), dow, s.date)) {
                         s.status = '휴무';
                         touched = true;
                     }
@@ -1181,7 +1202,7 @@ function applyLayoutToSchedules(positionMap, targetDates, options = {}) {
             activeEmps.forEach(emp => {
                 if (existingEmpIds.has(emp.id) || !positionMap.has(emp.id)) return;
                 const newPos = positionMap.get(emp.id);
-                const isOff = applyRegularOff && isFixedOffDay(emp.regular_holiday_rules, dow, dateStr);
+                const isOff = applyRegularOff && isFixedOffDay(getEffectiveHolidayRules(emp, dateStr), dow, dateStr);
                 const newSched = {
                     id: `layout-${Date.now()}-${emp.id}-${dateStr}`,
                     date: dateStr,
@@ -2045,7 +2066,7 @@ function getEmployeeStatusOnDate(empId, dateStr) {
     const emp = (state.management.employees || []).find(e => e.id === empId);
     if (emp) {
         const dow = dayjs(dateStr).day();
-        if (isFixedOffDay(emp.regular_holiday_rules, dow, dateStr)) return 'off';
+        if (isFixedOffDay(getEffectiveHolidayRules(emp, dateStr), dow, dateStr)) return 'off';
     }
 
     // 5. 그 외 → 기본 근무
@@ -5102,7 +5123,10 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
 
     // 직원별 검수
     const rows = targetEmployees.map(emp => {
-        const rules = emp.regular_holiday_rules;
+        // 검수는 주 단위 → 그 주 기준일(첫 영업일)의 유효 규칙 사용 (효력일 이력 반영).
+        // (한 주가 규칙 변경 경계를 가르는 경우는 실무상 없음 — 효력일은 보통 월 경계)
+        const weekRefDate = businessDays[0] || allDates[0] || null;
+        const rules = getEffectiveHolidayRules(emp, weekRefDate);
         const parsedRules = parseHolidayRules(rules);
         const weeklyWorkDays = emp.weekly_work_days || 5;
 
@@ -5763,7 +5787,7 @@ async function handleImportPreviousMonth() {
             if (schedulesForDay.length === 0) {
                 let positionCounter = 0;
                 allEmployees.filter(emp => isActiveOnDate(emp, targetDateStr)).forEach(emp => {
-                    if (!isFixedOffDay(emp.regular_holiday_rules, dow, targetDateStr)) {
+                    if (!isFixedOffDay(getEffectiveHolidayRules(emp, targetDateStr), dow, targetDateStr)) {
                         schedulesForDay.push({
                             date: targetDateStr,
                             employee_id: emp.id,

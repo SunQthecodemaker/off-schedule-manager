@@ -122,6 +122,25 @@ function getCalWeekRow(dateStr) {
     return Math.floor(thisMonday.diff(firstMonday, 'day') / 7) + 1;
 }
 
+/**
+ * 특정 날짜에 유효한 정기휴무 규칙 (효력일 이력 반영).
+ * schedule.js getEffectiveHolidayRules 와 동일 규칙 (모듈 결합 회피 위해 국소 복제).
+ * timeline: [{from:'YYYY-MM-DD', rules:[...]}] 중 from<=dateStr 최신. 없으면 regular_holiday_rules 폴백.
+ */
+function effectiveHolidayRules(emp, dateStr) {
+    if (!emp) return [];
+    const timeline = emp.regular_holiday_timeline;
+    if (dateStr && Array.isArray(timeline) && timeline.length > 0) {
+        let best = null;
+        for (const entry of timeline) {
+            if (!entry || !entry.from) continue;
+            if (entry.from <= dateStr && (!best || entry.from > best.from)) best = entry;
+        }
+        if (best) return best.rules || [];
+    }
+    return emp.regular_holiday_rules || [];
+}
+
 /** 특정 날짜가 그 직원의 고정 휴무일인지 (주차 규칙 weeks 포함) */
 function isFixedOffDate(rules, dateStr) {
     if (!rules || !Array.isArray(rules) || rules.length === 0) return false;
@@ -143,9 +162,9 @@ function isFixedOffDate(rules, dateStr) {
  */
 export function getPartTimeHolidayLeaveDates(emp, holidayDates) {
     if (!emp || (emp.weekly_work_days || 5) >= 5) return [];
-    const rules = emp.regular_holiday_rules;
+    // 날짜별 유효 규칙 사용 — 정기휴무를 특정일부터 바꿔도 과거 공휴일 판정은 옛 규칙 유지.
     return (holidayDates || [])
-        .filter(d => dayjs(d).day() !== 0 && !isFixedOffDate(rules, d))
+        .filter(d => dayjs(d).day() !== 0 && !isFixedOffDate(effectiveHolidayRules(emp, d), d))
         .sort();
 }
 
