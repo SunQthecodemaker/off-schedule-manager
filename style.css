@@ -2180,13 +2180,17 @@ body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화�
         display: grid;
         grid-template-columns: 3fr 2fr;
         gap: 1rem;
-        align-items: stretch;
+        /* start: 달력 컬럼이 우측 목록(아코디언) 높이에 맞춰 늘어나지 않게.
+           stretch 였을 때 목록이 길면 달력이 세로로 과도하게 커졌음. */
+        align-items: start;
     }
     /* 좌측 (달력) 자식 — flex column 으로 만들어 #leave-calendar-container 가 남은 높이 다 차지.
+       height 를 화면 기준으로 캡 → 한 화면에 들어오는 크기로 고정.
        min-height: 500px 으로 데이터 비어있어도 fc 가 깨지지 않게 보장. */
     .leave-list-wrapper > :first-child {
         display: flex;
         flex-direction: column;
+        height: min(680px, calc(100vh - 220px));
         min-height: 500px;
     }
     .leave-list-wrapper > :first-child > #leave-calendar-container {
