@@ -2198,3 +2198,24 @@ body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화�
         min-height: 0;
     }
 }
+
+/* =========================================================================
+   Tailwind v2.2.19 CDN 기본 빌드에 orange 팔레트가 빠져 있어 보충.
+   (yellow·green·blue 는 있으나 orange 부재 → bg/text/border-orange-* 무효)
+   이게 없으면 스케줄 '📩 승인 요청됨' pill·확정요청 배너·연차 취소 UI 등
+   orange 로 스타일된 요소가 배경/색 없이 깨져 보임 (흰 글자가 흰 배경에 묻힘).
+   코드에서 실제 사용하는 shade 만 표준 Tailwind orange 색으로 정의.
+   ========================================================================= */
+.bg-orange-50 { background-color: #fff7ed; }
+.bg-orange-100 { background-color: #ffedd5; }
+.bg-orange-200 { background-color: #fed7aa; }
+.bg-orange-500 { background-color: #f97316; }
+.bg-orange-600 { background-color: #ea580c; }
+.bg-orange-700 { background-color: #c2410c; }
+.text-orange-500 { color: #f97316; }
+.text-orange-600 { color: #ea580c; }
+.text-orange-700 { color: #c2410c; }
+.border-orange-300 { border-color: #fdba74; }
+.hover\:bg-orange-200:hover { background-color: #fed7aa; }
+.hover\:bg-orange-600:hover { background-color: #ea580c; }
+.hover\:bg-orange-700:hover { background-color: #c2410c; }
