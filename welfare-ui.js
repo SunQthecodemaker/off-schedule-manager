@@ -336,18 +336,32 @@ async function renderFulfillTab(pane) {
         return;
     }
 
-    // 월 축: min(가장 이른 시작월, 이번달-5) .. 이번달+5. 이행 가능은 이번달 직전까지.
+    // 표시 창: 이번 달 기준 6개월(이번 달 포함, [이번달-5 .. 이번달]). ◀▶ 로 6개월씩 이동.
+    const WINDOW = 6;
     const curM = dayjs().startOf('month');
     const curYm = curM.format('YYYY-MM');
     const lastEligibleYm = curM.subtract(1, 'month').format('YYYY-MM');
-    let axisStart = curM.subtract(5, 'month');
+    // 가장 이른 시작월 (◀ 하한)
+    let earliest = curM;
     records.forEach(r => {
         const s = dayjs(r.start_date).startOf('month');
-        if (s.isValid() && s.isBefore(axisStart)) axisStart = s;
+        if (s.isValid() && s.isBefore(earliest)) earliest = s;
     });
-    const axisEnd = curM.add(5, 'month');
+    const earliestYm = earliest.format('YYYY-MM');
+
+    // 앵커(창 오른쪽 끝) — 기본 이번 달. 범위 클램프.
+    state.welfare.fulfillAnchorEnd ??= curYm;
+    let anchorEnd = state.welfare.fulfillAnchorEnd;
+    if (anchorEnd > curYm) anchorEnd = curYm;
+    if (anchorEnd < earliestYm) anchorEnd = earliestYm;
+    state.welfare.fulfillAnchorEnd = anchorEnd;
+
+    const anchorM = dayjs(anchorEnd + '-01');
     const months = [];
-    for (let m = axisStart; m.isSameOrBefore(axisEnd, 'month'); m = m.add(1, 'month')) months.push(m.format('YYYY-MM'));
+    for (let i = WINDOW - 1; i >= 0; i--) months.push(anchorM.subtract(i, 'month').format('YYYY-MM'));
+    const canOlder = months[0] > earliestYm;   // 더 과거 데이터 존재
+    const canNewer = anchorEnd < curYm;         // 이번 달보다 미래로는 안 감
+    const rangeLabel = `${months[0].replace('-', '.')} ~ ${months[months.length - 1].replace('-', '.')}`;
 
     const pendingCount = Object.keys(pending).length;
 
@@ -381,7 +395,13 @@ async function renderFulfillTab(pane) {
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미이행</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-amber-200 rounded-sm"></span>승인 대기</span>
             <span>📷 사진</span>
-            <span class="text-gray-400">· 칸 클릭 → 이행·메모·사진 편집 (이번 달 이후는 편집 불가)</span>
+            <span class="text-gray-400">· 칸 클릭 → 이행·메모·사진 편집</span>
+        </div>
+        <div class="flex items-center gap-2 mb-2">
+            <button id="wf-nav-prev" class="px-2 py-1 rounded text-sm ${canOlder ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canOlder ? '' : 'disabled'}>◀ 이전</button>
+            <span class="text-sm font-semibold text-gray-700" style="min-width:120px;text-align:center">${rangeLabel}</span>
+            <button id="wf-nav-next" class="px-2 py-1 rounded text-sm ${canNewer ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canNewer ? '' : 'disabled'}>다음 ▶</button>
+            ${anchorEnd !== curYm ? `<button id="wf-nav-now" class="px-2 py-1 rounded text-sm bg-blue-50 text-blue-600 hover:bg-blue-100">오늘</button>` : ''}
         </div>
         <div id="wf-grid-scroll" class="overflow-x-auto border rounded" style="max-width:100%">
             <table class="text-xs" style="border-collapse:collapse">
@@ -408,12 +428,14 @@ async function renderFulfillTab(pane) {
         openCellPopover(pane, Number(cell.dataset.rec), cell.dataset.ym);
     });
 
-    // 이번 달을 가운데로 스크롤 (±5 기본 노출)
-    const scroll = pane.querySelector('#wf-grid-scroll');
-    const idx = months.indexOf(curYm);
-    if (scroll && idx >= 0) {
-        requestAnimationFrame(() => { scroll.scrollLeft = 150 + idx * 44 - scroll.clientWidth / 2 + 22; });
-    }
+    // ◀▶ 창 이동 (6개월씩) / 오늘로 복귀
+    const goto = (ym) => { state.welfare.fulfillAnchorEnd = ym; renderFulfillTab(pane); };
+    const prev = pane.querySelector('#wf-nav-prev');
+    const next = pane.querySelector('#wf-nav-next');
+    const now = pane.querySelector('#wf-nav-now');
+    if (prev && canOlder) prev.onclick = () => goto(anchorM.subtract(WINDOW, 'month').format('YYYY-MM'));
+    if (next && canNewer) next.onclick = () => goto(anchorM.add(WINDOW, 'month').format('YYYY-MM'));
+    if (now) now.onclick = () => goto(curYm);
 }
 
 // 셀(직원·월) 클릭 → 이행 토글 + 메모 + 사진(여러 장) 편집 팝오버.
