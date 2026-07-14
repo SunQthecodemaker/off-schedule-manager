@@ -2,11 +2,11 @@
 import { state, db } from './state.js?v=20260703b';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
-    loadFulfillmentByRecord, loadFulfillmentByMonth,
+    loadFulfillmentByRecord, loadFulfillmentByMonth, loadPendingFulfillmentByMonth,
     monthsBetween, calculateCosts, computeRemaining, elapsedMonthList,
     fulfilledMonthCount, formatNum, signatureUrlOf,
     createRecord, deleteRecord, upsertFulfillment, processSettlement,
-} from './welfare.js';
+} from './welfare.js?v=20260714a';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
@@ -324,6 +324,9 @@ async function renderFulfillTab(pane) {
     const rows = await loadFulfillmentByMonth(ym);
     const map = {};
     rows.forEach(r => { map[r.record_id] = r; });
+    // 승인 전 임시저장(pending) 오버레이 — 반영 테이블에 없어도 매니저가 체크한 값을 "승인 대기"로 표시.
+    const pendingMap = await loadPendingFulfillmentByMonth(ym);
+    const pendingCount = Object.keys(pendingMap).length;
 
     pane.innerHTML = `
         <div class="flex justify-between items-center mb-3">
@@ -334,6 +337,9 @@ async function renderFulfillTab(pane) {
             </div>
             <button id="wf-fulfill-save" class="px-4 py-2 bg-blue-600 text-white rounded">변경사항 저장</button>
         </div>
+        ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
+            <b>승인 대기 ${pendingCount}건</b> — 아래 <span class="px-1 rounded bg-amber-100">승인 대기</span> 표시 항목은 임시저장된 상태이며, 관리자 승인 후 실제 반영됩니다.
+        </div>` : ''}
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50"><tr>
                 <th class="p-2 text-left">직원</th><th class="p-2 text-left">진료 내역</th>
@@ -344,17 +350,25 @@ async function renderFulfillTab(pane) {
                 ${records.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-500">활성 진료기록이 없습니다.</td></tr>` :
                 records.map(r => {
                     const f = map[r.id];
+                    const p = pendingMap[r.id];
+                    const isPending = !!p;                       // 미반영 임시저장 존재 → 승인 대기
+                    const src = p ? p.payload : f;               // 표시값은 pending 우선(매니저 최신 의도)
+                    const checked = src ? (src.fulfilled === true || src.fulfilled === 'true') : false;
+                    const noteVal = (src?.note || '').replace(/"/g, '&quot;');
                     const eligible = elapsedMonthList(r.start_date).includes(ym);
-                    return `<tr class="border-b ${eligible ? '' : 'opacity-40'}">
+                    const badge = isPending
+                        ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-xs align-middle whitespace-nowrap">승인 대기</span>'
+                        : '';
+                    return `<tr class="border-b ${eligible ? '' : 'opacity-40'} ${isPending ? 'bg-amber-50' : ''}">
                         <td class="p-2">${r.employee?.name || '-'}</td>
                         <td class="p-2">${r.treatment_type} · ${r.treatment_details || '-'}</td>
                         <td class="p-2">${r.start_date}</td>
-                        <td class="p-2 text-center">
-                            <input type="checkbox" data-rec="${r.id}" class="wf-fulfill-chk w-5 h-5"
-                                   ${f?.fulfilled ? 'checked' : ''} ${eligible ? '' : 'disabled'}>
+                        <td class="p-2 text-center whitespace-nowrap">
+                            <input type="checkbox" data-rec="${r.id}" class="wf-fulfill-chk w-5 h-5 align-middle"
+                                   ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'}>${badge}
                         </td>
                         <td class="p-2"><input type="text" data-rec="${r.id}" class="wf-fulfill-note w-full border p-1 rounded text-xs"
-                                   value="${(f?.note || '').replace(/"/g, '&quot;')}" ${eligible ? '' : 'disabled'}></td>
+                                   value="${noteVal}" ${eligible ? '' : 'disabled'}></td>
                     </tr>`;
                 }).join('')}
             </tbody>

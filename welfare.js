@@ -53,6 +53,22 @@ export async function loadFulfillmentByMonth(yearMonth) {
     return data || [];
 }
 
+// 매니저가 임시저장했지만 아직 관리자 승인 전인 이행체크(welfare_fulfillment pending) 를
+// 해당 월 기준으로 로드. record_id 별 최신 1건만 반환(중복 방지). 이행체크 탭 "승인 대기" 표기용.
+// 반환: { [record_id]: pending_changes row }
+export async function loadPendingFulfillmentByMonth(yearMonth) {
+    const { data, error } = await db.from('pending_changes')
+        .select('id, payload, created_at')
+        .eq('entity_type', 'welfare_fulfillment')
+        .eq('status', 'pending')
+        .filter('payload->>year_month', 'eq', yearMonth)
+        .order('created_at', { ascending: true });
+    if (error) { console.warn('[welfare] pending 이행 로드 실패:', error.message); return {}; }
+    const map = {};
+    (data || []).forEach(r => { if (r.payload?.record_id != null) map[r.payload.record_id] = r; }); // asc → 뒤가 최신
+    return map;
+}
+
 // ============================================================
 // 2. 계산 (Apps Script calculateCosts_ 1:1)
 // ============================================================
@@ -215,6 +231,14 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note) {
         note: note || null,
     };
     if (!canCommit()) {
+        if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
+        // 같은 (record_id, year_month) 의 기존 pending 임시저장분을 먼저 제거 후 재등록.
+        // → 매니저가 같은 항목을 여러 번 저장해도 승인 대기가 1건으로 유지(중복 누적 방지).
+        await db.from('pending_changes').delete()
+            .eq('entity_type', 'welfare_fulfillment')
+            .eq('status', 'pending')
+            .filter('payload->>record_id', 'eq', String(recordId))
+            .filter('payload->>year_month', 'eq', yearMonth);
         const { error } = await db.from('pending_changes').insert({
             entity_type: 'welfare_fulfillment', action: 'update',
             payload, created_by: state.currentUser.id, status: 'pending',
