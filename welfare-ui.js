@@ -2,12 +2,12 @@
 import { state, db } from './state.js?v=20260703b';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
-    loadFulfillmentByRecord, loadFulfillmentByMonth, loadPendingFulfillmentByMonth,
+    loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
     monthsBetween, calculateCosts, computeRemaining, elapsedMonthList,
     fulfilledMonthCount, formatNum, signatureUrlOf,
     createRecord, deleteRecord, upsertFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, fulfillmentPhotoUrls,
-} from './welfare.js?v=20260714b';
+} from './welfare.js?v=20260714c';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
@@ -318,163 +318,213 @@ async function deleteRecordHandler(id) {
 // ============================================================
 async function renderFulfillTab(pane) {
     const records = state.welfare.records.filter(r => r.status === 'Active');
-    const lastMonth = dayjs().subtract(1, 'month').format('YYYY-MM');
-    state.welfare.fulfillMonth ??= lastMonth;
-    const ym = state.welfare.fulfillMonth;
+    if (!records.length) {
+        pane.innerHTML = `<div class="p-6 text-center text-gray-500">활성 진료기록이 없습니다.</div>`;
+        return;
+    }
+    pane.innerHTML = `<div class="text-center py-8 text-gray-400 text-sm">이행 현황 불러오는 중…</div>`;
 
-    const rows = await loadFulfillmentByMonth(ym);
-    const map = {};
-    rows.forEach(r => { map[r.record_id] = r; });
-    // 승인 전 임시저장(pending) 오버레이 — 반영 테이블에 없어도 매니저가 체크한 값을 "승인 대기"로 표시.
-    const pendingMap = await loadPendingFulfillmentByMonth(ym);
-    const pendingCount = Object.keys(pendingMap).length;
-
-    // 이 달 기준 첨부 사진 경로를 record 별로 seed (pending 우선 → committed). 저장 시 이 배열을 반영.
-    state.welfare.fulfillAtt = {};
-    records.forEach(r => {
-        const src = pendingMap[r.id] ? pendingMap[r.id].payload : map[r.id];
-        const att = src && Array.isArray(src.attachments) ? src.attachments : [];
-        if (att.length) state.welfare.fulfillAtt[r.id] = [...att];
-    });
-
-    pane.innerHTML = `
-        <div class="flex justify-between items-center mb-3">
-            <div>
-                <label class="text-sm font-semibold mr-2">대상 월</label>
-                <input id="wf-month" type="month" value="${ym}" class="border p-2 rounded">
-                <span class="text-xs text-gray-500 ml-2">매월말 일괄 체크 — 미래 월은 의미 없음</span>
-            </div>
-            <button id="wf-fulfill-save" class="px-4 py-2 bg-blue-600 text-white rounded">변경사항 저장</button>
-        </div>
-        ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
-            <b>승인 대기 ${pendingCount}건</b> — 아래 <span class="px-1 rounded bg-amber-100">승인 대기</span> 표시 항목은 임시저장된 상태이며, 관리자 승인 후 실제 반영됩니다.
-        </div>` : ''}
-        <table class="min-w-full text-sm">
-            <thead class="bg-gray-50"><tr>
-                <th class="p-2 text-left">직원</th><th class="p-2 text-left">진료 내역</th>
-                <th class="p-2 text-left">시작일</th><th class="p-2 text-center">이행</th>
-                <th class="p-2 text-left">메모 / 사진</th>
-            </tr></thead>
-            <tbody>
-                ${records.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-500">활성 진료기록이 없습니다.</td></tr>` :
-                records.map(r => {
-                    const f = map[r.id];
-                    const p = pendingMap[r.id];
-                    const isPending = !!p;                       // 미반영 임시저장 존재 → 승인 대기
-                    const src = p ? p.payload : f;               // 표시값은 pending 우선(매니저 최신 의도)
-                    const checked = src ? (src.fulfilled === true || src.fulfilled === 'true') : false;
-                    const noteVal = (src?.note || '').replace(/"/g, '&quot;');
-                    const eligible = elapsedMonthList(r.start_date).includes(ym);
-                    const badge = isPending
-                        ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-xs align-middle whitespace-nowrap">승인 대기</span>'
-                        : '';
-                    return `<tr class="border-b ${eligible ? '' : 'opacity-40'} ${isPending ? 'bg-amber-50' : ''}">
-                        <td class="p-2">${r.employee?.name || '-'}</td>
-                        <td class="p-2">${r.treatment_type} · ${r.treatment_details || '-'}</td>
-                        <td class="p-2">${r.start_date}</td>
-                        <td class="p-2 text-center whitespace-nowrap">
-                            <input type="checkbox" data-rec="${r.id}" class="wf-fulfill-chk w-5 h-5 align-middle"
-                                   ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'}>${badge}
-                        </td>
-                        <td class="p-2 align-top">
-                            <input type="text" data-rec="${r.id}" class="wf-fulfill-note w-full border p-1 rounded text-xs"
-                                   value="${noteVal}" ${eligible ? '' : 'disabled'}>
-                            ${eligible ? `<div class="flex items-center gap-2 mt-1">
-                                <label class="cursor-pointer text-xs px-2 py-0.5 bg-gray-200 rounded hover:bg-gray-300 whitespace-nowrap">📷 사진
-                                    <input type="file" accept="image/*" multiple class="wf-fulfill-photo hidden" data-rec="${r.id}">
-                                </label>
-                                <span class="wf-fulfill-uploading text-xs text-blue-500" data-rec="${r.id}"></span>
-                                <div class="wf-fulfill-thumbs flex gap-1 flex-wrap items-center" data-rec="${r.id}"></div>
-                            </div>` : ''}
-                        </td>
-                    </tr>`;
-                }).join('')}
-            </tbody>
-        </table>`;
-
-    pane.querySelector('#wf-month').addEventListener('change', e => {
-        state.welfare.fulfillMonth = e.target.value;
-        renderFulfillTab(pane);
-    });
-
-    // 사진 선택 → 클라이언트 압축 후 즉시 업로드 → 경로 누적 → 썸네일 갱신.
-    pane.querySelectorAll('.wf-fulfill-photo').forEach(inp => {
-        inp.addEventListener('change', async (e) => {
-            const rec = Number(inp.dataset.rec);
-            const files = [...e.target.files];
-            e.target.value = '';
-            if (!files.length) return;
-            const status = pane.querySelector(`.wf-fulfill-uploading[data-rec="${rec}"]`);
-            state.welfare.fulfillAtt[rec] ??= [];
-            let seq = state.welfare.fulfillAtt[rec].length, added = 0;
-            for (const file of files) {
-                if (!file.type.startsWith('image/')) continue;
-                if (status) status.textContent = `업로드 중… (${added + 1}/${files.length})`;
-                try {
-                    const blob = await compressImage(file);
-                    const path = await uploadFulfillmentPhoto(rec, ym, blob, seq++);
-                    state.welfare.fulfillAtt[rec].push(path);
-                    added++;
-                } catch (err) { console.error('[welfare] 사진 업로드 실패:', err); alert('사진 업로드 실패: ' + err.message); }
-            }
-            if (status) status.textContent = added ? '저장 버튼을 눌러 반영하세요' : '';
-            await renderFulfillThumbs(pane, rec);
-        });
-    });
-
-    // 썸네일 클릭(확대) / × 삭제 — tbody 위임.
-    pane.querySelector('tbody')?.addEventListener('click', async (e) => {
-        const del = e.target.closest('.wf-thumb-del');
-        if (del) {
-            const rec = Number(del.dataset.rec), path = del.dataset.path;
-            await removeDocsFile(path);
-            const arr = state.welfare.fulfillAtt[rec] || [];
-            const i = arr.indexOf(path);
-            if (i >= 0) arr.splice(i, 1);
-            await renderFulfillThumbs(pane, rec);
-            return;
-        }
-        const img = e.target.closest('.wf-thumb-img');
-        if (img?.dataset.url) window.open(img.dataset.url, '_blank');
-    });
-
-    // seed 된 첨부 썸네일 표시.
-    for (const r of records) {
-        if (state.welfare.fulfillAtt[r.id]?.length) await renderFulfillThumbs(pane, r.id);
+    const recordIds = records.map(r => r.id);
+    let committed = {}, pending = {};
+    try {
+        [committed, pending] = await Promise.all([
+            loadFulfillmentForRecords(recordIds),
+            loadAllPendingFulfillment(),
+        ]);
+    } catch (e) {
+        pane.innerHTML = `<div class="text-red-600 p-4">이행 데이터 로딩 실패: ${e.message}</div>`;
+        return;
     }
 
-    pane.querySelector('#wf-fulfill-save').addEventListener('click', async () => {
-        const checks = pane.querySelectorAll('.wf-fulfill-chk');
-        const notes  = pane.querySelectorAll('.wf-fulfill-note');
-        const noteMap = {};
-        notes.forEach(n => { noteMap[n.dataset.rec] = n.value; });
-        let staged = 0, applied = 0, fail = 0;
-        for (const chk of checks) {
-            if (chk.disabled) continue;
-            const rec = Number(chk.dataset.rec);
-            try {
-                const res = await upsertFulfillment(rec, ym, chk.checked, noteMap[chk.dataset.rec], state.welfare.fulfillAtt[rec] || []);
-                if (res.staged) staged++; else applied++;
-            } catch (e) { console.error(e); fail++; }
+    // 월 축: min(가장 이른 시작월, 이번달-5) .. 이번달+5. 이행 가능은 이번달 직전까지.
+    const curM = dayjs().startOf('month');
+    const curYm = curM.format('YYYY-MM');
+    const lastEligibleYm = curM.subtract(1, 'month').format('YYYY-MM');
+    let axisStart = curM.subtract(5, 'month');
+    records.forEach(r => {
+        const s = dayjs(r.start_date).startOf('month');
+        if (s.isValid() && s.isBefore(axisStart)) axisStart = s;
+    });
+    const axisEnd = curM.add(5, 'month');
+    const months = [];
+    for (let m = axisStart; m.isSameOrBefore(axisEnd, 'month'); m = m.add(1, 'month')) months.push(m.format('YYYY-MM'));
+
+    const pendingCount = Object.keys(pending).length;
+
+    const cellHTML = (r, ym) => {
+        const startYm = dayjs(r.start_date).startOf('month').format('YYYY-MM');
+        if (ym < startYm) return `<td style="width:44px;min-width:44px" class="border bg-gray-50"></td>`; // 시작 전 = 빈칸
+        const key = `${r.id}_${ym}`;
+        const p = pending[key], c = committed[key];
+        const src = p ? p.payload : c;
+        const fulfilled = src ? (src.fulfilled === true || src.fulfilled === 'true') : false;
+        const hasPhoto = !!(src && Array.isArray(src.attachments) && src.attachments.length);
+        const isPending = !!p;
+        const ring = ym === curYm ? 'ring-2 ring-blue-400 ring-inset' : '';
+        const photo = hasPhoto ? '<span style="position:absolute;right:1px;bottom:0;font-size:9px;line-height:1">📷</span>' : '';
+        if (ym > lastEligibleYm) { // 이번달~미래 = 아직 이행 불가 (편집 X)
+            return `<td style="width:44px;min-width:44px" class="border text-center text-gray-300 bg-gray-50 relative ${ring}">·${photo}</td>`;
         }
-        alert(`저장 완료 — 즉시반영 ${applied}건 / 임시저장 ${staged}건 / 실패 ${fail}건`);
-        renderFulfillTab(pane);
+        const bg = isPending ? 'bg-amber-200 text-amber-800' : (fulfilled ? 'bg-green-500 text-white' : 'bg-white text-gray-300 hover:bg-gray-100');
+        const mark = fulfilled ? '✓' : '·';
+        const title = `${r.employee?.name || ''} · ${ym}${isPending ? ' (승인 대기)' : ''}${hasPhoto ? ' · 사진 있음' : ''}`;
+        return `<td style="width:44px;min-width:44px" class="border text-center cursor-pointer relative wf-grid-cell ${bg} ${ring}"
+                    data-rec="${r.id}" data-ym="${ym}" title="${title}">${mark}${photo}</td>`;
+    };
+
+    pane.innerHTML = `
+        ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
+            <b>승인 대기 ${pendingCount}건</b> — 앰버색 칸은 임시저장(승인 전) 상태이며, 관리자 승인 후 실제 반영됩니다.
+        </div>` : ''}
+        <div class="flex items-center gap-3 mb-2 text-xs text-gray-500 flex-wrap">
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-500 rounded-sm"></span>이행</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미이행</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-amber-200 rounded-sm"></span>승인 대기</span>
+            <span>📷 사진</span>
+            <span class="text-gray-400">· 칸 클릭 → 이행·메모·사진 편집 (이번 달 이후는 편집 불가)</span>
+        </div>
+        <div id="wf-grid-scroll" class="overflow-x-auto border rounded" style="max-width:100%">
+            <table class="text-xs" style="border-collapse:collapse">
+                <thead><tr>
+                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left" style="min-width:150px">직원 / 진료</th>
+                    ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}" style="width:44px;min-width:44px">${ym.slice(2).replace('-', '.')}</th>`).join('')}
+                </tr></thead>
+                <tbody>
+                    ${records.map(r => `<tr>
+                        <td class="sticky left-0 z-10 bg-white border p-2 whitespace-nowrap" style="min-width:150px">
+                            <div class="font-medium">${r.employee?.name || '-'}</div>
+                            <div class="text-gray-400" style="font-size:11px">${r.treatment_type} · ${(r.treatment_details || '').slice(0, 12) || '-'}</div>
+                        </td>
+                        ${months.map(ym => cellHTML(r, ym)).join('')}
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+
+    // 셀 클릭 → 상세 팝오버 (이행 가능 칸만 wf-grid-cell 클래스 보유)
+    pane.querySelector('#wf-grid-scroll').addEventListener('click', (e) => {
+        const cell = e.target.closest('.wf-grid-cell');
+        if (!cell) return;
+        openCellPopover(pane, Number(cell.dataset.rec), cell.dataset.ym);
+    });
+
+    // 이번 달을 가운데로 스크롤 (±5 기본 노출)
+    const scroll = pane.querySelector('#wf-grid-scroll');
+    const idx = months.indexOf(curYm);
+    if (scroll && idx >= 0) {
+        requestAnimationFrame(() => { scroll.scrollLeft = 150 + idx * 44 - scroll.clientWidth / 2 + 22; });
+    }
+}
+
+// 셀(직원·월) 클릭 → 이행 토글 + 메모 + 사진(여러 장) 편집 팝오버.
+async function openCellPopover(pane, recId, ym) {
+    const rec = state.welfare.records.find(r => r.id === recId);
+    if (!rec) return;
+    let committed = {}, pending = {};
+    try {
+        [committed, pending] = await Promise.all([
+            loadFulfillmentForRecords([recId]),
+            loadAllPendingFulfillment(),
+        ]);
+    } catch (e) { alert('불러오기 실패: ' + e.message); return; }
+    const key = `${recId}_${ym}`;
+    const p = pending[key], c = committed[key];
+    const src = p ? p.payload : c;
+    const isPending = !!p;
+    let atts = src && Array.isArray(src.attachments) ? [...src.attachments] : [];
+    const fulfilled = src ? (src.fulfilled === true || src.fulfilled === 'true') : false;
+    const note = src?.note || '';
+
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-4 w-96" style="max-width:92vw">
+            <div class="flex justify-between items-center mb-3">
+                <div class="font-bold">${rec.employee?.name || '-'} · ${ym} 이행 ${isPending ? '<span class="text-amber-600 text-xs">(승인 대기)</span>' : ''}</div>
+                <button id="wf-pop-x" class="text-gray-400 text-2xl leading-none">&times;</button>
+            </div>
+            <label class="flex items-center gap-2 mb-3 text-sm">
+                <input type="checkbox" id="wf-pop-chk" class="w-5 h-5" ${fulfilled ? 'checked' : ''}> 이행 완료
+            </label>
+            <div class="mb-3">
+                <label class="block text-xs font-semibold mb-1">메모</label>
+                <input id="wf-pop-note" type="text" class="w-full border p-2 rounded text-sm" value="${note.replace(/"/g, '&quot;')}">
+            </div>
+            <div class="mb-4">
+                <label class="block text-xs font-semibold mb-1">사진 (여러 장 가능)</label>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <label class="cursor-pointer text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">📷 추가
+                        <input type="file" accept="image/*" multiple id="wf-pop-file" class="hidden">
+                    </label>
+                    <span id="wf-pop-upl" class="text-xs text-blue-500"></span>
+                </div>
+                <div id="wf-pop-thumbs" class="flex gap-2 flex-wrap mt-2"></div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button id="wf-pop-cancel" class="px-3 py-1.5 bg-gray-200 rounded text-sm">닫기</button>
+                <button id="wf-pop-save" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">저장</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelector('#wf-pop-x').onclick = close;
+    modal.querySelector('#wf-pop-cancel').onclick = close;
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+    const thumbHost = modal.querySelector('#wf-pop-thumbs');
+    const paintThumbs = () => renderThumbsInto(thumbHost, atts, async (path) => {
+        await removeDocsFile(path);
+        const i = atts.indexOf(path); if (i >= 0) atts.splice(i, 1);
+        await paintThumbs();
+    });
+    await paintThumbs();
+
+    modal.querySelector('#wf-pop-file').addEventListener('change', async (e) => {
+        const files = [...e.target.files]; e.target.value = '';
+        const upl = modal.querySelector('#wf-pop-upl');
+        let seq = atts.length, added = 0;
+        for (const f of files) {
+            if (!f.type.startsWith('image/')) continue;
+            upl.textContent = `업로드 중… (${added + 1}/${files.length})`;
+            try {
+                const blob = await compressImage(f);
+                const path = await uploadFulfillmentPhoto(recId, ym, blob, seq++);
+                atts.push(path); added++;
+            } catch (err) { console.error('[welfare] 사진 업로드 실패:', err); alert('사진 업로드 실패: ' + err.message); }
+        }
+        upl.textContent = '';
+        await paintThumbs();
+    });
+
+    modal.querySelector('#wf-pop-save').addEventListener('click', async () => {
+        const btn = modal.querySelector('#wf-pop-save');
+        btn.disabled = true; btn.textContent = '저장 중…';
+        try {
+            const res = await upsertFulfillment(recId, ym,
+                modal.querySelector('#wf-pop-chk').checked,
+                modal.querySelector('#wf-pop-note').value, atts);
+            close();
+            if (typeof window.showToast === 'function') window.showToast(res.staged ? '임시저장됨 — 승인 후 반영' : '저장됨');
+            renderFulfillTab(pane);
+        } catch (err) {
+            btn.disabled = false; btn.textContent = '저장';
+            alert('저장 실패: ' + err.message);
+        }
     });
 }
 
-// record 의 첨부 경로 배열 → signed URL 썸네일 렌더 (삭제 × 포함).
-async function renderFulfillThumbs(pane, rec) {
-    const host = pane.querySelector(`.wf-fulfill-thumbs[data-rec="${rec}"]`);
+// 첨부 경로 배열 → signed URL 썸네일을 host 안에 렌더 (클릭=원본 열기, ×=삭제 콜백).
+async function renderThumbsInto(host, paths, onRemove) {
     if (!host) return;
-    const paths = state.welfare.fulfillAtt[rec] || [];
-    if (!paths.length) { host.innerHTML = ''; return; }
+    if (!paths.length) { host.innerHTML = '<span class="text-xs text-gray-400">첨부된 사진 없음</span>'; return; }
     const urls = await fulfillmentPhotoUrls(paths);
     host.innerHTML = urls.map(u => `
         <span class="relative inline-block">
-            <img src="${u.url}" class="wf-thumb-img w-10 h-10 object-cover rounded border cursor-pointer" data-url="${u.url}" title="클릭하면 원본 보기">
-            <button class="wf-thumb-del absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs leading-none flex items-center justify-center"
-                    data-rec="${rec}" data-path="${u.path}" title="사진 삭제">×</button>
+            <img src="${u.url}" class="w-14 h-14 object-cover rounded border cursor-pointer wf-thumb-img" data-url="${u.url}" title="클릭하면 원본 보기">
+            <button class="wf-thumb-del absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-none flex items-center justify-center" data-path="${u.path}" title="삭제">×</button>
         </span>`).join('');
+    host.querySelectorAll('.wf-thumb-del').forEach(b => { b.onclick = () => onRemove(b.dataset.path); });
+    host.querySelectorAll('.wf-thumb-img').forEach(im => { im.onclick = () => window.open(im.dataset.url, '_blank'); });
 }
 
 // 클라이언트 이미지 압축 → image/jpeg blob (긴 변 maxDim 제한). 대용량 사진 업로드 대비.

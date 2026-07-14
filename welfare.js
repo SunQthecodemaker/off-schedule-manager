@@ -53,6 +53,35 @@ export async function loadFulfillmentByMonth(yearMonth) {
     return data || [];
 }
 
+// 여러 record 의 이행 반영분(committed) 을 일괄 로드. 월별 그리드용.
+// 반환: { "<record_id>_<year_month>": row }
+export async function loadFulfillmentForRecords(recordIds) {
+    if (!recordIds || !recordIds.length) return {};
+    const { data, error } = await db.from('welfare_monthly_fulfillment')
+        .select('*').in('record_id', recordIds);
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach(r => { map[`${r.record_id}_${r.year_month}`] = r; });
+    return map;
+}
+
+// 모든 pending 이행(승인 전) 을 일괄 로드. 월별 그리드 오버레이용.
+// 반환: { "<record_id>_<year_month>": pending_changes row }  (같은 슬롯은 최신 1건)
+export async function loadAllPendingFulfillment() {
+    const { data, error } = await db.from('pending_changes')
+        .select('id, payload, created_at')
+        .eq('entity_type', 'welfare_fulfillment')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true });
+    if (error) { console.warn('[welfare] pending 이행 일괄 로드 실패:', error.message); return {}; }
+    const map = {};
+    (data || []).forEach(r => {
+        const p = r.payload || {};
+        if (p.record_id != null && p.year_month) map[`${p.record_id}_${p.year_month}`] = r; // asc → 뒤가 최신
+    });
+    return map;
+}
+
 // 매니저가 임시저장했지만 아직 관리자 승인 전인 이행체크(welfare_fulfillment pending) 를
 // 해당 월 기준으로 로드. record_id 별 최신 1건만 반환(중복 방지). 이행체크 탭 "승인 대기" 표기용.
 // 반환: { [record_id]: pending_changes row }
