@@ -6,7 +6,7 @@ import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.
 import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260703b';
 import { renderMobileAdminPortal } from './mobile-admin.js?v=20260703b';
 import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260703b';
-import { renderWelfareTab } from './welfare-ui.js?v=20260714a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260714b';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {

@@ -223,12 +223,13 @@ export async function deleteRecord(recordId) {
     return { staged: false };
 }
 
-export async function upsertFulfillment(recordId, yearMonth, fulfilled, note) {
+export async function upsertFulfillment(recordId, yearMonth, fulfilled, note, attachments) {
     const payload = {
         record_id: recordId, year_month: yearMonth, fulfilled: !!fulfilled,
         verified_by: state.currentUser?.id || null,
         verified_at: new Date().toISOString(),
         note: note || null,
+        attachments: Array.isArray(attachments) ? attachments : [],
     };
     if (!canCommit()) {
         if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
@@ -292,4 +293,34 @@ export async function signatureUrlOf(consentSigPath) {
     const { data, error } = await db.storage.from('docs').createSignedUrl(consentSigPath, 60 * 60);
     if (error) return null;
     return data?.signedUrl || null;
+}
+
+// ============================================================
+// 7. 이행체크 메모 첨부 사진 (docs 버킷, 비공개 → 표시는 signed URL)
+// ============================================================
+
+// 압축된 image/jpeg blob 을 docs 버킷에 업로드 → 경로 반환.
+export async function uploadFulfillmentPhoto(recordId, yearMonth, blob, seq) {
+    const path = `welfare/fulfillment/${recordId}_${yearMonth}/${Date.now()}_${seq}.jpg`;
+    const { error } = await db.storage.from('docs')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (error) throw error;
+    return path;
+}
+
+// docs 버킷 파일 삭제 (사진 제거 시). 실패는 무시(멱등).
+export async function removeDocsFile(path) {
+    if (!path) return;
+    await db.storage.from('docs').remove([path]).catch(() => {});
+}
+
+// 첨부 경로 배열 → signed URL 배열 (표시용). 실패분은 제외.
+export async function fulfillmentPhotoUrls(paths) {
+    const list = Array.isArray(paths) ? paths : [];
+    const out = [];
+    for (const p of list) {
+        const url = await signatureUrlOf(p);
+        if (url) out.push({ path: p, url });
+    }
+    return out;
 }

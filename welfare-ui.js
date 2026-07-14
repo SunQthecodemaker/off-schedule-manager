@@ -6,7 +6,8 @@ import {
     monthsBetween, calculateCosts, computeRemaining, elapsedMonthList,
     fulfilledMonthCount, formatNum, signatureUrlOf,
     createRecord, deleteRecord, upsertFulfillment, processSettlement,
-} from './welfare.js?v=20260714a';
+    uploadFulfillmentPhoto, removeDocsFile, fulfillmentPhotoUrls,
+} from './welfare.js?v=20260714b';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
@@ -328,6 +329,14 @@ async function renderFulfillTab(pane) {
     const pendingMap = await loadPendingFulfillmentByMonth(ym);
     const pendingCount = Object.keys(pendingMap).length;
 
+    // 이 달 기준 첨부 사진 경로를 record 별로 seed (pending 우선 → committed). 저장 시 이 배열을 반영.
+    state.welfare.fulfillAtt = {};
+    records.forEach(r => {
+        const src = pendingMap[r.id] ? pendingMap[r.id].payload : map[r.id];
+        const att = src && Array.isArray(src.attachments) ? src.attachments : [];
+        if (att.length) state.welfare.fulfillAtt[r.id] = [...att];
+    });
+
     pane.innerHTML = `
         <div class="flex justify-between items-center mb-3">
             <div>
@@ -344,7 +353,7 @@ async function renderFulfillTab(pane) {
             <thead class="bg-gray-50"><tr>
                 <th class="p-2 text-left">직원</th><th class="p-2 text-left">진료 내역</th>
                 <th class="p-2 text-left">시작일</th><th class="p-2 text-center">이행</th>
-                <th class="p-2 text-left">메모</th>
+                <th class="p-2 text-left">메모 / 사진</th>
             </tr></thead>
             <tbody>
                 ${records.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-500">활성 진료기록이 없습니다.</td></tr>` :
@@ -367,8 +376,17 @@ async function renderFulfillTab(pane) {
                             <input type="checkbox" data-rec="${r.id}" class="wf-fulfill-chk w-5 h-5 align-middle"
                                    ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'}>${badge}
                         </td>
-                        <td class="p-2"><input type="text" data-rec="${r.id}" class="wf-fulfill-note w-full border p-1 rounded text-xs"
-                                   value="${noteVal}" ${eligible ? '' : 'disabled'}></td>
+                        <td class="p-2 align-top">
+                            <input type="text" data-rec="${r.id}" class="wf-fulfill-note w-full border p-1 rounded text-xs"
+                                   value="${noteVal}" ${eligible ? '' : 'disabled'}>
+                            ${eligible ? `<div class="flex items-center gap-2 mt-1">
+                                <label class="cursor-pointer text-xs px-2 py-0.5 bg-gray-200 rounded hover:bg-gray-300 whitespace-nowrap">📷 사진
+                                    <input type="file" accept="image/*" multiple class="wf-fulfill-photo hidden" data-rec="${r.id}">
+                                </label>
+                                <span class="wf-fulfill-uploading text-xs text-blue-500" data-rec="${r.id}"></span>
+                                <div class="wf-fulfill-thumbs flex gap-1 flex-wrap items-center" data-rec="${r.id}"></div>
+                            </div>` : ''}
+                        </td>
                     </tr>`;
                 }).join('')}
             </tbody>
@@ -378,6 +396,53 @@ async function renderFulfillTab(pane) {
         state.welfare.fulfillMonth = e.target.value;
         renderFulfillTab(pane);
     });
+
+    // 사진 선택 → 클라이언트 압축 후 즉시 업로드 → 경로 누적 → 썸네일 갱신.
+    pane.querySelectorAll('.wf-fulfill-photo').forEach(inp => {
+        inp.addEventListener('change', async (e) => {
+            const rec = Number(inp.dataset.rec);
+            const files = [...e.target.files];
+            e.target.value = '';
+            if (!files.length) return;
+            const status = pane.querySelector(`.wf-fulfill-uploading[data-rec="${rec}"]`);
+            state.welfare.fulfillAtt[rec] ??= [];
+            let seq = state.welfare.fulfillAtt[rec].length, added = 0;
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) continue;
+                if (status) status.textContent = `업로드 중… (${added + 1}/${files.length})`;
+                try {
+                    const blob = await compressImage(file);
+                    const path = await uploadFulfillmentPhoto(rec, ym, blob, seq++);
+                    state.welfare.fulfillAtt[rec].push(path);
+                    added++;
+                } catch (err) { console.error('[welfare] 사진 업로드 실패:', err); alert('사진 업로드 실패: ' + err.message); }
+            }
+            if (status) status.textContent = added ? '저장 버튼을 눌러 반영하세요' : '';
+            await renderFulfillThumbs(pane, rec);
+        });
+    });
+
+    // 썸네일 클릭(확대) / × 삭제 — tbody 위임.
+    pane.querySelector('tbody')?.addEventListener('click', async (e) => {
+        const del = e.target.closest('.wf-thumb-del');
+        if (del) {
+            const rec = Number(del.dataset.rec), path = del.dataset.path;
+            await removeDocsFile(path);
+            const arr = state.welfare.fulfillAtt[rec] || [];
+            const i = arr.indexOf(path);
+            if (i >= 0) arr.splice(i, 1);
+            await renderFulfillThumbs(pane, rec);
+            return;
+        }
+        const img = e.target.closest('.wf-thumb-img');
+        if (img?.dataset.url) window.open(img.dataset.url, '_blank');
+    });
+
+    // seed 된 첨부 썸네일 표시.
+    for (const r of records) {
+        if (state.welfare.fulfillAtt[r.id]?.length) await renderFulfillThumbs(pane, r.id);
+    }
+
     pane.querySelector('#wf-fulfill-save').addEventListener('click', async () => {
         const checks = pane.querySelectorAll('.wf-fulfill-chk');
         const notes  = pane.querySelectorAll('.wf-fulfill-note');
@@ -386,13 +451,51 @@ async function renderFulfillTab(pane) {
         let staged = 0, applied = 0, fail = 0;
         for (const chk of checks) {
             if (chk.disabled) continue;
+            const rec = Number(chk.dataset.rec);
             try {
-                const res = await upsertFulfillment(Number(chk.dataset.rec), ym, chk.checked, noteMap[chk.dataset.rec]);
+                const res = await upsertFulfillment(rec, ym, chk.checked, noteMap[chk.dataset.rec], state.welfare.fulfillAtt[rec] || []);
                 if (res.staged) staged++; else applied++;
             } catch (e) { console.error(e); fail++; }
         }
         alert(`저장 완료 — 즉시반영 ${applied}건 / 임시저장 ${staged}건 / 실패 ${fail}건`);
         renderFulfillTab(pane);
+    });
+}
+
+// record 의 첨부 경로 배열 → signed URL 썸네일 렌더 (삭제 × 포함).
+async function renderFulfillThumbs(pane, rec) {
+    const host = pane.querySelector(`.wf-fulfill-thumbs[data-rec="${rec}"]`);
+    if (!host) return;
+    const paths = state.welfare.fulfillAtt[rec] || [];
+    if (!paths.length) { host.innerHTML = ''; return; }
+    const urls = await fulfillmentPhotoUrls(paths);
+    host.innerHTML = urls.map(u => `
+        <span class="relative inline-block">
+            <img src="${u.url}" class="wf-thumb-img w-10 h-10 object-cover rounded border cursor-pointer" data-url="${u.url}" title="클릭하면 원본 보기">
+            <button class="wf-thumb-del absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-xs leading-none flex items-center justify-center"
+                    data-rec="${rec}" data-path="${u.path}" title="사진 삭제">×</button>
+        </span>`).join('');
+}
+
+// 클라이언트 이미지 압축 → image/jpeg blob (긴 변 maxDim 제한). 대용량 사진 업로드 대비.
+function compressImage(file, maxDim = 1600, quality = 0.72) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            let { width, height } = img;
+            if (Math.max(width, height) > maxDim) {
+                const s = maxDim / Math.max(width, height);
+                width = Math.round(width * s); height = Math.round(height * s);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+            canvas.toBlob(b => b ? resolve(b) : reject(new Error('압축 실패')), 'image/jpeg', quality);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지 로드 실패')); };
+        img.src = url;
     });
 }
 
