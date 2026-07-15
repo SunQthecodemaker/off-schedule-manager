@@ -413,14 +413,21 @@ async function renderFulfillTab(pane) {
             <button id="wf-nav-next" class="px-2 py-1 rounded text-sm ${canNewer ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canNewer ? '' : 'disabled'}>다음 ▶</button>
             ${anchorEnd !== curYm ? `<button id="wf-nav-now" class="px-2 py-1 rounded text-sm bg-blue-50 text-blue-600 hover:bg-blue-100">오늘</button>` : ''}
         </div>
-        <div id="wf-grid-scroll" class="overflow-x-auto border rounded shadow-sm" style="max-width:100%;display:inline-block;vertical-align:top">
-            <table class="text-xs" style="border-collapse:collapse">
+        <div id="wf-grid-scroll" class="overflow-x-auto border rounded shadow-sm" style="max-width:100%">
+            <table class="text-xs w-full" style="border-collapse:collapse;table-layout:fixed;min-width:760px">
+                <colgroup>
+                    <col style="width:20%">
+                    <col style="width:9%">
+                    <col style="width:10%">
+                    <col style="width:11%">
+                    ${months.map(() => `<col style="width:${(50 / months.length).toFixed(3)}%">`).join('')}
+                </colgroup>
                 <thead><tr class="bg-gray-100">
-                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left" style="min-width:170px">직원 / 진료</th>
-                    <th class="border p-2 text-right whitespace-nowrap" style="min-width:74px">월 차감<br><span class="text-gray-400 font-normal">(원)</span></th>
-                    <th class="border p-2 text-center whitespace-nowrap" style="min-width:66px">이행<br><span class="text-gray-400 font-normal">(회차)</span></th>
-                    <th class="border p-2 text-right whitespace-nowrap" style="min-width:84px">잔여<br><span class="text-gray-400 font-normal">(원)</span></th>
-                    ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}" style="width:46px;min-width:46px">${ym.slice(2).replace('-', '.')}</th>`).join('')}
+                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left">직원 / 진료</th>
+                    <th class="border p-2 text-right">월 차감<br><span class="text-gray-400 font-normal">(원)</span></th>
+                    <th class="border p-2 text-center">이행<br><span class="text-gray-400 font-normal">(회차)</span></th>
+                    <th class="border p-2 text-right">잔여<br><span class="text-gray-400 font-normal">(원)</span></th>
+                    ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}">${ym.slice(2).replace('-', '.')}</th>`).join('')}
                 </tr></thead>
                 <tbody>
                     ${records.map(r => {
@@ -431,9 +438,9 @@ async function renderFulfillTab(pane) {
                             : `<span class="text-green-600 font-semibold">완납</span>`;
                         const pct = info.total > 0 ? Math.min(100, Math.round(info.fulfilledMonths / info.total * 100)) : 0;
                         return `<tr class="hover:bg-blue-50">
-                        <td class="sticky left-0 z-10 bg-white border p-2 whitespace-nowrap" style="min-width:170px">
+                        <td class="sticky left-0 z-10 bg-white border p-2" style="overflow:hidden">
                             <div class="font-medium text-sm">${r.employee?.name || '-'}</div>
-                            <div class="text-gray-400" style="font-size:11px">${r.treatment_type} · ${(r.treatment_details || '').slice(0, 14) || '-'}</div>
+                            <div class="text-gray-400 truncate" style="font-size:11px" title="${r.treatment_type} · ${(r.treatment_details || '').replace(/"/g,'&quot;')}">${r.treatment_type} · ${r.treatment_details || '-'}</div>
                         </td>
                         <td class="border p-2 text-right whitespace-nowrap">${formatNum(info.monthly)}</td>
                         <td class="border p-2 text-center whitespace-nowrap">
