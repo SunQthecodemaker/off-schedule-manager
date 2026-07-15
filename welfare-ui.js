@@ -413,15 +413,14 @@ async function renderFulfillTab(pane) {
             <button id="wf-nav-next" class="px-2 py-1 rounded text-sm ${canNewer ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canNewer ? '' : 'disabled'}>다음 ▶</button>
             ${anchorEnd !== curYm ? `<button id="wf-nav-now" class="px-2 py-1 rounded text-sm bg-blue-50 text-blue-600 hover:bg-blue-100">오늘</button>` : ''}
         </div>
-        <div id="wf-grid-scroll" class="overflow-x-auto border rounded" style="max-width:100%">
-            <table class="text-xs w-full" style="border-collapse:collapse">
+        <div id="wf-grid-scroll" class="overflow-x-auto border rounded shadow-sm" style="max-width:100%;display:inline-block;vertical-align:top">
+            <table class="text-xs" style="border-collapse:collapse">
                 <thead><tr class="bg-gray-100">
                     <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left" style="min-width:170px">직원 / 진료</th>
                     <th class="border p-2 text-right whitespace-nowrap" style="min-width:74px">월 차감<br><span class="text-gray-400 font-normal">(원)</span></th>
                     <th class="border p-2 text-center whitespace-nowrap" style="min-width:66px">이행<br><span class="text-gray-400 font-normal">(회차)</span></th>
                     <th class="border p-2 text-right whitespace-nowrap" style="min-width:84px">잔여<br><span class="text-gray-400 font-normal">(원)</span></th>
                     ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}" style="width:46px;min-width:46px">${ym.slice(2).replace('-', '.')}</th>`).join('')}
-                    <th class="border" style="width:100%"></th>
                 </tr></thead>
                 <tbody>
                     ${records.map(r => {
@@ -445,7 +444,6 @@ async function renderFulfillTab(pane) {
                         </td>
                         <td class="border p-2 text-right whitespace-nowrap">${remainTxt}</td>
                         ${months.map(ym => cellHTML(r, ym)).join('')}
-                        <td class="border"></td>
                     </tr>`;
                     }).join('')}
                 </tbody>
