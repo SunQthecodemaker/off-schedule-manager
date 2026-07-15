@@ -1,5 +1,5 @@
 // 진료비 복지 — 관리자/매니저 화면 (계산기 / 전체목록 / 이행체크 / 퇴사정산)
-import { state, db } from './state.js?v=20260703b';
+import { state, db, isTestEmployee } from './state.js?v=20260703b';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
     loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
@@ -11,6 +11,16 @@ import {
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
+
+// 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
+function welfareShowsTest() {
+    return state.userRole === 'admin' ? state.showTestEmployeesAdmin : state.showTestEmployees;
+}
+// 노출 대상 복지 기록만 (테스트 직원은 토글에 따라 제외).
+function visibleWelfareRecords() {
+    const showTest = welfareShowsTest();
+    return (state.welfare.records || []).filter(r => showTest || !isTestEmployee(r.employee));
+}
 
 // ============================================================
 // 진입점 — main.js 의 activeTab === 'welfare' 분기에서 호출
@@ -69,7 +79,8 @@ function renderShell(container) {
 // ============================================================
 function renderCreateTab(pane) {
     const cfg = state.welfare.config;
-    const employees = state.welfare.employees;
+    const showTest = welfareShowsTest();
+    const employees = (state.welfare.employees || []).filter(e => showTest || !isTestEmployee(e));
 
     pane.innerHTML = `
         <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-sm">
@@ -207,7 +218,7 @@ async function onSaveRecord() {
 // ============================================================
 async function renderListTab(pane) {
     const cfg = state.welfare.config;
-    const records = state.welfare.records;
+    const records = visibleWelfareRecords();
 
     // 잔액 계산을 위해 모든 record 의 fulfillment 일괄 로드
     const ids = records.map(r => r.id);
@@ -317,7 +328,7 @@ async function deleteRecordHandler(id) {
 // 탭 3) 월별 이행 체크 — 매니저가 매월말 일괄 체크
 // ============================================================
 async function renderFulfillTab(pane) {
-    const records = state.welfare.records.filter(r => r.status === 'Active');
+    const records = visibleWelfareRecords().filter(r => r.status === 'Active');
     if (!records.length) {
         pane.innerHTML = `<div class="p-6 text-center text-gray-500">활성 진료기록이 없습니다.</div>`;
         return;
@@ -408,9 +419,9 @@ async function renderFulfillTab(pane) {
             <span class="text-gray-400">· 칸 클릭 → 이행·메모·사진 편집</span>
         </div>
         <div class="flex items-center gap-2 mb-2">
-            <button id="wf-nav-prev" class="px-2 py-1 rounded text-sm ${canOlder ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canOlder ? '' : 'disabled'}>◀ 이전</button>
+            <button id="wf-nav-prev" class="px-3 py-1 rounded text-sm ${canOlder ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canOlder ? '' : 'disabled'}>◀ 이전 6개월</button>
             <span class="text-sm font-semibold text-gray-700" style="min-width:120px;text-align:center">${rangeLabel}</span>
-            <button id="wf-nav-next" class="px-2 py-1 rounded text-sm ${canNewer ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canNewer ? '' : 'disabled'}>다음 ▶</button>
+            <button id="wf-nav-next" class="px-3 py-1 rounded text-sm ${canNewer ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canNewer ? '' : 'disabled'}>다음 6개월 ▶</button>
             ${anchorEnd !== curYm ? `<button id="wf-nav-now" class="px-2 py-1 rounded text-sm bg-blue-50 text-blue-600 hover:bg-blue-100">오늘</button>` : ''}
         </div>
         <div id="wf-grid-scroll" class="overflow-x-auto border rounded shadow-sm" style="max-width:100%">
@@ -613,14 +624,15 @@ function compressImage(file, maxDim = 1600, quality = 0.72) {
 async function renderSettleTab(pane) {
     const cfg = state.welfare.config;
     // 잔액 있는 직원만 추출
-    const ids = state.welfare.records.filter(r => r.status === 'Active').map(r => r.id);
+    const activeRecords = visibleWelfareRecords().filter(r => r.status === 'Active');
+    const ids = activeRecords.map(r => r.id);
     let fulfillByRec = {};
     if (ids.length) {
         const { data } = await db.from('welfare_monthly_fulfillment').select('*').in('record_id', ids);
         (data || []).forEach(f => { (fulfillByRec[f.record_id] ??= []).push(f); });
     }
     const empMap = {};
-    state.welfare.records.filter(r => r.status === 'Active').forEach(r => {
+    activeRecords.forEach(r => {
         const { remaining } = computeRemaining(r, fulfillByRec[r.id] || [], cfg);
         if (remaining <= 0) return;
         const k = r.employee_id;
