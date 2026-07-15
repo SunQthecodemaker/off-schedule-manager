@@ -365,6 +365,16 @@ async function renderFulfillTab(pane) {
 
     const pendingCount = Object.keys(pending).length;
 
+    // 레코드별 원가 정보 (월 차감액 / 진행 회차 / 잔여) — committed 이행 기준.
+    const cfg = state.welfare.config;
+    const committedByRec = {};
+    Object.values(committed).forEach(v => { (committedByRec[v.record_id] ??= []).push(v); });
+    const infoFor = (r) => {
+        const { baseAmount, monthly, fulfilledMonths, remaining } = computeRemaining(r, committedByRec[r.id] || [], cfg);
+        const total = monthly > 0 ? Math.ceil(baseAmount / monthly) : 0;
+        return { monthly, fulfilledMonths, total, remaining, done: total > 0 && fulfilledMonths >= total };
+    };
+
     const cellHTML = (r, ym) => {
         const startYm = dayjs(r.start_date).startOf('month').format('YYYY-MM');
         if (ym < startYm) return `<td style="width:44px;min-width:44px" class="border bg-gray-50"></td>`; // 시작 전 = 빈칸
@@ -404,19 +414,40 @@ async function renderFulfillTab(pane) {
             ${anchorEnd !== curYm ? `<button id="wf-nav-now" class="px-2 py-1 rounded text-sm bg-blue-50 text-blue-600 hover:bg-blue-100">오늘</button>` : ''}
         </div>
         <div id="wf-grid-scroll" class="overflow-x-auto border rounded" style="max-width:100%">
-            <table class="text-xs" style="border-collapse:collapse">
-                <thead><tr>
-                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left" style="min-width:150px">직원 / 진료</th>
-                    ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}" style="width:44px;min-width:44px">${ym.slice(2).replace('-', '.')}</th>`).join('')}
+            <table class="text-xs w-full" style="border-collapse:collapse">
+                <thead><tr class="bg-gray-100">
+                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left" style="min-width:170px">직원 / 진료</th>
+                    <th class="border p-2 text-right whitespace-nowrap" style="min-width:74px">월 차감<br><span class="text-gray-400 font-normal">(원)</span></th>
+                    <th class="border p-2 text-center whitespace-nowrap" style="min-width:66px">이행<br><span class="text-gray-400 font-normal">(회차)</span></th>
+                    <th class="border p-2 text-right whitespace-nowrap" style="min-width:84px">잔여<br><span class="text-gray-400 font-normal">(원)</span></th>
+                    ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}" style="width:46px;min-width:46px">${ym.slice(2).replace('-', '.')}</th>`).join('')}
+                    <th class="border" style="width:100%"></th>
                 </tr></thead>
                 <tbody>
-                    ${records.map(r => `<tr>
-                        <td class="sticky left-0 z-10 bg-white border p-2 whitespace-nowrap" style="min-width:150px">
-                            <div class="font-medium">${r.employee?.name || '-'}</div>
-                            <div class="text-gray-400" style="font-size:11px">${r.treatment_type} · ${(r.treatment_details || '').slice(0, 12) || '-'}</div>
+                    ${records.map(r => {
+                        const info = infoFor(r);
+                        const totalTxt = info.total > 0 ? `${info.fulfilledMonths} / ${info.total}회` : '—';
+                        const remainTxt = info.remaining > 0
+                            ? `<span class="text-blue-700 font-bold">${formatNum(info.remaining)}</span>`
+                            : `<span class="text-green-600 font-semibold">완납</span>`;
+                        const pct = info.total > 0 ? Math.min(100, Math.round(info.fulfilledMonths / info.total * 100)) : 0;
+                        return `<tr class="hover:bg-blue-50">
+                        <td class="sticky left-0 z-10 bg-white border p-2 whitespace-nowrap" style="min-width:170px">
+                            <div class="font-medium text-sm">${r.employee?.name || '-'}</div>
+                            <div class="text-gray-400" style="font-size:11px">${r.treatment_type} · ${(r.treatment_details || '').slice(0, 14) || '-'}</div>
                         </td>
+                        <td class="border p-2 text-right whitespace-nowrap">${formatNum(info.monthly)}</td>
+                        <td class="border p-2 text-center whitespace-nowrap">
+                            <div>${totalTxt}</div>
+                            ${info.total > 0 ? `<div class="mt-1 bg-gray-200 rounded-full overflow-hidden" style="height:4px;width:52px;margin-left:auto;margin-right:auto">
+                                <div class="bg-green-500 h-full" style="width:${pct}%"></div>
+                            </div>` : ''}
+                        </td>
+                        <td class="border p-2 text-right whitespace-nowrap">${remainTxt}</td>
                         ${months.map(ym => cellHTML(r, ym)).join('')}
-                    </tr>`).join('')}
+                        <td class="border"></td>
+                    </tr>`;
+                    }).join('')}
                 </tbody>
             </table>
         </div>`;
