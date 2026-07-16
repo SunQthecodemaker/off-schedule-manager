@@ -121,8 +121,19 @@ function renderCreateTab(pane) {
                 <div class="bg-gray-50 border rounded p-3 text-xs space-y-2">
                     <div class="font-bold">진료비 산정 기준 (내규)</div>
                     <ul class="list-disc list-inside space-y-1">
-                        <li><b>A-Type</b>: 의무 직원 ${cfg.SELF_RATE_EMP}% / 가족 ${cfg.SELF_RATE_FAM}%, 12개월 초과 월 1% 차감(최대 ${cfg.PRE_CAP_EMP}/${cfg.PRE_CAP_FAM}%), 월 차감 1%</li>
-                        <li><b>B-Type</b>: 직원 12개월↑ 50% 선차감/월 5% / 가족 의무 50% + 12개월↑ 25% 선차감/월 1%</li>
+                        <li><b>A-Type (교정, 보철, 임플란트 등):</b>
+                            <ul class="list-disc list-inside ml-4 mt-1 space-y-0.5">
+                                <li>의무 부담금: 직원 본인 ${cfg.SELF_RATE_EMP}%, 가족 ${cfg.SELF_RATE_FAM}%</li>
+                                <li>근속 차감: 12개월 초과 근무 개월당 1% 차감 (최대 직원 ${cfg.PRE_CAP_EMP}%, 가족 ${cfg.PRE_CAP_FAM}%)</li>
+                                <li>월 차감: 총 진료비의 1%</li>
+                            </ul>
+                        </li>
+                        <li><b>B-Type (레진, 보험 진료 등):</b>
+                            <ul class="list-disc list-inside ml-4 mt-1 space-y-0.5">
+                                <li>직원: 12개월 이상 근속 시 총 진료비의 50% 선차감, 월 차감 5%</li>
+                                <li>가족: 의무 부담금 50%, 12개월 이상 근속 시 25% 선차감, 월 차감 1%</li>
+                            </ul>
+                        </li>
                     </ul>
                 </div>
                 <div id="wf-consent-area"></div>
