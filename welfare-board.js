@@ -2,11 +2,11 @@
 //   · 직원  : 진료비 복지 탭 > [📸 복지 미션] 하위 탭. 본인 월별 미션 현황 + 본인 글만 작성/수정/삭제
 //   · 관리자: 복지 탭 > [📸 미션 게시판] 하위 탭. 전체 글 열람 + 삭제
 // 사진은 docs 버킷(비공개) → 표시는 signed URL. 이행체크 첨부와 동일 패턴.
-import { state, db, isTestEmployee } from './state.js?v=20260807e';
+import { state, db, isTestEmployee } from './state.js?v=20260807f';
 import {
     loadWelfarePosts, createWelfarePost, updateWelfarePost, deleteWelfarePost,
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
-} from './welfare.js?v=20260807e';
+} from './welfare.js?v=20260807f';
 
 // 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.

@@ -404,6 +404,19 @@ export async function loadWelfarePosts({ employeeId = null, yearMonth = null, ca
     return data || [];
 }
 
+// 직원·월별 글 개수 맵 — 관리자 이행 그리드에서 "직원이 올렸는지" 표기용.
+// 반환: { "<employee_id>_<YYYY-MM>": 글 수 }
+export async function loadPostCountsByEmpMonth() {
+    const { data, error } = await db.from('welfare_posts').select('employee_id, year_month');
+    if (error) { console.warn('[welfare] 미션 글 집계 실패:', error.message); return {}; }
+    const map = {};
+    (data || []).forEach(p => {
+        const k = `${p.employee_id}_${p.year_month}`;
+        map[k] = (map[k] || 0) + 1;
+    });
+    return map;
+}
+
 export async function createWelfarePost({ employeeId, yearMonth, category, title, body, linkUrl, photos }) {
     if (!employeeId) throw new Error('로그인 정보가 없습니다.');
     const { data, error } = await db.from('welfare_posts').insert({

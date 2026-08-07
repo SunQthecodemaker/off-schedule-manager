@@ -1,5 +1,5 @@
 // 진료비 복지 — 관리자/매니저 화면 (계산기 / 전체목록 / 이행체크 / 퇴사정산)
-import { state, db, isTestEmployee } from './state.js?v=20260807e';
+import { state, db, isTestEmployee } from './state.js?v=20260807f';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
     loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
@@ -7,12 +7,12 @@ import {
     fulfilledMonthCount, formatNum, signatureUrlOf,
     createRecord, deleteRecord, upsertFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
-    loadWelfarePosts,
-} from './welfare.js?v=20260807e';
+    loadWelfarePosts, loadPostCountsByEmpMonth,
+} from './welfare.js?v=20260807f';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260807e';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260807f';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -351,11 +351,12 @@ async function renderFulfillTab(pane) {
     pane.innerHTML = `<div class="text-center py-8 text-gray-400 text-sm">이행 현황 불러오는 중…</div>`;
 
     const recordIds = records.map(r => r.id);
-    let committed = {}, pending = {};
+    let committed = {}, pending = {}, postCounts = {};
     try {
-        [committed, pending] = await Promise.all([
+        [committed, pending, postCounts] = await Promise.all([
             loadFulfillmentForRecords(recordIds),
             loadAllPendingFulfillment(),
+            loadPostCountsByEmpMonth(),
         ]);
     } catch (e) {
         pane.innerHTML = `<div class="text-red-600 p-4">이행 데이터 로딩 실패: ${e.message}</div>`;
@@ -384,7 +385,9 @@ async function renderFulfillTab(pane) {
     const WINDOW = 6;
     const curM = dayjs().startOf('month');
     const curYm = curM.format('YYYY-MM');
-    const lastEligibleYm = curM.subtract(1, 'month').format('YYYY-MM');
+    // 이번 달·다음 달도 열어 둔다 (2026-08-07 사용자 지시: 월 선택 제한 없음).
+    // 직원이 다음 달 분을 미리 올릴 수 있어(작성 폼 범위 -11~+1) 그 달도 확인·체크 가능해야 함.
+    const maxYm = curM.add(1, 'month').format('YYYY-MM');
     // 가장 이른 시작월 (◀ 하한)
     let earliest = curM;
     records.forEach(r => {
@@ -396,7 +399,7 @@ async function renderFulfillTab(pane) {
     // 앵커(창 오른쪽 끝) — 기본 이번 달. 범위 클램프.
     state.welfare.fulfillAnchorEnd ??= curYm;
     let anchorEnd = state.welfare.fulfillAnchorEnd;
-    if (anchorEnd > curYm) anchorEnd = curYm;
+    if (anchorEnd > maxYm) anchorEnd = maxYm;
     if (anchorEnd < earliestYm) anchorEnd = earliestYm;
     state.welfare.fulfillAnchorEnd = anchorEnd;
 
@@ -404,7 +407,7 @@ async function renderFulfillTab(pane) {
     const months = [];
     for (let i = WINDOW - 1; i >= 0; i--) months.push(anchorM.subtract(i, 'month').format('YYYY-MM'));
     const canOlder = months[0] > earliestYm;   // 더 과거 데이터 존재
-    const canNewer = anchorEnd < curYm;         // 이번 달보다 미래로는 안 감
+    const canNewer = anchorEnd < maxYm;         // 다음 달까지 이동 가능
     const rangeLabel = `${months[0].replace('-', '.')} ~ ${months[months.length - 1].replace('-', '.')}`;
 
     const pendingCount = Object.keys(pending).length;
@@ -450,29 +453,34 @@ async function renderFulfillTab(pane) {
             if (Array.isArray(src.attachments) && src.attachments.length) hasPhoto = true;
         });
 
+        // 이번 달·다음 달도 잠그지 않는다 — 모든 달이 클릭 가능 (사용자 지시).
         const ring = ym === curYm ? 'ring-2 ring-blue-400 ring-inset' : '';
-        const photo = hasPhoto ? '<span style="position:absolute;right:1px;bottom:0;font-size:9px;line-height:1">📷</span>' : '';
-        if (ym > lastEligibleYm) { // 이번달~미래 = 아직 이행 불가 (편집 X)
-            return `<td style="width:44px;min-width:44px" class="border text-center text-gray-300 bg-gray-50 relative ${ring}">·${photo}</td>`;
-        }
+        const posted = postCounts[`${g.empId}_${ym}`] || 0;   // 직원이 그 달에 올린 미션 글 수
+        const marks =
+            (posted ? `<span style="position:absolute;left:1px;bottom:0;font-size:9px;line-height:1" title="직원 글 ${posted}건">📸</span>` : '')
+          + (hasPhoto ? '<span style="position:absolute;right:1px;bottom:0;font-size:9px;line-height:1">📎</span>' : '');
 
         const allDone  = doneCnt === elig.length;
         const partDone = doneCnt > 0 && !allDone;
+        // 배경 = 이행 상태 / 미이행이어도 직원이 글을 올렸으면 노란 테두리로 "확인 필요" 표시
         const bg = pendCnt > 0 ? 'bg-yellow-200 text-yellow-800'
                  : (allDone ? 'bg-green-500 text-white'
-                 : (partDone ? 'bg-green-200 text-green-800' : 'bg-white text-gray-300 hover:bg-gray-100'));
-        const mark = allDone ? '✓' : (partDone ? '◐' : '·');
+                 : (partDone ? 'bg-green-200 text-green-800'
+                 : (posted ? 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                           : 'bg-white text-gray-300 hover:bg-gray-100')));
+        const mark = allDone ? '✓' : (partDone ? '◐' : (posted ? '•' : '·'));
         const title = `${g.name} · ${ym} (대상 진료 ${elig.length}건)`
             + (pendCnt > 0 ? ' · 승인 대기' : '')
             + (partDone ? ` · ${doneCnt}/${elig.length}건만 이행` : '')
-            + (hasPhoto ? ' · 사진 있음' : '');
+            + (posted ? ` · 직원 글 ${posted}건 올림` : ' · 직원 글 없음')
+            + (hasPhoto ? ' · 이행 첨부 있음' : '');
         return `<td style="width:44px;min-width:44px" class="border text-center cursor-pointer relative wf-grid-cell ${bg} ${ring}"
-                    data-emp="${g.empId}" data-ym="${ym}" title="${title}">${mark}${photo}</td>`;
+                    data-emp="${g.empId}" data-ym="${ym}" title="${title}">${mark}${marks}</td>`;
     };
 
     pane.innerHTML = `
         ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-yellow-50 border border-yellow-200 text-yellow-700 rounded p-2">
-            <b>승인 대기 ${pendingCount}건</b> — 앰버색 칸은 임시저장(승인 전) 상태이며, 관리자 승인 후 실제 반영됩니다.
+            <b>승인 대기 ${pendingCount}건</b> — 진한 노란 칸은 임시저장(승인 전) 상태이며, 관리자 승인 후 실제 반영됩니다.
         </div>` : ''}
         <div class="mb-2 text-xs bg-gray-50 border rounded p-2 text-gray-600 leading-relaxed">
             행 = <b>직원 1명</b>. 진료 건이 여러 개면 <b>총 진료비 기준으로 합산</b>되고, 이행 체크는
@@ -482,10 +490,12 @@ async function renderFulfillTab(pane) {
         <div class="flex items-center gap-3 mb-2 text-xs text-gray-500 flex-wrap">
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-500 rounded-sm"></span>이행</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-200 rounded-sm"></span>일부 건만 이행</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미이행</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-yellow-50 border border-yellow-300 rounded-sm"></span>직원이 글 올림 (확인 필요)</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미이행·글 없음</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-yellow-200 rounded-sm"></span>승인 대기</span>
-            <span>📷 사진</span>
-            <span class="text-gray-400">· 칸 클릭 → 이행·메모·사진 편집</span>
+            <span>📸 직원 글</span>
+            <span>📎 이행 첨부</span>
+            <span class="text-gray-400">· 모든 달 클릭 가능 → 이행·메모·사진 편집</span>
         </div>
         <div class="flex items-center gap-2 mb-2">
             <button id="wf-nav-prev" class="px-3 py-1 rounded text-sm ${canOlder ? 'bg-gray-200 hover:bg-gray-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}" ${canOlder ? '' : 'disabled'}>◀ 이전 6개월</button>
