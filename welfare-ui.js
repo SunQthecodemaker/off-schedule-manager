@@ -12,7 +12,7 @@ import {
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260807c';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260807d';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
