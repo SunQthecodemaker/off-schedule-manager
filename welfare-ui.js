@@ -6,11 +6,13 @@ import {
     monthsBetween, calculateCosts, computeRemaining, elapsedMonthList,
     fulfilledMonthCount, formatNum, signatureUrlOf,
     createRecord, deleteRecord, upsertFulfillment, processSettlement,
-    uploadFulfillmentPhoto, removeDocsFile, fulfillmentPhotoUrls,
-} from './welfare.js?v=20260714c';
+    uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
+    loadWelfarePosts,
+} from './welfare.js?v=20260807a';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260807a';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -48,14 +50,15 @@ function renderShell(container) {
         { id: 'create',  label: '📝 신규 동의서 등록' },
         { id: 'list',    label: '📋 전체 목록' },
         { id: 'fulfill', label: '✅ 월별 이행 체크' },
+        { id: 'board',   label: '📸 미션 게시판' },
         { id: 'settle',  label: '💸 퇴사 정산' },
     ];
     const active = state.welfare.activeSubTab;
     container.innerHTML = `
         <div class="bg-white rounded shadow">
-            <div class="border-b flex">
+            <div class="border-b flex overflow-x-auto" style="white-space:nowrap;">
                 ${tabs.map(t => `
-                    <button data-welfare-tab="${t.id}" class="px-6 py-3 text-sm font-medium ${
+                    <button data-welfare-tab="${t.id}" class="px-4 sm:px-6 py-3 text-sm font-medium flex-shrink-0 ${
                         active === t.id ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-gray-800'
                     }">${t.label}</button>`).join('')}
             </div>
@@ -71,6 +74,7 @@ function renderShell(container) {
     if      (active === 'create')  renderCreateTab(pane);
     else if (active === 'list')    renderListTab(pane);
     else if (active === 'fulfill') renderFulfillTab(pane);
+    else if (active === 'board')   renderBoardAdminSection(pane);
     else if (active === 'settle')  renderSettleTab(pane);
 }
 
@@ -358,6 +362,24 @@ async function renderFulfillTab(pane) {
         return;
     }
 
+    // 🔑 행 = 직원 1명 (진료 "건" 단위 아님).
+    //    미션 이행은 "그 달에 그 직원이 미션을 했는가" 라서 직원 단위로 판정하고,
+    //    그 직원의 진료 건 중 "그 달에 이미 시작된 건" 전부에 동일하게 반영한다.
+    //    → 진료 건이 여러 개인 직원(이진현·김채이 등)이 여러 행으로 중복되던 문제 해소.
+    const groups = [];
+    const byEmp = new Map();
+    records.forEach(r => {
+        const id = r.employee_id;
+        if (!byEmp.has(id)) {
+            const g = { empId: id, name: r.employee?.name || '-', recs: [] };
+            byEmp.set(id, g); groups.push(g);
+        }
+        byEmp.get(id).recs.push(r);
+    });
+    groups.forEach(g => g.recs.sort((a, b) => String(a.start_date).localeCompare(String(b.start_date))));
+    groups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+    state.welfare.fulfillGroups = groups;   // 팝오버에서 재사용
+
     // 표시 창: 이번 달 기준 6개월(이번 달 포함, [이번달-5 .. 이번달]). ◀▶ 로 6개월씩 이동.
     const WINDOW = 6;
     const curM = dayjs().startOf('month');
@@ -387,43 +409,79 @@ async function renderFulfillTab(pane) {
 
     const pendingCount = Object.keys(pending).length;
 
-    // 레코드별 원가 정보 (월 차감액 / 진행 회차 / 잔여) — committed 이행 기준.
     const cfg = state.welfare.config;
     const committedByRec = {};
     Object.values(committed).forEach(v => { (committedByRec[v.record_id] ??= []).push(v); });
-    const infoFor = (r) => {
-        const { baseAmount, monthly, fulfilledMonths, remaining } = computeRemaining(r, committedByRec[r.id] || [], cfg);
-        const total = monthly > 0 ? Math.ceil(baseAmount / monthly) : 0;
-        return { monthly, fulfilledMonths, total, remaining, done: total > 0 && fulfilledMonths >= total };
+
+    // 직원 단위 합계 — 총 진료비·월 차감·잔여는 그 직원의 모든 활성 건의 합.
+    // 진료 건별 시작일이 달라도 각 건은 "자기 시작월 이후의 이행 개월수"만 차감 인정된다.
+    const infoFor = (g) => {
+        let totalFee = 0, baseSum = 0, monthlySum = 0, remainSum = 0, deductedSum = 0;
+        const monthSet = new Set();
+        g.recs.forEach(r => {
+            const list = committedByRec[r.id] || [];
+            const { baseAmount, monthly, remaining, deducted } = computeRemaining(r, list, cfg);
+            totalFee += r.total_fee || 0;
+            baseSum  += baseAmount;
+            remainSum += remaining;
+            deductedSum += Math.min(deducted, baseAmount);
+            if (remaining > 0) monthlySum += monthly;   // 완납된 건은 더 이상 차감 X
+            list.forEach(f => { if (f.fulfilled === true) monthSet.add(f.year_month); });
+        });
+        const pct = baseSum > 0 ? Math.min(100, Math.round(deductedSum / baseSum * 100)) : 0;
+        return { totalFee, baseSum, monthlySum, remainSum, months: monthSet.size, pct };
     };
 
-    const cellHTML = (r, ym) => {
-        const startYm = dayjs(r.start_date).startOf('month').format('YYYY-MM');
-        if (ym < startYm) return `<td style="width:44px;min-width:44px" class="border bg-gray-50"></td>`; // 시작 전 = 빈칸
-        const key = `${r.id}_${ym}`;
-        const p = pending[key], c = committed[key];
-        const src = p ? p.payload : c;
-        const fulfilled = src ? (src.fulfilled === true || src.fulfilled === 'true') : false;
-        const hasPhoto = !!(src && Array.isArray(src.attachments) && src.attachments.length);
-        const isPending = !!p;
+    const startYmOf = (r) => dayjs(r.start_date).startOf('month').format('YYYY-MM');
+    const eligibleRecs = (g, ym) => g.recs.filter(r => startYmOf(r) <= ym);
+
+    const cellHTML = (g, ym) => {
+        const elig = eligibleRecs(g, ym);
+        // 그 달까지 시작된 진료가 하나도 없으면 빈칸 (이행 대상 자체가 없음)
+        if (!elig.length) return `<td style="width:44px;min-width:44px" class="border bg-gray-50"></td>`;
+
+        let doneCnt = 0, pendCnt = 0, hasPhoto = false;
+        elig.forEach(r => {
+            const p = pending[`${r.id}_${ym}`], c = committed[`${r.id}_${ym}`];
+            const src = p ? p.payload : c;
+            if (p) pendCnt++;
+            if (!src) return;
+            if (src.fulfilled === true || src.fulfilled === 'true') doneCnt++;
+            if (Array.isArray(src.attachments) && src.attachments.length) hasPhoto = true;
+        });
+
         const ring = ym === curYm ? 'ring-2 ring-blue-400 ring-inset' : '';
         const photo = hasPhoto ? '<span style="position:absolute;right:1px;bottom:0;font-size:9px;line-height:1">📷</span>' : '';
         if (ym > lastEligibleYm) { // 이번달~미래 = 아직 이행 불가 (편집 X)
             return `<td style="width:44px;min-width:44px" class="border text-center text-gray-300 bg-gray-50 relative ${ring}">·${photo}</td>`;
         }
-        const bg = isPending ? 'bg-amber-200 text-amber-800' : (fulfilled ? 'bg-green-500 text-white' : 'bg-white text-gray-300 hover:bg-gray-100');
-        const mark = fulfilled ? '✓' : '·';
-        const title = `${r.employee?.name || ''} · ${ym}${isPending ? ' (승인 대기)' : ''}${hasPhoto ? ' · 사진 있음' : ''}`;
+
+        const allDone  = doneCnt === elig.length;
+        const partDone = doneCnt > 0 && !allDone;
+        const bg = pendCnt > 0 ? 'bg-amber-200 text-amber-800'
+                 : (allDone ? 'bg-green-500 text-white'
+                 : (partDone ? 'bg-green-200 text-green-800' : 'bg-white text-gray-300 hover:bg-gray-100'));
+        const mark = allDone ? '✓' : (partDone ? '◐' : '·');
+        const title = `${g.name} · ${ym} (대상 진료 ${elig.length}건)`
+            + (pendCnt > 0 ? ' · 승인 대기' : '')
+            + (partDone ? ` · ${doneCnt}/${elig.length}건만 이행` : '')
+            + (hasPhoto ? ' · 사진 있음' : '');
         return `<td style="width:44px;min-width:44px" class="border text-center cursor-pointer relative wf-grid-cell ${bg} ${ring}"
-                    data-rec="${r.id}" data-ym="${ym}" title="${title}">${mark}${photo}</td>`;
+                    data-emp="${g.empId}" data-ym="${ym}" title="${title}">${mark}${photo}</td>`;
     };
 
     pane.innerHTML = `
         ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
             <b>승인 대기 ${pendingCount}건</b> — 앰버색 칸은 임시저장(승인 전) 상태이며, 관리자 승인 후 실제 반영됩니다.
         </div>` : ''}
+        <div class="mb-2 text-xs bg-gray-50 border rounded p-2 text-gray-600 leading-relaxed">
+            행 = <b>직원 1명</b>. 진료 건이 여러 개면 <b>총 진료비 기준으로 합산</b>되고, 이행 체크는
+            그 달까지 <b>이미 시작된 진료 건 전부</b>에 함께 반영됩니다.
+            <span class="text-gray-500">(시작일이 늦은 건은 그 시작월부터 차감 인정 — 시작 전 달은 대상에서 제외)</span>
+        </div>
         <div class="flex items-center gap-3 mb-2 text-xs text-gray-500 flex-wrap">
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-500 rounded-sm"></span>이행</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-200 rounded-sm"></span>일부 건만 이행</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미이행</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-amber-200 rounded-sm"></span>승인 대기</span>
             <span>📷 사진</span>
@@ -436,43 +494,45 @@ async function renderFulfillTab(pane) {
             ${anchorEnd !== curYm ? `<button id="wf-nav-now" class="px-2 py-1 rounded text-sm bg-blue-50 text-blue-600 hover:bg-blue-100">오늘</button>` : ''}
         </div>
         <div id="wf-grid-scroll" class="overflow-x-auto border rounded shadow-sm" style="max-width:100%">
-            <table class="text-xs w-full" style="border-collapse:collapse;table-layout:fixed;min-width:760px">
+            <table class="text-xs w-full" style="border-collapse:collapse;table-layout:fixed;min-width:820px">
                 <colgroup>
-                    <col style="width:20%">
-                    <col style="width:9%">
+                    <col style="width:16%">
+                    <col style="width:11%">
                     <col style="width:10%">
                     <col style="width:11%">
-                    ${months.map(() => `<col style="width:${(50 / months.length).toFixed(3)}%">`).join('')}
+                    <col style="width:11%">
+                    ${months.map(() => `<col style="width:${(41 / months.length).toFixed(3)}%">`).join('')}
                 </colgroup>
                 <thead><tr class="bg-gray-100">
-                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left">직원 / 진료</th>
-                    <th class="border p-2 text-right">월 차감<br><span class="text-gray-400 font-normal">(원)</span></th>
-                    <th class="border p-2 text-center">이행<br><span class="text-gray-400 font-normal">(회차)</span></th>
-                    <th class="border p-2 text-right">잔여<br><span class="text-gray-400 font-normal">(원)</span></th>
+                    <th class="sticky left-0 z-10 bg-gray-100 border p-2 text-left">직원</th>
+                    <th class="border p-2 text-right">총 진료비<br><span class="text-gray-400 font-normal">(원)</span></th>
+                    <th class="border p-2 text-right">월 차감<br><span class="text-gray-400 font-normal">(합계)</span></th>
+                    <th class="border p-2 text-center">이행<br><span class="text-gray-400 font-normal">(개월)</span></th>
+                    <th class="border p-2 text-right">잔여<br><span class="text-gray-400 font-normal">(합계)</span></th>
                     ${months.map(ym => `<th class="border p-1 text-center ${ym===curYm?'bg-blue-100 font-bold':'bg-gray-50'}">${ym.slice(2).replace('-', '.')}</th>`).join('')}
                 </tr></thead>
                 <tbody>
-                    ${records.map(r => {
-                        const info = infoFor(r);
-                        const totalTxt = info.total > 0 ? `${info.fulfilledMonths} / ${info.total}회` : '—';
-                        const remainTxt = info.remaining > 0
-                            ? `<span class="text-blue-700 font-bold">${formatNum(info.remaining)}</span>`
+                    ${groups.map(g => {
+                        const info = infoFor(g);
+                        const remainTxt = info.remainSum > 0
+                            ? `<span class="text-blue-700 font-bold">${formatNum(info.remainSum)}</span>`
                             : `<span class="text-green-600 font-semibold">완납</span>`;
-                        const pct = info.total > 0 ? Math.min(100, Math.round(info.fulfilledMonths / info.total * 100)) : 0;
+                        const recTip = g.recs.map(r => `${r.start_date} ${r.treatment_type} ${r.treatment_details || ''} (${formatNum(r.total_fee)}원)`).join(' / ').replace(/"/g, '&quot;');
                         return `<tr class="hover:bg-blue-50">
                         <td class="sticky left-0 z-10 bg-white border p-2" style="overflow:hidden">
-                            <div class="font-medium text-sm">${r.employee?.name || '-'}</div>
-                            <div class="text-gray-400 truncate" style="font-size:11px" title="${r.treatment_type} · ${(r.treatment_details || '').replace(/"/g,'&quot;')}">${r.treatment_type} · ${r.treatment_details || '-'}</div>
+                            <div class="font-medium text-sm">${g.name}</div>
+                            <div class="text-gray-400 truncate" style="font-size:11px" title="${recTip}">진료 ${g.recs.length}건</div>
                         </td>
-                        <td class="border p-2 text-right whitespace-nowrap">${formatNum(info.monthly)}</td>
+                        <td class="border p-2 text-right whitespace-nowrap">${formatNum(info.totalFee)}</td>
+                        <td class="border p-2 text-right whitespace-nowrap">${formatNum(info.monthlySum)}</td>
                         <td class="border p-2 text-center whitespace-nowrap">
-                            <div>${totalTxt}</div>
-                            ${info.total > 0 ? `<div class="mt-1 bg-gray-200 rounded-full overflow-hidden" style="height:4px;width:52px;margin-left:auto;margin-right:auto">
-                                <div class="bg-green-500 h-full" style="width:${pct}%"></div>
-                            </div>` : ''}
+                            <div>${info.months}개월</div>
+                            <div class="mt-1 bg-gray-200 rounded-full overflow-hidden" style="height:4px;width:52px;margin-left:auto;margin-right:auto">
+                                <div class="bg-green-500 h-full" style="width:${info.pct}%"></div>
+                            </div>
                         </td>
                         <td class="border p-2 text-right whitespace-nowrap">${remainTxt}</td>
-                        ${months.map(ym => cellHTML(r, ym)).join('')}
+                        ${months.map(ym => cellHTML(g, ym)).join('')}
                     </tr>`;
                     }).join('')}
                 </tbody>
@@ -483,7 +543,7 @@ async function renderFulfillTab(pane) {
     pane.querySelector('#wf-grid-scroll').addEventListener('click', (e) => {
         const cell = e.target.closest('.wf-grid-cell');
         if (!cell) return;
-        openCellPopover(pane, Number(cell.dataset.rec), cell.dataset.ym);
+        openCellPopover(pane, Number(cell.dataset.emp), cell.dataset.ym);
     });
 
     // ◀▶ 창 이동 (6개월씩) / 오늘로 복귀
@@ -496,41 +556,98 @@ async function renderFulfillTab(pane) {
     if (now) now.onclick = () => goto(curYm);
 }
 
-// 셀(직원·월) 클릭 → 이행 토글 + 메모 + 사진(여러 장) 편집 팝오버.
-async function openCellPopover(pane, recId, ym) {
-    const rec = state.welfare.records.find(r => r.id === recId);
-    if (!rec) return;
-    let committed = {}, pending = {};
+// 셀(직원·월) 클릭 → 그 직원의 그 달 이행 토글 + 메모 + 사진(여러 장) 편집 팝오버.
+// 저장하면 그 달까지 시작된 그 직원의 모든 활성 진료 건에 동일하게 반영된다 (직원 단위 미션 판정).
+// 참고용으로 그 직원이 올린 같은 달 미션 게시판 글도 함께 보여준다.
+async function openCellPopover(pane, empId, ym) {
+    const g = (state.welfare.fulfillGroups || []).find(x => String(x.empId) === String(empId));
+    if (!g) return;
+    const startYmOf = (r) => dayjs(r.start_date).startOf('month').format('YYYY-MM');
+    const elig    = g.recs.filter(r => startYmOf(r) <= ym);
+    const notYet  = g.recs.filter(r => startYmOf(r) >  ym);   // 아직 시작 전 = 이 달 차감 대상 아님
+    if (!elig.length) return;
+
+    let committed = {}, pending = {}, posts = [];
     try {
-        [committed, pending] = await Promise.all([
-            loadFulfillmentForRecords([recId]),
+        [committed, pending, posts] = await Promise.all([
+            loadFulfillmentForRecords(elig.map(r => r.id)),
             loadAllPendingFulfillment(),
+            loadWelfarePosts({ employeeId: empId, yearMonth: ym }).catch(() => []),
         ]);
     } catch (e) { alert('불러오기 실패: ' + e.message); return; }
-    const key = `${recId}_${ym}`;
-    const p = pending[key], c = committed[key];
-    const src = p ? p.payload : c;
-    const isPending = !!p;
-    let atts = src && Array.isArray(src.attachments) ? [...src.attachments] : [];
-    const fulfilled = src ? (src.fulfilled === true || src.fulfilled === 'true') : false;
-    const note = src?.note || '';
+
+    // 여러 건의 상태를 합침 — 사진/메모는 합집합, 이행 체크는 전건 완료일 때만 ON.
+    let atts = [], note = '', doneCnt = 0, pendCnt = 0;
+    elig.forEach(r => {
+        const p = pending[`${r.id}_${ym}`], c = committed[`${r.id}_${ym}`];
+        const src = p ? p.payload : c;
+        if (p) pendCnt++;
+        if (!src) return;
+        if (src.fulfilled === true || src.fulfilled === 'true') doneCnt++;
+        (Array.isArray(src.attachments) ? src.attachments : []).forEach(a => { if (!atts.includes(a)) atts.push(a); });
+        if (!note && src.note) note = src.note;
+    });
+    const fulfilled = doneCnt === elig.length;
+    const isPending = pendCnt > 0;
+    const cfg = state.welfare.config;
+
+    // 이 달 차감 인정액 = 대상 진료 건들의 월 차감액 합 (완납된 건 제외)
+    let monthSum = 0;
+    const eligRows = elig.map(r => {
+        const { monthly, remaining } = computeRemaining(r, committedByRecOf(committed, r.id), cfg);
+        if (remaining > 0) monthSum += monthly;
+        return { r, monthly, remaining };
+    });
+
+    // 그 달 미션 게시판 글 (읽기 전용 — 이행 판단 근거)
+    const postUrlMap = {};
+    (await docsSignedUrls(posts.flatMap(p => p.photos || []))).forEach(u => { postUrlMap[u.path] = u.url; });
+    const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const postsHTML = posts.length ? posts.map(p => `
+        <div class="border rounded p-2 mb-1 bg-gray-50">
+            <div class="text-xs font-semibold">${p.category === 'blog' ? '✍️ 블로그 글' : '🎯 혜택 미션'} · ${esc(p.title)}</div>
+            ${p.body ? `<div class="text-xs text-gray-600 mt-1" style="white-space:pre-wrap;max-height:6em;overflow:auto">${esc(p.body)}</div>` : ''}
+            ${p.link_url ? `<a href="${esc(p.link_url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 underline break-all">${esc(p.link_url)}</a>` : ''}
+            ${(p.photos || []).length ? `<div class="flex gap-1 flex-wrap mt-1">${(p.photos || []).map(ph => postUrlMap[ph]
+                ? `<img src="${postUrlMap[ph]}" class="wf-post-img w-12 h-12 object-cover rounded border cursor-pointer" data-url="${postUrlMap[ph]}">` : '').join('')}</div>` : ''}
+        </div>`).join('') : `<div class="text-xs text-gray-400">이 달 등록된 미션 글이 없습니다.</div>`;
 
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
     modal.innerHTML = `
-        <div class="bg-white rounded-lg shadow-xl p-4 w-96" style="max-width:92vw">
+        <div class="bg-white rounded-lg shadow-xl p-4" style="width:27rem;max-width:92vw;max-height:92vh;overflow:auto">
             <div class="flex justify-between items-center mb-3">
-                <div class="font-bold">${rec.employee?.name || '-'} · ${ym} 이행 ${isPending ? '<span class="text-amber-600 text-xs">(승인 대기)</span>' : ''}</div>
+                <div class="font-bold">${g.name} · ${ym} 이행 ${isPending ? '<span class="text-amber-600 text-xs">(승인 대기)</span>' : ''}</div>
                 <button id="wf-pop-x" class="text-gray-400 text-2xl leading-none">&times;</button>
             </div>
+
+            <div class="mb-3 border rounded p-2 bg-gray-50">
+                <div class="text-xs font-semibold mb-1">이 달 차감 대상 진료 ${elig.length}건</div>
+                ${eligRows.map(({ r, monthly, remaining }) => `
+                    <div class="text-xs text-gray-600 flex justify-between gap-2">
+                        <span class="truncate">${r.start_date} · ${r.treatment_type} ${esc(r.treatment_details || '-')}</span>
+                        <span class="whitespace-nowrap">${remaining > 0 ? `월 ${formatNum(monthly)}원` : '<span class="text-green-600">완납</span>'}</span>
+                    </div>`).join('')}
+                <div class="text-xs font-semibold text-blue-700 border-t mt-1 pt-1 flex justify-between">
+                    <span>이 달 이행 시 차감액</span><span>${formatNum(monthSum)}원</span>
+                </div>
+                ${notYet.length ? `<div class="text-xs text-gray-400 mt-1">
+                    · 시작 전이라 이 달 대상 아님: ${notYet.map(r => `${r.start_date} ${esc(r.treatment_type)}`).join(', ')}
+                </div>` : ''}
+            </div>
+
             <label class="flex items-center gap-2 mb-3 text-sm">
-                <input type="checkbox" id="wf-pop-chk" class="w-5 h-5" ${fulfilled ? 'checked' : ''}> 이행 완료
+                <input type="checkbox" id="wf-pop-chk" class="w-5 h-5" ${fulfilled ? 'checked' : ''}>
+                이행 완료 <span class="text-xs text-gray-500">(위 ${elig.length}건 모두에 적용)</span>
             </label>
+            ${doneCnt > 0 && !fulfilled ? `<div class="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                현재 ${elig.length}건 중 ${doneCnt}건만 이행 처리돼 있습니다. 저장하면 전체가 동일하게 맞춰집니다.
+            </div>` : ''}
             <div class="mb-3">
                 <label class="block text-xs font-semibold mb-1">메모</label>
                 <input id="wf-pop-note" type="text" class="w-full border p-2 rounded text-sm" value="${note.replace(/"/g, '&quot;')}">
             </div>
-            <div class="mb-4">
+            <div class="mb-3">
                 <label class="block text-xs font-semibold mb-1">사진 (여러 장 가능)</label>
                 <div class="flex items-center gap-2 flex-wrap">
                     <label class="cursor-pointer text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">📷 추가
@@ -539,6 +656,10 @@ async function openCellPopover(pane, recId, ym) {
                     <span id="wf-pop-upl" class="text-xs text-blue-500"></span>
                 </div>
                 <div id="wf-pop-thumbs" class="flex gap-2 flex-wrap mt-2"></div>
+            </div>
+            <div class="mb-4">
+                <div class="text-xs font-semibold mb-1">📸 직원이 올린 ${ym} 미션 글 ${posts.length ? `(${posts.length}건)` : ''}</div>
+                ${postsHTML}
             </div>
             <div class="flex justify-end gap-2">
                 <button id="wf-pop-cancel" class="px-3 py-1.5 bg-gray-200 rounded text-sm">닫기</button>
@@ -550,6 +671,7 @@ async function openCellPopover(pane, recId, ym) {
     modal.querySelector('#wf-pop-x').onclick = close;
     modal.querySelector('#wf-pop-cancel').onclick = close;
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.querySelectorAll('.wf-post-img').forEach(im => { im.onclick = () => window.open(im.dataset.url, '_blank'); });
 
     const thumbHost = modal.querySelector('#wf-pop-thumbs');
     const paintThumbs = () => renderThumbsInto(thumbHost, atts, async (path) => {
@@ -568,7 +690,8 @@ async function openCellPopover(pane, recId, ym) {
             upl.textContent = `업로드 중… (${added + 1}/${files.length})`;
             try {
                 const blob = await compressImage(f);
-                const path = await uploadFulfillmentPhoto(recId, ym, blob, seq++);
+                // 직원 단위 이행이라 사진도 직원·월 단위 경로에 저장 (emp{id}_{YYYY-MM})
+                const path = await uploadFulfillmentPhoto(`emp${empId}`, ym, blob, seq++);
                 atts.push(path); added++;
             } catch (err) { console.error('[welfare] 사진 업로드 실패:', err); alert('사진 업로드 실패: ' + err.message); }
         }
@@ -580,11 +703,17 @@ async function openCellPopover(pane, recId, ym) {
         const btn = modal.querySelector('#wf-pop-save');
         btn.disabled = true; btn.textContent = '저장 중…';
         try {
-            const res = await upsertFulfillment(recId, ym,
-                modal.querySelector('#wf-pop-chk').checked,
-                modal.querySelector('#wf-pop-note').value, atts);
+            const chk = modal.querySelector('#wf-pop-chk').checked;
+            const noteVal = modal.querySelector('#wf-pop-note').value;
+            let staged = false;
+            for (const r of elig) {
+                const res = await upsertFulfillment(r.id, ym, chk, noteVal, atts);
+                staged = staged || res.staged;
+            }
             close();
-            if (typeof window.showToast === 'function') window.showToast(res.staged ? '임시저장됨 — 승인 후 반영' : '저장됨');
+            if (typeof window.showToast === 'function') {
+                window.showToast(staged ? '임시저장됨 — 승인 후 반영' : `저장됨 (진료 ${elig.length}건 반영)`);
+            }
             renderFulfillTab(pane);
         } catch (err) {
             btn.disabled = false; btn.textContent = '저장';
@@ -593,11 +722,16 @@ async function openCellPopover(pane, recId, ym) {
     });
 }
 
+// committed 맵({record_id}_{ym} → row)에서 특정 진료 건의 이행 행만 추려낸다.
+function committedByRecOf(committedMap, recId) {
+    return Object.values(committedMap || {}).filter(v => v.record_id === recId);
+}
+
 // 첨부 경로 배열 → signed URL 썸네일을 host 안에 렌더 (클릭=원본 열기, ×=삭제 콜백).
 async function renderThumbsInto(host, paths, onRemove) {
     if (!host) return;
     if (!paths.length) { host.innerHTML = '<span class="text-xs text-gray-400">첨부된 사진 없음</span>'; return; }
-    const urls = await fulfillmentPhotoUrls(paths);
+    const urls = await docsSignedUrls(paths);
     host.innerHTML = urls.map(u => `
         <span class="relative inline-block">
             <img src="${u.url}" class="w-14 h-14 object-cover rounded border cursor-pointer wf-thumb-img" data-url="${u.url}" title="클릭하면 원본 보기">
@@ -607,30 +741,10 @@ async function renderThumbsInto(host, paths, onRemove) {
     host.querySelectorAll('.wf-thumb-img').forEach(im => { im.onclick = () => window.open(im.dataset.url, '_blank'); });
 }
 
-// 클라이언트 이미지 압축 → image/jpeg blob (긴 변 maxDim 제한). 대용량 사진 업로드 대비.
-function compressImage(file, maxDim = 1600, quality = 0.72) {
-    return new Promise((resolve, reject) => {
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => {
-            URL.revokeObjectURL(url);
-            let { width, height } = img;
-            if (Math.max(width, height) > maxDim) {
-                const s = maxDim / Math.max(width, height);
-                width = Math.round(width * s); height = Math.round(height * s);
-            }
-            const canvas = document.createElement('canvas');
-            canvas.width = width; canvas.height = height;
-            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-            canvas.toBlob(b => b ? resolve(b) : reject(new Error('압축 실패')), 'image/jpeg', quality);
-        };
-        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지 로드 실패')); };
-        img.src = url;
-    });
-}
+// (compressImage 는 welfare.js 공용 — 게시판과 공유)
 
 // ============================================================
-// 탭 4) 퇴사 정산
+// 탭 5) 퇴사 정산
 // ============================================================
 async function renderSettleTab(pane) {
     const cfg = state.welfare.config;
