@@ -5,7 +5,7 @@ import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } fro
 import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260703b';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260703b';
 import { renderMyWelfareSection } from './employee-welfare.js?v=20260703b';
-import { renderMyBoardSection } from './welfare-board.js?v=20260807b';
+import { renderMyBoardSection } from './welfare-board.js?v=20260807c';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)

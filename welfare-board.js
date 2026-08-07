@@ -120,7 +120,7 @@ export async function renderMyBoardSection(container) {
             <div id="wb-status"><div class="text-gray-400 text-sm">불러오는 중...</div></div>
             <div class="flex items-center gap-3 mt-3 text-xs text-gray-500 flex-wrap">
                 <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-500 rounded-sm"></span>이행 인정</span>
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-amber-200 rounded-sm"></span>글 올림 (확인 대기)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-yellow-200 rounded-sm"></span>글 올림 (확인 대기)</span>
                 <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미등록</span>
             </div>
         </div>
@@ -271,7 +271,7 @@ export async function renderMyBoardSection(container) {
             const done = st.fulfilled.has(ym);
             const mine = postCount[ym] || 0;
             const cls = done ? 'bg-green-500 text-white border-green-600'
-                     : (mine ? 'bg-amber-200 text-amber-800 border-amber-300'
+                     : (mine ? 'bg-yellow-200 text-yellow-800 border-yellow-300'
                              : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-100');
             const mark = done ? '✓' : (mine ? `📸${mine > 1 ? mine : ''}` : '+');
             const [, mm] = ym.split('-');

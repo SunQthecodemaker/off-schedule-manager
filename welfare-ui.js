@@ -12,7 +12,7 @@ import {
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260807b';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260807c';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -458,7 +458,7 @@ async function renderFulfillTab(pane) {
 
         const allDone  = doneCnt === elig.length;
         const partDone = doneCnt > 0 && !allDone;
-        const bg = pendCnt > 0 ? 'bg-amber-200 text-amber-800'
+        const bg = pendCnt > 0 ? 'bg-yellow-200 text-yellow-800'
                  : (allDone ? 'bg-green-500 text-white'
                  : (partDone ? 'bg-green-200 text-green-800' : 'bg-white text-gray-300 hover:bg-gray-100'));
         const mark = allDone ? '✓' : (partDone ? '◐' : '·');
@@ -471,7 +471,7 @@ async function renderFulfillTab(pane) {
     };
 
     pane.innerHTML = `
-        ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2">
+        ${pendingCount > 0 ? `<div class="mb-3 text-xs bg-yellow-50 border border-yellow-200 text-yellow-700 rounded p-2">
             <b>승인 대기 ${pendingCount}건</b> — 앰버색 칸은 임시저장(승인 전) 상태이며, 관리자 승인 후 실제 반영됩니다.
         </div>` : ''}
         <div class="mb-2 text-xs bg-gray-50 border rounded p-2 text-gray-600 leading-relaxed">
@@ -483,7 +483,7 @@ async function renderFulfillTab(pane) {
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-500 rounded-sm"></span>이행</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-200 rounded-sm"></span>일부 건만 이행</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미이행</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-amber-200 rounded-sm"></span>승인 대기</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-yellow-200 rounded-sm"></span>승인 대기</span>
             <span>📷 사진</span>
             <span class="text-gray-400">· 칸 클릭 → 이행·메모·사진 편집</span>
         </div>
@@ -617,7 +617,7 @@ async function openCellPopover(pane, empId, ym) {
     modal.innerHTML = `
         <div class="bg-white rounded-lg shadow-xl p-4" style="width:27rem;max-width:92vw;max-height:92vh;overflow:auto">
             <div class="flex justify-between items-center mb-3">
-                <div class="font-bold">${g.name} · ${ym} 이행 ${isPending ? '<span class="text-amber-600 text-xs">(승인 대기)</span>' : ''}</div>
+                <div class="font-bold">${g.name} · ${ym} 이행 ${isPending ? '<span class="text-yellow-600 text-xs">(승인 대기)</span>' : ''}</div>
                 <button id="wf-pop-x" class="text-gray-400 text-2xl leading-none">&times;</button>
             </div>
 
@@ -640,7 +640,7 @@ async function openCellPopover(pane, empId, ym) {
                 <input type="checkbox" id="wf-pop-chk" class="w-5 h-5" ${fulfilled ? 'checked' : ''}>
                 이행 완료 <span class="text-xs text-gray-500">(위 ${elig.length}건 모두에 적용)</span>
             </label>
-            ${doneCnt > 0 && !fulfilled ? `<div class="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            ${doneCnt > 0 && !fulfilled ? `<div class="mb-3 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">
                 현재 ${elig.length}건 중 ${doneCnt}건만 이행 처리돼 있습니다. 저장하면 전체가 동일하게 맞춰집니다.
             </div>` : ''}
             <div class="mb-3">
