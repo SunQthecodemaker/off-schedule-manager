@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260703b';
+import { state, db } from './state.js?v=20260807e';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260703b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260703b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260703b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260703b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260703b';
-import { renderMyBoardSection } from './welfare-board.js?v=20260807d';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260807e';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260807e';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260807e';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260807e';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260807e';
+import { renderMyBoardSection } from './welfare-board.js?v=20260807e';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1342,7 +1342,7 @@ function renderMyLeaveRequests(requests, cancelMap = {}) {
         }
 
         const halfLabel = req.leave_type === 'am_half' ? ' (오전반차)' : req.leave_type === 'pm_half' ? ' (오후반차)' : '';
-        if (halfLabel) dateDisplay += `<span class="text-[10px] text-amber-600">${halfLabel}</span>`;
+        if (halfLabel) dateDisplay += `<span class="text-yellow-700" style="font-size:10px">${halfLabel}</span>`;
 
         // 취소 셀: 취소됨 / 취소 요청 중(철회 가능) / 취소 버튼(오늘 이후 날짜 포함 시) / -
         //  - 미승인(pending) = "취소"(즉시) / 승인됨(approved) = "취소 요청"(승인 필요)

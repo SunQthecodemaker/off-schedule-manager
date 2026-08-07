@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260703b';
+import { state, db, isVisibleIn } from './state.js?v=20260807e';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260703b';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260703b';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260807e';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260807e';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1097,7 +1097,7 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         const isHalf = req.leave_type === 'am_half' || req.leave_type === 'pm_half';
         const halfLabel = req.leave_type === 'am_half' ? '오전반차' : req.leave_type === 'pm_half' ? '오후반차' : '';
         const datesText = monthDatesArr.map(d => parseInt(d.substring(8, 10), 10) + '일').join(', ')
-            + (halfLabel ? ` <span class="text-[10px] text-amber-600">(${halfLabel})</span>` : '');
+            + (halfLabel ? ` <span class="text-yellow-700" style="font-size:10px">(${halfLabel})</span>` : '');
         // 반차는 0.5일로 집계 (오전반차 2번 ≠ 1일 연차)
         const dateCount = (req.dates?.length || 0) * (isHalf ? 0.5 : 1);
         const checkboxCell = (isAdmin && !readOnly)
@@ -3109,9 +3109,9 @@ export function getLeaveStatusHTML() {
     const autoEntries = Object.entries(autoByName);
     const autoCount = autoEntries.reduce((s, [, ds]) => s + ds.length, 0);
     const autoHolidayBannerHTML = autoCount === 0 ? '' : `
-        <div class="mb-4 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
-            <div class="font-bold text-amber-800">ℹ️ 신청서 없이 공휴일로 자동 등록된 유급 연차 (${autoCount}건)</div>
-            <div class="mt-1 text-amber-700">파트타임 직원의 <b>근무일에 공휴일이 겹쳐</b> 자동으로 유급 연차 차감되었습니다 (직원 신청서 없음):
+        <div class="mb-4 bg-yellow-50 border border-yellow-300 rounded-lg p-3 text-sm">
+            <div class="font-bold text-yellow-800">ℹ️ 신청서 없이 공휴일로 자동 등록된 유급 연차 (${autoCount}건)</div>
+            <div class="mt-1 text-yellow-700">파트타임 직원의 <b>근무일에 공휴일이 겹쳐</b> 자동으로 유급 연차 차감되었습니다 (직원 신청서 없음):
                 ${autoEntries.map(([nm, ds]) =>
                     `<span class="inline-block mr-2 mt-1"><b>${nm}</b> ${ds.sort().map(d => dayjs(d).format('M/D')).join('·')}</span>`
                 ).join('')}
