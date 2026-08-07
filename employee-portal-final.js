@@ -5,7 +5,7 @@ import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } fro
 import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260703b';
 import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260703b';
 import { renderMyWelfareSection } from './employee-welfare.js?v=20260703b';
-import { renderMyBoardSection } from './welfare-board.js?v=20260807a';
+import { renderMyBoardSection } from './welfare-board.js?v=20260807b';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -170,9 +170,6 @@ export async function renderEmployeePortal() {
                 <button id="tab-welfare-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
                     💊 진료비 복지
                 </button>
-                <button id="tab-welfare-board-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
-                    📸 복지 미션
-                </button>
             </div>
 
             <!-- 매니저 전용: 스케줄 승인 요청 반려 알림 배너 -->
@@ -219,14 +216,13 @@ export async function renderEmployeePortal() {
 
             <!-- 진료비 복지 탭 (직원 본인 진료기록·잔액·이행 현황) -->
             <div id="employee-welfare-tab" class="tab-content hidden">
-                <h2 class="text-xl font-bold mb-3">💊 내 진료비 복지 현황</h2>
+                <!-- 하위 탭: 내 현황 / 복지 미션 게시판 -->
+                <div class="flex border-b mb-4 overflow-x-auto" style="white-space:nowrap;">
+                    <button id="subtab-welfare-my-btn" class="welfare-subtab-btn px-3 sm:px-5 py-2 text-sm font-semibold border-b-2 border-blue-600 text-blue-600 flex-shrink-0">💊 내 진료비 현황</button>
+                    <button id="subtab-welfare-board-btn" class="welfare-subtab-btn px-3 sm:px-5 py-2 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">📸 복지 미션</button>
+                </div>
                 <div id="my-welfare-content"></div>
-            </div>
-
-            <!-- 복지 미션 게시판 탭 (블로그 글·혜택 미션 인증 등록) -->
-            <div id="employee-welfare-board-tab" class="tab-content hidden">
-                <h2 class="text-xl font-bold mb-3">📸 복지 미션 게시판</h2>
-                <div id="my-welfare-board-content"></div>
+                <div id="my-welfare-board-content" class="hidden"></div>
             </div>
 
         </div>
@@ -244,7 +240,8 @@ export async function renderEmployeePortal() {
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
     _('#tab-work-schedule-btn').addEventListener('click', () => switchEmployeeTab('workSchedule'));
     _('#tab-welfare-btn')?.addEventListener('click', () => switchEmployeeTab('welfare'));
-    _('#tab-welfare-board-btn')?.addEventListener('click', () => switchEmployeeTab('welfareBoard'));
+    _('#subtab-welfare-my-btn')?.addEventListener('click', () => switchWelfareSubTab('my'));
+    _('#subtab-welfare-board-btn')?.addEventListener('click', () => switchWelfareSubTab('board'));
 
     if (user.isManager) {
         _('#enterManagerViewBtn')?.addEventListener('click', () => {
@@ -370,6 +367,34 @@ async function handleChangeEmail() {
     }
 }
 
+// 진료비 복지 탭 안의 하위 탭 전환 — 'my'(내 진료비 현황) / 'board'(복지 미션 게시판)
+function switchWelfareSubTab(which) {
+    state.employee.welfareSubTab = which;
+
+    const pairs = {
+        my:    { btn: '#subtab-welfare-my-btn',    content: '#my-welfare-content' },
+        board: { btn: '#subtab-welfare-board-btn', content: '#my-welfare-board-content' },
+    };
+    Object.entries(pairs).forEach(([key, p]) => {
+        const btn = _(p.btn), content = _(p.content);
+        if (!btn || !content) return;
+        if (key === which) {
+            btn.classList.add('border-blue-600', 'text-blue-600');
+            btn.classList.remove('border-transparent', 'text-gray-500');
+            content.classList.remove('hidden');
+        } else {
+            btn.classList.remove('border-blue-600', 'text-blue-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+            content.classList.add('hidden');
+        }
+    });
+
+    const host = document.getElementById(which === 'board' ? 'my-welfare-board-content' : 'my-welfare-content');
+    if (!host) return;
+    if (which === 'board') renderMyBoardSection(host);
+    else                   renderMyWelfareSection(host);
+}
+
 function switchEmployeeTab(tab) {
     state.employee.activeTab = tab;
 
@@ -379,7 +404,6 @@ function switchEmployeeTab(tab) {
         'docs': { btn: '#tab-docs-btn', content: '#employee-docs-tab' },
         'workSchedule': { btn: '#tab-work-schedule-btn', content: '#employee-work-schedule-tab' },
         'welfare': { btn: '#tab-welfare-btn', content: '#employee-welfare-tab' },
-        'welfareBoard': { btn: '#tab-welfare-board-btn', content: '#employee-welfare-board-tab' },
         'leaveList': { btn: '#tab-leave-list-btn', content: '#employee-leave-list-tab' },
         'leaveStatus': { btn: '#tab-leave-status-btn', content: '#employee-leave-status-tab' },
         'schedule': { btn: '#tab-schedule-btn', content: '#employee-schedule-tab' },
@@ -419,11 +443,7 @@ function switchEmployeeTab(tab) {
     } else if (tab === 'workSchedule') {
         renderEmployeeScheduleView();
     } else if (tab === 'welfare') {
-        const c = document.getElementById('my-welfare-content');
-        if (c) renderMyWelfareSection(c);
-    } else if (tab === 'welfareBoard') {
-        const c = document.getElementById('my-welfare-board-content');
-        if (c) renderMyBoardSection(c);
+        switchWelfareSubTab(state.employee.welfareSubTab || 'my');
     } else if (tab === 'documentReview') {
         renderManagerDocumentReview();
     } else if (tab === 'leaveManagement') {

@@ -12,7 +12,7 @@ import {
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260807a';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260807b';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -605,7 +605,7 @@ async function openCellPopover(pane, empId, ym) {
     const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const postsHTML = posts.length ? posts.map(p => `
         <div class="border rounded p-2 mb-1 bg-gray-50">
-            <div class="text-xs font-semibold">${p.category === 'blog' ? '✍️ 블로그 글' : '🎯 혜택 미션'} · ${esc(p.title)}</div>
+            <div class="text-xs font-semibold">${esc(p.title)}</div>
             ${p.body ? `<div class="text-xs text-gray-600 mt-1" style="white-space:pre-wrap;max-height:6em;overflow:auto">${esc(p.body)}</div>` : ''}
             ${p.link_url ? `<a href="${esc(p.link_url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 underline break-all">${esc(p.link_url)}</a>` : ''}
             ${(p.photos || []).length ? `<div class="flex gap-1 flex-wrap mt-1">${(p.photos || []).map(ph => postUrlMap[ph]

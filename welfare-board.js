@@ -1,6 +1,6 @@
 // 복지 미션 게시판 — 직원 작성 화면 + 관리자 열람 화면
-//   · 직원  : 본인 글만 작성/수정/삭제/조회 (employee-portal-final.js → 📸 복지 미션 탭)
-//   · 관리자: 전체 글 열람 + 삭제 (welfare-ui.js → 📸 미션 게시판 탭)
+//   · 직원  : 진료비 복지 탭 > [📸 복지 미션] 하위 탭. 본인 월별 미션 현황 + 본인 글만 작성/수정/삭제
+//   · 관리자: 복지 탭 > [📸 미션 게시판] 하위 탭. 전체 글 열람 + 삭제
 // 사진은 docs 버킷(비공개) → 표시는 signed URL. 이행체크 첨부와 동일 패턴.
 import { state, db, isTestEmployee } from './state.js?v=20260703b';
 import {
@@ -8,9 +8,7 @@ import {
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
 } from './welfare.js?v=20260807a';
 
-const CATEGORY_LABEL = { mission: '🎯 혜택 미션', blog: '✍️ 블로그 글' };
-
-// 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분/9월분 모두 입력 가능).
+// 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.
 function monthOptions() {
     const out = [];
@@ -57,8 +55,45 @@ function bindPhotoOpen(host) {
     });
 }
 
+// 직원 본인의 월별 미션 현황 — 관리자 이행 인정 여부 + 내가 올린 글 수.
+// 표시 구간: 진료 시작월 ~ 이번 달 (최대 최근 12개월).
+async function loadMissionStatus(empId) {
+    const cur = dayjs().startOf('month');
+    let earliest = cur;
+    let hasRecords = false;
+    let ids = [];
+    try {
+        const { data: recs } = await db.from('welfare_records')
+            .select('id, start_date, status').eq('employee_id', empId);
+        const active = (recs || []).filter(r => r.status === 'Active');
+        hasRecords = active.length > 0;
+        active.forEach(r => {
+            const s = dayjs(r.start_date).startOf('month');
+            if (s.isValid() && s.isBefore(earliest)) earliest = s;
+        });
+        ids = active.map(r => r.id);
+    } catch (e) { console.warn('[board] 진료기록 로드 실패:', e.message); }
+
+    // 최근 12개월로 제한 (모바일 가독성)
+    const floor = cur.subtract(11, 'month');
+    let from = earliest.isBefore(floor) ? floor : earliest;
+    if (!hasRecords) from = cur.subtract(5, 'month');
+
+    const months = [];
+    let m = from;
+    while (m.isSameOrBefore(cur, 'month')) { months.push(m.format('YYYY-MM')); m = m.add(1, 'month'); }
+
+    const fulfilled = new Set();
+    if (ids.length) {
+        const { data } = await db.from('welfare_monthly_fulfillment')
+            .select('year_month, fulfilled').in('record_id', ids);
+        (data || []).forEach(f => { if (f.fulfilled) fulfilled.add(f.year_month); });
+    }
+    return { months, fulfilled, hasRecords };
+}
+
 // ============================================================
-// 직원 화면 — 작성 폼 + 내 글 목록
+// 직원 화면 — 월별 미션 현황 + 작성 폼 + 내 글 목록
 // ============================================================
 export async function renderMyBoardSection(container) {
     if (!container) return;
@@ -75,8 +110,19 @@ export async function renderMyBoardSection(container) {
 
     container.innerHTML = `
         <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-sm text-blue-800">
-            작성한 <b>블로그 글</b>이나 <b>혜택 미션 인증</b>을 올려주세요. 사진도 함께 첨부할 수 있습니다.
+            작성한 <b>블로그 글</b>이나 <b>미션 인증</b>을 올려주세요. 사진도 함께 첨부할 수 있습니다.
             <span class="block text-xs text-blue-600 mt-1">※ 등록한 글은 원장님(관리자)이 확인합니다. 다른 직원에게는 보이지 않습니다.</span>
+        </div>
+
+        <div class="bg-white shadow rounded p-4 mb-5">
+            <h3 class="font-bold text-lg mb-1">📅 내 월별 미션 현황</h3>
+            <p class="text-xs text-gray-500 mb-3">달을 누르면 그 달로 <b>올리기</b> 준비가 됩니다.</p>
+            <div id="wb-status"><div class="text-gray-400 text-sm">불러오는 중...</div></div>
+            <div class="flex items-center gap-3 mt-3 text-xs text-gray-500 flex-wrap">
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-500 rounded-sm"></span>이행 인정</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-amber-200 rounded-sm"></span>글 올림 (확인 대기)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-white border rounded-sm"></span>미등록</span>
+            </div>
         </div>
 
         <div id="wb-form-card" class="bg-white shadow rounded p-4 mb-5">
@@ -84,20 +130,11 @@ export async function renderMyBoardSection(container) {
                 <h3 id="wb-form-title" class="font-bold text-lg">✏️ 새 글 등록</h3>
                 <button id="wb-cancel-edit" class="hidden text-xs px-2 py-1 bg-gray-200 rounded">수정 취소</button>
             </div>
-            <div class="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                    <label class="block text-xs font-semibold mb-1">해당 월</label>
-                    <select id="wb-ym" class="w-full border p-2 rounded text-sm">
-                        ${months.map(m => `<option value="${m}" ${m === thisMonth ? 'selected' : ''}>${monthLabel(m)}${m === thisMonth ? ' (이번 달)' : ''}</option>`).join('')}
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold mb-1">구분</label>
-                    <select id="wb-cat" class="w-full border p-2 rounded text-sm">
-                        <option value="mission">🎯 혜택 미션</option>
-                        <option value="blog">✍️ 블로그 글</option>
-                    </select>
-                </div>
+            <div class="mb-3">
+                <label class="block text-xs font-semibold mb-1">해당 월</label>
+                <select id="wb-ym" class="w-full border p-2 rounded text-sm">
+                    ${months.map(m => `<option value="${m}" ${m === thisMonth ? 'selected' : ''}>${monthLabel(m)}${m === thisMonth ? ' (이번 달)' : ''}</option>`).join('')}
+                </select>
             </div>
             <div class="mb-3">
                 <label class="block text-xs font-semibold mb-1">제목</label>
@@ -152,6 +189,13 @@ export async function renderMyBoardSection(container) {
     };
     await paintThumbs();
 
+    // 해당 월을 폼에 세팅하고 작성 폼으로 이동 ("올리기" 진입점)
+    const pickMonth = (ym) => {
+        $('#wb-ym').value = ym;
+        $('#wb-form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        $('#wb-title').focus({ preventScroll: true });
+    };
+
     $('#wb-file').addEventListener('change', async (e) => {
         const files = [...e.target.files]; e.target.value = '';
         const upl = $('#wb-upl');
@@ -179,7 +223,6 @@ export async function renderMyBoardSection(container) {
         $('#wb-submit').textContent = '등록하기';
         $('#wb-cancel-edit').classList.add('hidden');
         $('#wb-ym').value = thisMonth;
-        $('#wb-cat').value = 'mission';
         $('#wb-title').value = '';
         $('#wb-body').value = '';
         $('#wb-link').value = '';
@@ -193,7 +236,6 @@ export async function renderMyBoardSection(container) {
         const payload = {
             employeeId: empId,
             yearMonth: $('#wb-ym').value,
-            category:  $('#wb-cat').value,
             title:     $('#wb-title').value,
             body:      $('#wb-body').value,
             linkUrl:   $('#wb-link').value,
@@ -215,6 +257,33 @@ export async function renderMyBoardSection(container) {
         }
     });
 
+    // 월별 현황 스트립 — 관리자 이행 인정 / 내 글 등록 여부를 한눈에.
+    async function refreshStatus(posts) {
+        const host = $('#wb-status');
+        let st;
+        try { st = await loadMissionStatus(empId); }
+        catch (e) { host.innerHTML = `<span class="text-xs text-red-600">현황 불러오기 실패: ${esc(e.message)}</span>`; return; }
+
+        const postCount = {};
+        (posts || []).forEach(p => { postCount[p.year_month] = (postCount[p.year_month] || 0) + 1; });
+
+        host.innerHTML = `<div class="flex gap-2 flex-wrap">${st.months.map(ym => {
+            const done = st.fulfilled.has(ym);
+            const mine = postCount[ym] || 0;
+            const cls = done ? 'bg-green-500 text-white border-green-600'
+                     : (mine ? 'bg-amber-200 text-amber-800 border-amber-300'
+                             : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-100');
+            const mark = done ? '✓' : (mine ? `📸${mine > 1 ? mine : ''}` : '+');
+            const [, mm] = ym.split('-');
+            return `<button class="wb-month px-2 py-1 rounded border text-xs flex-shrink-0" data-ym="${ym}"
+                        title="${monthLabel(ym)} — ${done ? '이행 인정됨' : (mine ? `내 글 ${mine}건 (확인 대기)` : '아직 등록 안 함')} · 누르면 이 달로 올리기">
+                        ${Number(mm)}월 ${mark}</button>`;
+        }).join('')}</div>
+        ${st.hasRecords ? '' : '<p class="text-xs text-gray-400 mt-2">등록된 진료비 복지 기록이 없어도 미션 글은 올릴 수 있습니다.</p>'}`;
+
+        host.querySelectorAll('.wb-month').forEach(b => { b.onclick = () => pickMonth(b.dataset.ym); });
+    }
+
     async function refreshList() {
         const listHost = $('#wb-list');
         let posts = [];
@@ -224,6 +293,8 @@ export async function renderMyBoardSection(container) {
             listHost.innerHTML = `<p class="text-red-600 text-sm">불러오기 실패: ${esc(e.message)}</p>`;
             return;
         }
+        await refreshStatus(posts);
+
         $('#wb-count').textContent = posts.length ? `(총 ${posts.length}건)` : '';
         if (!posts.length) {
             listHost.innerHTML = `<p class="text-gray-500 text-sm py-4 text-center">아직 올린 글이 없습니다. 위에서 첫 글을 등록해보세요.</p>`;
@@ -233,10 +304,7 @@ export async function renderMyBoardSection(container) {
         listHost.innerHTML = `<div class="space-y-3">${posts.map(p => `
             <div class="border rounded p-3">
                 <div class="flex items-start justify-between gap-2 mb-1">
-                    <div class="flex items-center gap-1 flex-wrap">
-                        <span class="px-2 py-0.5 rounded bg-gray-800 text-white text-xs">${monthLabel(p.year_month)}</span>
-                        <span class="px-2 py-0.5 rounded bg-gray-100 border text-xs">${CATEGORY_LABEL[p.category] || p.category}</span>
-                    </div>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-white text-xs">${monthLabel(p.year_month)}</span>
                     <div class="flex gap-1 flex-shrink-0">
                         <button class="wb-edit text-xs px-2 py-1 bg-gray-200 rounded" data-id="${p.id}">수정</button>
                         <button class="wb-del text-xs px-2 py-1 bg-red-100 text-red-700 rounded" data-id="${p.id}">삭제</button>
@@ -261,7 +329,6 @@ export async function renderMyBoardSection(container) {
                 $('#wb-submit').textContent = '수정 저장';
                 $('#wb-cancel-edit').classList.remove('hidden');
                 $('#wb-ym').value = post.year_month;
-                $('#wb-cat').value = post.category;
                 $('#wb-title').value = post.title;
                 $('#wb-body').value = post.body || '';
                 $('#wb-link').value = post.link_url || '';
@@ -286,7 +353,7 @@ export async function renderMyBoardSection(container) {
 }
 
 // ============================================================
-// 관리자 화면 — 전체 글 열람 (월/직원/구분 필터)
+// 관리자 화면 — 전체 글 열람 (월/직원 필터)
 // ============================================================
 function adminShowsTest() {
     return state.userRole === 'admin' ? state.showTestEmployeesAdmin : state.showTestEmployees;
@@ -294,14 +361,14 @@ function adminShowsTest() {
 
 export async function renderBoardAdminSection(pane) {
     if (!pane) return;
-    state.welfareBoard ??= { ym: '', category: '', empId: '' };
+    state.welfareBoard ??= { ym: '', empId: '' };
     const f = state.welfareBoard;
     const months = monthOptions().slice().reverse();
 
     pane.innerHTML = `
         <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-sm">
             <span class="font-bold text-blue-800">📸 미션 게시판</span> —
-            직원들이 올린 <b>블로그 글 / 혜택 미션 인증</b>입니다. 사진을 클릭하면 원본이 열립니다.
+            직원들이 올린 <b>블로그 글 / 미션 인증</b>입니다. 사진을 클릭하면 원본이 열립니다.
         </div>
         <div class="flex flex-wrap gap-2 items-end mb-3">
             <div>
@@ -309,14 +376,6 @@ export async function renderBoardAdminSection(pane) {
                 <select id="wba-ym" class="border p-2 rounded text-sm">
                     <option value="">전체 월</option>
                     ${months.map(m => `<option value="${m}" ${f.ym === m ? 'selected' : ''}>${monthLabel(m)}</option>`).join('')}
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-semibold mb-1">구분</label>
-                <select id="wba-cat" class="border p-2 rounded text-sm">
-                    <option value="">전체</option>
-                    <option value="mission" ${f.category === 'mission' ? 'selected' : ''}>🎯 혜택 미션</option>
-                    <option value="blog" ${f.category === 'blog' ? 'selected' : ''}>✍️ 블로그 글</option>
                 </select>
             </div>
             <div>
@@ -334,10 +393,7 @@ export async function renderBoardAdminSection(pane) {
     async function load() {
         let posts = [];
         try {
-            posts = await loadWelfarePosts({
-                yearMonth: f.ym || null,
-                category:  f.category || null,
-            });
+            posts = await loadWelfarePosts({ yearMonth: f.ym || null });
         } catch (e) {
             listHost.innerHTML = `<p class="text-red-600 p-4">불러오기 실패: ${esc(e.message)}</p>`;
             return;
@@ -375,7 +431,6 @@ export async function renderBoardAdminSection(pane) {
                     <div class="flex items-center gap-1 flex-wrap">
                         <span class="px-2 py-0.5 rounded bg-gray-800 text-white text-xs">${esc(p.employee?.name || '?')}</span>
                         <span class="px-2 py-0.5 rounded bg-gray-100 border text-xs">${monthLabel(p.year_month)}</span>
-                        <span class="px-2 py-0.5 rounded bg-gray-100 border text-xs">${CATEGORY_LABEL[p.category] || p.category}</span>
                     </div>
                     ${canDelete ? `<button class="wba-del text-xs px-2 py-1 bg-red-100 text-red-700 rounded flex-shrink-0" data-id="${p.id}">삭제</button>` : ''}
                 </div>
@@ -397,7 +452,6 @@ export async function renderBoardAdminSection(pane) {
     }
 
     $('#wba-ym').addEventListener('change', e => { f.ym = e.target.value; load(); });
-    $('#wba-cat').addEventListener('change', e => { f.category = e.target.value; load(); });
     $('#wba-emp').addEventListener('change', e => { f.empId = e.target.value; load(); });
     $('#wba-reload').addEventListener('click', () => load());
 
