@@ -275,7 +275,7 @@ export async function renderMyBoardSection(container) {
                              : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-100');
             const mark = done ? '✓' : (mine ? `📸${mine > 1 ? mine : ''}` : '+');
             const [, mm] = ym.split('-');
-            return `<button class="wb-month px-2 py-1 rounded border text-xs flex-shrink-0" data-ym="${ym}"
+            return `<button class="wb-month px-2 py-1 rounded border text-xs flex-shrink-0 ${cls}" data-ym="${ym}"
                         title="${monthLabel(ym)} — ${done ? '이행 인정됨' : (mine ? `내 글 ${mine}건 (확인 대기)` : '아직 등록 안 함')} · 누르면 이 달로 올리기">
                         ${Number(mm)}월 ${mark}</button>`;
         }).join('')}</div>
