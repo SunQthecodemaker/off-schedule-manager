@@ -329,8 +329,10 @@ export async function signatureUrlOf(consentSigPath) {
 // ============================================================
 
 // 압축된 image/jpeg blob 을 docs 버킷에 업로드 → 경로 반환.
-export async function uploadFulfillmentPhoto(recordId, yearMonth, blob, seq) {
-    const path = `welfare/fulfillment/${recordId}_${yearMonth}/${Date.now()}_${seq}.jpg`;
+// keyPrefix: 폴더 구분자. 이행 체크가 직원 단위로 바뀐 뒤로는 `emp{employee_id}` 를 넘긴다
+//            (옛 데이터는 record_id 로 저장돼 있어 그대로 읽힘 — 경로는 표시용 구분일 뿐).
+export async function uploadFulfillmentPhoto(keyPrefix, yearMonth, blob, seq) {
+    const path = `welfare/fulfillment/${keyPrefix}_${yearMonth}/${Date.now()}_${seq}.jpg`;
     const { error } = await db.storage.from('docs')
         .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
     if (error) throw error;
@@ -344,7 +346,7 @@ export async function removeDocsFile(path) {
 }
 
 // 첨부 경로 배열 → signed URL 배열 (표시용). 실패분은 제외.
-export async function fulfillmentPhotoUrls(paths) {
+export async function docsSignedUrls(paths) {
     const list = Array.isArray(paths) ? paths : [];
     const out = [];
     for (const p of list) {
@@ -352,4 +354,97 @@ export async function fulfillmentPhotoUrls(paths) {
         if (url) out.push({ path: p, url });
     }
     return out;
+}
+
+// 클라이언트 이미지 압축 → image/jpeg blob (긴 변 maxDim 제한). 대용량 사진 업로드 대비.
+export function compressImage(file, maxDim = 1600, quality = 0.72) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            let { width, height } = img;
+            if (Math.max(width, height) > maxDim) {
+                const s = maxDim / Math.max(width, height);
+                width = Math.round(width * s); height = Math.round(height * s);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+            canvas.toBlob(b => b ? resolve(b) : reject(new Error('압축 실패')), 'image/jpeg', quality);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지 로드 실패')); };
+        img.src = url;
+    });
+}
+
+// ============================================================
+// 8. 복지 미션 게시판 (welfare_posts)
+//    직원이 본인 블로그 글 / 혜택 미션 인증을 텍스트 + 사진으로 등록.
+//    직원 발신이라 staging 안 거침 (연차 취소 요청과 동일 — 본인 소유 데이터).
+//    year_month = 미션 해당 월 (작성일과 별개, 직원이 선택. 기본 = 이번 달)
+// ============================================================
+
+export function currentYearMonth() {
+    return dayjs().format('YYYY-MM');
+}
+
+// 게시판 글 로드.
+//   employeeId 지정 → 본인 글만 (직원 화면) / 미지정 → 전체 (관리자 화면)
+export async function loadWelfarePosts({ employeeId = null, yearMonth = null, category = null } = {}) {
+    let q = db.from('welfare_posts')
+        .select('*, employee:employees!welfare_posts_employee_id_fkey(id, name, email, department_id)')
+        .order('year_month', { ascending: false })
+        .order('created_at', { ascending: false });
+    if (employeeId) q = q.eq('employee_id', employeeId);
+    if (yearMonth)  q = q.eq('year_month', yearMonth);
+    if (category)   q = q.eq('category', category);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+}
+
+export async function createWelfarePost({ employeeId, yearMonth, category, title, body, linkUrl, photos }) {
+    if (!employeeId) throw new Error('로그인 정보가 없습니다.');
+    const { data, error } = await db.from('welfare_posts').insert({
+        employee_id: employeeId,
+        year_month:  yearMonth || currentYearMonth(),
+        category:    category === 'blog' ? 'blog' : 'mission',
+        title:       (title || '').trim(),
+        body:        (body || '').trim(),
+        link_url:    (linkUrl || '').trim() || null,
+        photos:      Array.isArray(photos) ? photos : [],
+    }).select().single();
+    if (error) throw error;
+    return data;
+}
+
+export async function updateWelfarePost(id, { yearMonth, category, title, body, linkUrl, photos }) {
+    const { error } = await db.from('welfare_posts').update({
+        year_month: yearMonth,
+        category:   category === 'blog' ? 'blog' : 'mission',
+        title:      (title || '').trim(),
+        body:       (body || '').trim(),
+        link_url:   (linkUrl || '').trim() || null,
+        photos:     Array.isArray(photos) ? photos : [],
+    }).eq('id', id);
+    if (error) throw error;
+}
+
+// 글 삭제 — 첨부 사진도 함께 정리 (실패는 무시, 글 삭제 우선).
+export async function deleteWelfarePost(id) {
+    const { data: row } = await db.from('welfare_posts').select('photos').eq('id', id).single();
+    const { error } = await db.from('welfare_posts').delete().eq('id', id);
+    if (error) throw error;
+    const paths = Array.isArray(row?.photos) ? row.photos : [];
+    if (paths.length) await db.storage.from('docs').remove(paths).catch(() => {});
+}
+
+// 게시판 사진 업로드 (압축된 image/jpeg blob) → docs 버킷 경로 반환.
+export async function uploadPostPhoto(employeeId, blob, seq) {
+    const path = `welfare/posts/${employeeId}/${Date.now()}_${seq}.jpg`;
+    const { error } = await db.storage.from('docs')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (error) throw error;
+    return path;
 }
