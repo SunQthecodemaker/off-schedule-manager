@@ -1,12 +1,15 @@
 // 복지 미션 게시판 — 직원 작성 화면 + 관리자 열람 화면
 //   · 직원  : 진료비 복지 탭 > [📸 복지 미션] 하위 탭. 본인 월별 미션 현황 + 본인 글만 작성/수정/삭제
-//   · 관리자: 복지 탭 > [📸 미션 게시판] 하위 탭. 전체 글 열람 + 삭제
+//   · 관리자: 복지 탭 > [📸 미션 게시판] 하위 탭. 전체 글 열람 + 삭제(휴지통) + 복원/영구삭제
 // 사진은 docs 버킷(비공개) → 표시는 signed URL. 이행체크 첨부와 동일 패턴.
+// 삭제는 소프트 삭제(deleted_at) — 직원이 올린 원본 데이터라 실수 삭제도 복원 가능해야 한다.
+// 관리자가 휴지통에서 확인 후 "영구 삭제"해야만 완전히 사라진다 (purgeWelfarePost).
 import { state, db, isTestEmployee } from './state.js?v=20260807f';
 import {
-    loadWelfarePosts, createWelfarePost, updateWelfarePost, deleteWelfarePost,
+    loadWelfarePosts, loadDeletedWelfarePosts, createWelfarePost, updateWelfarePost,
+    deleteWelfarePost, restoreWelfarePost, purgeWelfarePost,
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
-} from './welfare.js?v=20260811a';
+} from './welfare.js?v=20260811b';
 
 // 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.
@@ -339,7 +342,7 @@ export async function renderMyBoardSection(container) {
 
         listHost.querySelectorAll('.wb-del').forEach(b => {
             b.onclick = async () => {
-                if (!confirm('이 글을 삭제할까요? (첨부 사진도 함께 삭제됩니다)')) return;
+                if (!confirm('이 글을 삭제할까요? (실수로 지웠다면 관리자에게 요청해 복원할 수 있습니다)')) return;
                 try {
                     await deleteWelfarePost(Number(b.dataset.id));
                     if (editingId === Number(b.dataset.id)) await resetForm();
@@ -361,7 +364,7 @@ function adminShowsTest() {
 
 export async function renderBoardAdminSection(pane) {
     if (!pane) return;
-    state.welfareBoard ??= { ym: '', empId: '' };
+    state.welfareBoard ??= { ym: '', empId: '', view: 'active' };
     const f = state.welfareBoard;
     const months = monthOptions().slice().reverse();
 
@@ -369,6 +372,11 @@ export async function renderBoardAdminSection(pane) {
         <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-sm">
             <span class="font-bold text-blue-800">📸 미션 게시판</span> —
             직원들이 올린 <b>블로그 글 / 미션 인증</b>입니다. 사진을 클릭하면 원본이 열립니다.
+            <span class="block text-xs text-blue-600 mt-1">※ 삭제해도 바로 없어지지 않고 휴지통으로 이동합니다. 실수로 지웠으면 휴지통에서 복원하세요.</span>
+        </div>
+        <div class="flex gap-2 mb-3">
+            <button id="wba-tab-active" class="px-3 py-1.5 rounded text-sm font-semibold ${f.view !== 'trash' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}">📋 전체 글</button>
+            <button id="wba-tab-trash" class="px-3 py-1.5 rounded text-sm font-semibold ${f.view === 'trash' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}">🗑 휴지통</button>
         </div>
         <div class="flex flex-wrap gap-2 items-end mb-3">
             <div>
@@ -391,9 +399,12 @@ export async function renderBoardAdminSection(pane) {
     const listHost = $('#wba-list');
 
     async function load() {
+        const isTrash = f.view === 'trash';
         let posts = [];
         try {
-            posts = await loadWelfarePosts({ yearMonth: f.ym || null });
+            posts = isTrash
+                ? await loadDeletedWelfarePosts({ yearMonth: f.ym || null })
+                : await loadWelfarePosts({ yearMonth: f.ym || null });
         } catch (e) {
             listHost.innerHTML = `<p class="text-red-600 p-4">불러오기 실패: ${esc(e.message)}</p>`;
             return;
@@ -414,11 +425,12 @@ export async function renderBoardAdminSection(pane) {
 
         const filtered = f.empId ? posts.filter(p => String(p.employee_id) === String(f.empId)) : posts;
 
-        $('#wba-summary').textContent =
-            `${filtered.length}건 · 참여 직원 ${new Set(filtered.map(p => p.employee_id)).size}명`;
+        $('#wba-summary').textContent = isTrash
+            ? `휴지통 ${filtered.length}건`
+            : `${filtered.length}건 · 참여 직원 ${new Set(filtered.map(p => p.employee_id)).size}명`;
 
         if (!filtered.length) {
-            listHost.innerHTML = `<div class="text-center text-gray-500 py-10">해당 조건의 글이 없습니다.</div>`;
+            listHost.innerHTML = `<div class="text-center text-gray-500 py-10">${isTrash ? '휴지통이 비어 있습니다.' : '해당 조건의 글이 없습니다.'}</div>`;
             return;
         }
 
@@ -426,13 +438,20 @@ export async function renderBoardAdminSection(pane) {
         const canDelete = state.userRole === 'admin';
 
         listHost.innerHTML = `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${filtered.map(p => `
-            <div class="border rounded p-3 bg-white">
+            <div class="border rounded p-3 bg-white ${isTrash ? 'opacity-75' : ''}">
                 <div class="flex items-start justify-between gap-2 mb-1">
                     <div class="flex items-center gap-1 flex-wrap">
                         <span class="px-2 py-0.5 rounded bg-gray-800 text-white text-xs">${esc(p.employee?.name || '?')}</span>
                         <span class="px-2 py-0.5 rounded bg-gray-100 border text-xs">${monthLabel(p.year_month)}</span>
+                        ${isTrash ? `<span class="px-2 py-0.5 rounded bg-red-100 text-red-700 border border-red-200 text-xs">삭제됨 ${dayjs(p.deleted_at).format('MM-DD HH:mm')}</span>` : ''}
                     </div>
-                    ${canDelete ? `<button class="wba-del text-xs px-2 py-1 bg-red-100 text-red-700 rounded flex-shrink-0" data-id="${p.id}">삭제</button>` : ''}
+                    ${canDelete ? (isTrash
+                        ? `<div class="flex gap-1 flex-shrink-0">
+                               <button class="wba-restore text-xs px-2 py-1 bg-green-100 text-green-700 rounded" data-id="${p.id}">♻ 복원</button>
+                               <button class="wba-purge text-xs px-2 py-1 bg-red-600 text-white rounded" data-id="${p.id}">영구삭제</button>
+                           </div>`
+                        : `<button class="wba-del text-xs px-2 py-1 bg-red-100 text-red-700 rounded flex-shrink-0" data-id="${p.id}">삭제</button>`
+                    ) : ''}
                 </div>
                 <div class="font-semibold">${esc(p.title)}</div>
                 <div class="text-xs text-gray-400 mb-1">작성 ${dayjs(p.created_at).format('YYYY-MM-DD HH:mm')}</div>
@@ -444,13 +463,28 @@ export async function renderBoardAdminSection(pane) {
         bindPhotoOpen(listHost);
         listHost.querySelectorAll('.wba-del').forEach(b => {
             b.onclick = async () => {
-                if (!confirm('이 글을 삭제할까요? (직원이 올린 글입니다)')) return;
+                if (!confirm('이 글을 휴지통으로 이동할까요? (직원이 올린 글입니다 — 필요하면 휴지통에서 복원할 수 있습니다)')) return;
                 try { await deleteWelfarePost(Number(b.dataset.id)); await load(); }
                 catch (e) { alert('삭제 실패: ' + e.message); }
             };
         });
+        listHost.querySelectorAll('.wba-restore').forEach(b => {
+            b.onclick = async () => {
+                try { await restoreWelfarePost(Number(b.dataset.id)); await load(); }
+                catch (e) { alert('복원 실패: ' + e.message); }
+            };
+        });
+        listHost.querySelectorAll('.wba-purge').forEach(b => {
+            b.onclick = async () => {
+                if (!confirm('정말 영구 삭제할까요?\n직원이 올린 원본 데이터(글+사진)가 완전히 사라지며 되돌릴 수 없습니다.\n(스팸·오등록 등 실제로 무효한 글일 때만 사용하세요)')) return;
+                try { await purgeWelfarePost(Number(b.dataset.id)); await load(); }
+                catch (e) { alert('영구 삭제 실패: ' + e.message); }
+            };
+        });
     }
 
+    $('#wba-tab-active').addEventListener('click', () => { f.view = 'active'; f.empId = ''; renderBoardAdminSection(pane); });
+    $('#wba-tab-trash').addEventListener('click', () => { f.view = 'trash'; f.empId = ''; renderBoardAdminSection(pane); });
     $('#wba-ym').addEventListener('change', e => { f.ym = e.target.value; load(); });
     $('#wba-emp').addEventListener('change', e => { f.empId = e.target.value; load(); });
     $('#wba-reload').addEventListener('click', () => load());

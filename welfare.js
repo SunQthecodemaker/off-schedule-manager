@@ -264,11 +264,7 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note, at
         if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
         // 같은 (record_id, year_month) 의 기존 pending 임시저장분을 먼저 제거 후 재등록.
         // → 매니저가 같은 항목을 여러 번 저장해도 승인 대기가 1건으로 유지(중복 누적 방지).
-        await db.from('pending_changes').delete()
-            .eq('entity_type', 'welfare_fulfillment')
-            .eq('status', 'pending')
-            .filter('payload->>record_id', 'eq', String(recordId))
-            .filter('payload->>year_month', 'eq', yearMonth);
+        await clearPendingFulfillment(recordId, yearMonth);
         const { error } = await db.from('pending_changes').insert({
             entity_type: 'welfare_fulfillment', action: 'update',
             payload, created_by: state.currentUser.id, status: 'pending',
@@ -278,6 +274,58 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note, at
     }
     const { error } = await db.from('welfare_monthly_fulfillment')
         .upsert(payload, { onConflict: 'record_id,year_month' });
+    if (error) throw error;
+    return { staged: false };
+}
+
+async function clearPendingFulfillment(recordId, yearMonth) {
+    await db.from('pending_changes').delete()
+        .eq('entity_type', 'welfare_fulfillment')
+        .eq('status', 'pending')
+        .filter('payload->>record_id', 'eq', String(recordId))
+        .filter('payload->>year_month', 'eq', yearMonth);
+}
+
+// 이행 기록 삭제(취소). 실수로 체크한 달을 통째로 지울 때 사용.
+// welfare_monthly_fulfillment 는 감사 트리거(trg_welfare_fulfillment_audit)가 모든 UPDATE/DELETE 를
+// welfare_audit_log 에 before/after 로 자동 기록하므로, 실수 삭제도 그 로그로 복구 가능하다.
+export async function deleteFulfillment(recordId, yearMonth) {
+    if (!canCommit()) {
+        if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
+        await clearPendingFulfillment(recordId, yearMonth);
+        const { error } = await db.from('pending_changes').insert({
+            entity_type: 'welfare_fulfillment', action: 'delete',
+            payload: { record_id: recordId, year_month: yearMonth },
+            created_by: state.currentUser.id, status: 'pending',
+        });
+        if (error) throw error;
+        return { staged: true };
+    }
+    const { error } = await db.from('welfare_monthly_fulfillment')
+        .delete().eq('record_id', recordId).eq('year_month', yearMonth);
+    if (error) throw error;
+    return { staged: false };
+}
+
+// 이행 기록의 적용 월 변경 (잘못된 달에 체크한 것을 바로잡을 때). 대상 월에 이미 기록이 있으면 막는다
+// (덮어써서 기존 기록을 잃는 사고 방지 — 먼저 그 쪽을 정리하도록 안내).
+export async function moveFulfillment(recordId, fromYm, toYm) {
+    if (!canCommit()) {
+        if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
+        await clearPendingFulfillment(recordId, fromYm);
+        const { error } = await db.from('pending_changes').insert({
+            entity_type: 'welfare_fulfillment', action: 'move',
+            payload: { record_id: recordId, from_year_month: fromYm, to_year_month: toYm },
+            created_by: state.currentUser.id, status: 'pending',
+        });
+        if (error) throw error;
+        return { staged: true };
+    }
+    const { data: existing } = await db.from('welfare_monthly_fulfillment')
+        .select('id').eq('record_id', recordId).eq('year_month', toYm).maybeSingle();
+    if (existing) throw new Error(`${toYm} 에 이미 이행 기록이 있어 이동할 수 없습니다. 먼저 그 쪽을 정리해주세요.`);
+    const { error } = await db.from('welfare_monthly_fulfillment')
+        .update({ year_month: toYm }).eq('record_id', recordId).eq('year_month', fromYm);
     if (error) throw error;
     return { staged: false };
 }
@@ -389,11 +437,12 @@ export function currentYearMonth() {
     return dayjs().format('YYYY-MM');
 }
 
-// 게시판 글 로드.
+// 게시판 글 로드 (소프트 삭제된 글은 제외). 휴지통 조회는 loadDeletedWelfarePosts() 사용.
 //   employeeId 지정 → 본인 글만 (직원 화면) / 미지정 → 전체 (관리자 화면)
 export async function loadWelfarePosts({ employeeId = null, yearMonth = null, category = null } = {}) {
     let q = db.from('welfare_posts')
         .select('*, employee:employees!welfare_posts_employee_id_fkey(id, name, email, department_id)')
+        .is('deleted_at', null)
         .order('year_month', { ascending: false })
         .order('created_at', { ascending: false });
     if (employeeId) q = q.eq('employee_id', employeeId);
@@ -404,10 +453,22 @@ export async function loadWelfarePosts({ employeeId = null, yearMonth = null, ca
     return data || [];
 }
 
+// 관리자 휴지통 — 소프트 삭제된 글만 (삭제 시각 최신순).
+export async function loadDeletedWelfarePosts({ yearMonth = null } = {}) {
+    let q = db.from('welfare_posts')
+        .select('*, employee:employees!welfare_posts_employee_id_fkey(id, name, email, department_id)')
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', { ascending: false });
+    if (yearMonth) q = q.eq('year_month', yearMonth);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+}
+
 // 직원·월별 글 개수 맵 — 관리자 이행 그리드에서 "직원이 올렸는지" 표기용.
 // 반환: { "<employee_id>_<YYYY-MM>": 글 수 }
 export async function loadPostCountsByEmpMonth() {
-    const { data, error } = await db.from('welfare_posts').select('employee_id, year_month');
+    const { data, error } = await db.from('welfare_posts').select('employee_id, year_month').is('deleted_at', null);
     if (error) { console.warn('[welfare] 미션 글 집계 실패:', error.message); return {}; }
     const map = {};
     (data || []).forEach(p => {
@@ -444,8 +505,23 @@ export async function updateWelfarePost(id, { yearMonth, category, title, body, 
     if (error) throw error;
 }
 
-// 글 삭제 — 첨부 사진도 함께 정리 (실패는 무시, 글 삭제 우선).
+// 글 삭제 — 소프트 삭제(휴지통行). 행/사진은 보존되어 복원 가능하다.
+// 실수로 지운 직원 데이터를 되돌릴 수 있어야 하므로 하드 삭제는 하지 않는다 (purgeWelfarePost 참고).
 export async function deleteWelfarePost(id) {
+    const { error } = await db.from('welfare_posts')
+        .update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+}
+
+// 휴지통에서 복원 — 실수로 삭제된 글을 원상복구.
+export async function restoreWelfarePost(id) {
+    const { error } = await db.from('welfare_posts').update({ deleted_at: null }).eq('id', id);
+    if (error) throw error;
+}
+
+// 영구 삭제 — 휴지통에서만 호출. 행 + 첨부 사진을 실제로 제거하며 되돌릴 수 없다.
+// 정말 유효하지 않은(스팸·오등록 등) 글을 관리자가 확인 후 확정 삭제할 때만 사용.
+export async function purgeWelfarePost(id) {
     const { data: row } = await db.from('welfare_posts').select('photos').eq('id', id).single();
     const { error } = await db.from('welfare_posts').delete().eq('id', id);
     if (error) throw error;

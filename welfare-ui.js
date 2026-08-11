@@ -5,14 +5,14 @@ import {
     loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
     monthsBetween, calculateCosts, computeRemaining, elapsedMonthList,
     fulfilledMonthCount, formatNum, signatureUrlOf,
-    createRecord, deleteRecord, upsertFulfillment, processSettlement,
+    createRecord, deleteRecord, upsertFulfillment, deleteFulfillment, moveFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
     loadWelfarePosts, loadPostCountsByEmpMonth,
-} from './welfare.js?v=20260811a';
+} from './welfare.js?v=20260811b';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
-} from './welfare-consent.js?v=20260811a';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260811a';
+} from './welfare-consent.js?v=20260811b';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260811b';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -587,12 +587,13 @@ async function openCellPopover(pane, empId, ym) {
     } catch (e) { alert('불러오기 실패: ' + e.message); return; }
 
     // 여러 건의 상태를 합침 — 사진/메모는 합집합, 이행 체크는 전건 완료일 때만 ON.
-    let atts = [], note = '', doneCnt = 0, pendCnt = 0;
+    let atts = [], note = '', doneCnt = 0, pendCnt = 0, existingCnt = 0;
     elig.forEach(r => {
         const p = pending[`${r.id}_${ym}`], c = committed[`${r.id}_${ym}`];
         const src = p ? p.payload : c;
         if (p) pendCnt++;
         if (!src) return;
+        existingCnt++; // 체크가 false 여도 메모/사진이 남아있는 실제 저장분 → 이동/삭제 대상
         if (src.fulfilled === true || src.fulfilled === 'true') doneCnt++;
         (Array.isArray(src.attachments) ? src.attachments : []).forEach(a => { if (!atts.includes(a)) atts.push(a); });
         if (!note && src.note) note = src.note;
@@ -600,6 +601,23 @@ async function openCellPopover(pane, empId, ym) {
     const fulfilled = doneCnt === elig.length;
     const isPending = pendCnt > 0;
     const cfg = state.welfare.config;
+
+    // 적용 월 이동 후보 — 대상 진료 건이 실제로 시작된 달부터 다음 달까지 (이행체크 정책과 동일 상한).
+    const earliestStart = elig.reduce((min, r) => {
+        const s = startYmOf(r);
+        return (!min || s < min) ? s : min;
+    }, null);
+    const moveMonthCap = dayjs().add(1, 'month').format('YYYY-MM');
+    const moveMonthOptions = [];
+    if (earliestStart) {
+        let cur = dayjs(earliestStart <= moveMonthCap ? earliestStart : moveMonthCap);
+        const end = dayjs(moveMonthCap);
+        while (cur.isSameOrBefore(end, 'month')) {
+            const v = cur.format('YYYY-MM');
+            if (v !== ym) moveMonthOptions.push(v);
+            cur = cur.add(1, 'month');
+        }
+    }
 
     // 이 달 차감 인정액 = 대상 진료 건들의 월 차감액 합 (완납된 건 제외)
     let monthSum = 0;
@@ -671,6 +689,18 @@ async function openCellPopover(pane, empId, ym) {
                 <div class="text-xs font-semibold mb-1">📸 직원이 올린 ${ym} 미션 글 ${posts.length ? `(${posts.length}건)` : ''}</div>
                 ${postsHTML}
             </div>
+            ${existingCnt > 0 ? `
+            <div class="mb-4 border-t pt-3">
+                <div class="text-xs font-semibold mb-2 text-gray-600">⚙️ 이 달 이행 기록 관리 (${existingCnt}건 저장됨)</div>
+                ${moveMonthOptions.length ? `
+                <div class="flex items-center gap-2 mb-2">
+                    <select id="wf-pop-move-ym" class="flex-1 border p-1.5 rounded text-xs">
+                        ${moveMonthOptions.map(m => `<option value="${m}">${m} 로 이동</option>`).join('')}
+                    </select>
+                    <button id="wf-pop-move" class="px-2 py-1.5 bg-gray-200 rounded text-xs whitespace-nowrap">월 이동</button>
+                </div>` : ''}
+                <button id="wf-pop-delete" class="w-full px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded text-xs hover:bg-red-100">🗑 이 달 이행 기록 삭제</button>
+            </div>` : ''}
             <div class="flex justify-end gap-2">
                 <button id="wf-pop-cancel" class="px-3 py-1.5 bg-gray-200 rounded text-sm">닫기</button>
                 <button id="wf-pop-save" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">저장</button>
@@ -729,6 +759,55 @@ async function openCellPopover(pane, empId, ym) {
             btn.disabled = false; btn.textContent = '저장';
             alert('저장 실패: ' + err.message);
         }
+    });
+
+    // 실제 저장된(committed/pending) 건에 한해 이동·삭제 — 아직 저장 안 된(existingCnt 미포함) 건은 건드리지 않는다.
+    const existingRecs = () => elig.filter(r => committed[`${r.id}_${ym}`] || pending[`${r.id}_${ym}`]);
+
+    modal.querySelector('#wf-pop-move')?.addEventListener('click', async () => {
+        const toYm = modal.querySelector('#wf-pop-move-ym').value;
+        if (!toYm || !confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 ${toYm} 로 이동할까요?`)) return;
+        const btn = modal.querySelector('#wf-pop-move');
+        btn.disabled = true; btn.textContent = '이동 중…';
+        const skipped = [];
+        let staged = false, moved = 0;
+        for (const r of existingRecs()) {
+            if (startYmOf(r) > toYm) { skipped.push(`${r.treatment_type}(${r.start_date}) — ${toYm} 이전 시작이라 대상 아님`); continue; }
+            try {
+                const res = await moveFulfillment(r.id, ym, toYm);
+                staged = staged || res.staged;
+                moved++;
+            } catch (e) { skipped.push(`${r.treatment_type}: ${e.message}`); }
+        }
+        btn.disabled = false; btn.textContent = '월 이동';
+        if (!moved) { alert('이동하지 못했습니다:\n' + skipped.join('\n')); return; }
+        close();
+        if (typeof window.showToast === 'function') {
+            window.showToast(`${moved}건 ${toYm} 로 이동${staged ? ' (임시저장 — 승인 후 반영)' : ''}${skipped.length ? ` · ${skipped.length}건 제외` : ''}`);
+        }
+        renderFulfillTab(pane);
+    });
+
+    modal.querySelector('#wf-pop-delete')?.addEventListener('click', async () => {
+        if (!confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 삭제할까요?\n(변경 이력은 감사 로그에 남아 필요하면 복구 요청할 수 있습니다)`)) return;
+        const btn = modal.querySelector('#wf-pop-delete');
+        btn.disabled = true; btn.textContent = '삭제 중…';
+        const skipped = [];
+        let staged = false, deleted = 0;
+        for (const r of existingRecs()) {
+            try {
+                const res = await deleteFulfillment(r.id, ym);
+                staged = staged || res.staged;
+                deleted++;
+            } catch (e) { skipped.push(`${r.treatment_type}: ${e.message}`); }
+        }
+        btn.disabled = false; btn.textContent = '🗑 이 달 이행 기록 삭제';
+        if (!deleted) { alert('삭제하지 못했습니다:\n' + skipped.join('\n')); return; }
+        close();
+        if (typeof window.showToast === 'function') {
+            window.showToast(`${deleted}건 삭제${staged ? ' (임시저장 — 승인 후 반영)' : ''}${skipped.length ? ` · ${skipped.length}건 실패` : ''}`);
+        }
+        renderFulfillTab(pane);
     });
 }
 

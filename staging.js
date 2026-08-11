@@ -6,7 +6,7 @@
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
 import { state, db } from './state.js?v=20260807f';
-import { dataUrlToBlob } from './welfare.js?v=20260811a';
+import { dataUrlToBlob } from './welfare.js?v=20260811b';
 
 // ---------- 매니저 측: 임시저장 ----------
 
@@ -451,14 +451,36 @@ async function applyWelfareRecord(action, id, payload) {
 }
 
 // 진료비 복지 - 월별 이행 체크 (welfare_monthly_fulfillment)
-// payload: { record_id, year_month, fulfilled, verified_by, verified_at, note }
-// (record_id, year_month) unique 제약 → upsert.
+// action='update' payload: { record_id, year_month, fulfilled, verified_by, verified_at, note } → upsert.
+// action='delete' payload: { record_id, year_month } → 그 달 이행 기록 삭제.
+// action='move'   payload: { record_id, from_year_month, to_year_month } → 적용 월 변경.
 async function applyWelfareFulfillment(action, payload) {
-    if (action !== 'update') return { ok: false, error: 'welfare_fulfillment only supports update (upsert)' };
-    if (!payload?.record_id || !payload?.year_month) {
-        return { ok: false, error: 'welfare_fulfillment: record_id 또는 year_month 누락' };
+    if (action === 'update') {
+        if (!payload?.record_id || !payload?.year_month) {
+            return { ok: false, error: 'welfare_fulfillment: record_id 또는 year_month 누락' };
+        }
+        const { error } = await db.from('welfare_monthly_fulfillment')
+            .upsert(payload, { onConflict: 'record_id,year_month' });
+        return error ? { ok: false, error: error.message } : { ok: true };
     }
-    const { error } = await db.from('welfare_monthly_fulfillment')
-        .upsert(payload, { onConflict: 'record_id,year_month' });
-    return error ? { ok: false, error: error.message } : { ok: true };
+    if (action === 'delete') {
+        const { record_id, year_month } = payload || {};
+        if (!record_id || !year_month) return { ok: false, error: 'welfare_fulfillment delete: record_id/year_month 누락' };
+        const { error } = await db.from('welfare_monthly_fulfillment')
+            .delete().eq('record_id', record_id).eq('year_month', year_month);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+    if (action === 'move') {
+        const { record_id, from_year_month, to_year_month } = payload || {};
+        if (!record_id || !from_year_month || !to_year_month) {
+            return { ok: false, error: 'welfare_fulfillment move: 필드 누락' };
+        }
+        const { data: existing } = await db.from('welfare_monthly_fulfillment')
+            .select('id').eq('record_id', record_id).eq('year_month', to_year_month).maybeSingle();
+        if (existing) return { ok: false, error: `${to_year_month} 에 이미 이행 기록이 있어 이동할 수 없습니다.` };
+        const { error } = await db.from('welfare_monthly_fulfillment')
+            .update({ year_month: to_year_month }).eq('record_id', record_id).eq('year_month', from_year_month);
+        return error ? { ok: false, error: error.message } : { ok: true };
+    }
+    return { ok: false, error: `welfare_fulfillment: unknown action ${action}` };
 }
