@@ -8,11 +8,11 @@ import {
     createRecord, deleteRecord, upsertFulfillment, deleteFulfillment, moveFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
     loadWelfarePosts, loadPostCountsByEmpMonth,
-} from './welfare.js?v=20260811e';
+} from './welfare.js?v=20260811f';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
-} from './welfare-consent.js?v=20260811e';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260811e';
+} from './welfare-consent.js?v=20260811f';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260811f';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {

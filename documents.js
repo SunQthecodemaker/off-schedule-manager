@@ -1,6 +1,6 @@
 import { state, db } from './state.js?v=20260807f';
 import { _, show, hide } from './utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260811e';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260811f';
 
 // =========================================================================================
 // 서류 검토 탭 (관리자용)
@@ -415,17 +415,28 @@ window.cancelDocumentRequest = async function(requestId) {
     }
 };
 
-window.viewDocument = function(docId) {
+// doc.attachment_url 은 이제 'docs' 버킷 내 경로(비공개) — signed URL 을 발급해야 열람 가능.
+// 예전에 공개 URL 로 저장된 값(http 로 시작)은 그대로 사용(하위호환).
+async function resolveAttachmentUrl(pathOrUrl) {
+    if (!pathOrUrl) return null;
+    if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+    const { data, error } = await db.storage.from('docs').createSignedUrl(pathOrUrl, 60 * 60);
+    return (!error && data?.signedUrl) ? data.signedUrl : null;
+}
+
+window.viewDocument = async function(docId) {
     const doc = state.management.submittedDocs.find(d => d.id === docId);
     if (!doc) {
         alert('서류를 찾을 수 없습니다.');
         return;
     }
-    
+
     const content = doc.submission_data?.text || doc.text || '내용 없음';
-    const attachmentHtml = doc.attachment_url ? 
-        `<div class="mb-4"><strong>첨부파일:</strong> <a href="${doc.attachment_url}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>` : '';
-    
+    const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
+    const attachmentHtml = !doc.attachment_url ? '' : (attachmentUrl
+        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>`
+        : `<div class="mb-4 text-red-600 text-sm">첨부파일을 불러올 수 없습니다.</div>`);
+
     const modalHTML = `
         <div class="modal-overlay" id="view-doc-modal">
             <div class="modal-content-lg" style="max-height: 90vh; overflow-y: auto;">

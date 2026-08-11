@@ -1,11 +1,11 @@
 import { state, db } from './state.js?v=20260807f';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260807f';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260811e';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260811e';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260811e';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260811e';
-import { renderMyBoardSection } from './welfare-board.js?v=20260811e';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260811f';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260811f';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260811f';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260811f';
+import { renderMyBoardSection } from './welfare-board.js?v=20260811f';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1250,7 +1250,15 @@ function renderSubmittedDocuments() {
     `;
 }
 
-window.viewSubmittedDocument = function (docId) {
+// doc.attachment_url 은 'docs' 버킷 내 경로(비공개) — signed URL 발급 필요. 예전 공개 URL(http로 시작)은 그대로 사용.
+async function resolveAttachmentUrl(pathOrUrl) {
+    if (!pathOrUrl) return null;
+    if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+    const { data, error } = await db.storage.from('docs').createSignedUrl(pathOrUrl, 60 * 60);
+    return (!error && data?.signedUrl) ? data.signedUrl : null;
+}
+
+window.viewSubmittedDocument = async function (docId) {
     const doc = state.employee.submittedDocuments.find(d => d.id === docId);
     if (!doc) {
         alert('서류를 찾을 수 없습니다.');
@@ -1258,8 +1266,10 @@ window.viewSubmittedDocument = function (docId) {
     }
 
     const content = doc.submission_data?.text || doc.text || '내용 없음';
-    const attachmentHtml = doc.attachment_url ?
-        `<div class="mb-4"><strong>첨부파일:</strong> <a href="${doc.attachment_url}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>` : '';
+    const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
+    const attachmentHtml = !doc.attachment_url ? '' : (attachmentUrl
+        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>`
+        : `<div class="mb-4 text-red-600 text-sm">첨부파일을 불러올 수 없습니다.</div>`);
 
     const modalHTML = `
         <div class="modal-overlay" id="view-submitted-doc-modal">
@@ -2056,10 +2066,13 @@ async function handleDocumentSubmit() {
                 return;
             }
 
-            const fileName = `${state.currentUser.id}_${Date.now()}_${file.name}`;
-            const { data: uploadData, error: uploadError } = await db.storage
-                .from('document-attachments')
-                .upload(fileName, file);
+            // 'document-attachments' 버킷은 실제로 존재한 적이 없어 업로드가 항상 실패했다(2026-08-11 실측) —
+            // welfare 사진·서명이 이미 안정적으로 쓰고 있는 'docs' 버킷(비공개)으로 통일.
+            // 비공개 버킷이라 getPublicUrl 대신 경로만 저장 → 표시 시 signed URL 발급(documents.js viewDocument 등).
+            const path = `documents/${state.currentUser.id}/${Date.now()}_${file.name}`;
+            const { error: uploadError } = await db.storage
+                .from('docs')
+                .upload(path, file);
 
             if (uploadError) {
                 console.error('파일 업로드 실패:', uploadError);
@@ -2068,11 +2081,7 @@ async function handleDocumentSubmit() {
                 return;
             }
 
-            const { data: urlData } = db.storage
-                .from('document-attachments')
-                .getPublicUrl(fileName);
-
-            attachmentUrl = urlData.publicUrl;
+            attachmentUrl = path;
         }
 
         const { data, error } = await db

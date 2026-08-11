@@ -5,8 +5,8 @@ import {
     loadConfig, loadFulfillmentByRecord,
     calculateCosts, computeRemaining, elapsedMonthList,
     formatNum, signatureUrlOf,
-} from './welfare.js?v=20260811e';
-import { generateConsentHTML, printHTML } from './welfare-consent.js?v=20260811e';
+} from './welfare.js?v=20260811f';
+import { generateConsentHTML, printHTML } from './welfare-consent.js?v=20260811f';
 
 export async function renderMyWelfareSection(container) {
     if (!container) return;
