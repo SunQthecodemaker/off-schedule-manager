@@ -6,7 +6,7 @@ import {
     calculateCosts, computeRemaining, elapsedMonthList,
     formatNum, signatureUrlOf,
 } from './welfare.js?v=20260811a';
-import { generateConsentHTML, printHTML } from './welfare-consent.js';
+import { generateConsentHTML, printHTML } from './welfare-consent.js?v=20260811a';
 
 export async function renderMyWelfareSection(container) {
     if (!container) return;
