@@ -6,7 +6,7 @@
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
 import { state, db } from './state.js?v=20260807f';
-import { dataUrlToBlob } from './welfare.js?v=20260811c';
+import { dataUrlToBlob } from './welfare.js?v=20260811d';
 
 // ---------- 매니저 측: 임시저장 ----------
 

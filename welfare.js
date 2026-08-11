@@ -77,7 +77,9 @@ export async function loadAllPendingFulfillment() {
     const map = {};
     (data || []).forEach(r => {
         const p = r.payload || {};
-        if (p.record_id != null && p.year_month) map[`${p.record_id}_${p.year_month}`] = r; // asc → 뒤가 최신
+        // 월 이동 스텁(payload.to_year_month)은 year_month 가 없다 — 옮겨질 달 기준으로 오버레이한다.
+        const ym = p.year_month || p.to_year_month;
+        if (p.record_id != null && ym) map[`${p.record_id}_${ym}`] = r; // asc → 뒤가 최신
     });
     return map;
 }
@@ -90,7 +92,7 @@ export async function loadPendingFulfillmentByMonth(yearMonth) {
         .select('id, payload, created_at')
         .eq('entity_type', 'welfare_fulfillment')
         .eq('status', 'pending')
-        .filter('payload->>year_month', 'eq', yearMonth)
+        .or(`payload->>year_month.eq.${yearMonth},payload->>to_year_month.eq.${yearMonth}`)
         .order('created_at', { ascending: true });
     if (error) { console.warn('[welfare] pending 이행 로드 실패:', error.message); return {}; }
     const map = {};
@@ -264,7 +266,8 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note, at
         if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
         // 같은 (record_id, year_month) 의 기존 pending 임시저장분을 먼저 제거 후 재등록.
         // → 매니저가 같은 항목을 여러 번 저장해도 승인 대기가 1건으로 유지(중복 누적 방지).
-        await clearPendingFulfillment(recordId, yearMonth);
+        const dup = await findPendingFulfillment(recordId, yearMonth);
+        if (dup) await db.from('pending_changes').delete().eq('id', dup.id);
         const { error } = await db.from('pending_changes').insert({
             entity_type: 'welfare_fulfillment', action: 'update',
             payload, created_by: state.currentUser.id, status: 'pending',
@@ -278,21 +281,35 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note, at
     return { staged: false };
 }
 
-async function clearPendingFulfillment(recordId, yearMonth) {
-    await db.from('pending_changes').delete()
+// (record_id, year_month) 로 아직 승인 전인 내 임시저장분(pending_changes)을 찾는다.
+// 있으면 그 payload 를 직접 고쳐써야 한다 — clearPendingFulfillment 로 지우고 좌표만 담은
+// 스텁을 새로 꽂으면 체크/메모/사진 같은 실제 입력값이 통째로 사라진다 (한 번 실측한 데이터 유실 버그).
+async function findPendingFulfillment(recordId, yearMonth) {
+    const { data } = await db.from('pending_changes')
+        .select('id, payload')
         .eq('entity_type', 'welfare_fulfillment')
         .eq('status', 'pending')
         .filter('payload->>record_id', 'eq', String(recordId))
-        .filter('payload->>year_month', 'eq', yearMonth);
+        .filter('payload->>year_month', 'eq', yearMonth)
+        .maybeSingle();
+    return data || null;
 }
 
 // 이행 기록 삭제(취소). 실수로 체크한 달을 통째로 지울 때 사용.
 // welfare_monthly_fulfillment 는 감사 트리거(trg_welfare_fulfillment_audit)가 모든 UPDATE/DELETE 를
-// welfare_audit_log 에 before/after 로 자동 기록하므로, 실수 삭제도 그 로그로 복구 가능하다.
+// welfare_audit_log 에 before/after 로 자동 기록하므로, 확정 반영된 기록의 실수 삭제도 그 로그로 복구 가능하다.
 export async function deleteFulfillment(recordId, yearMonth) {
+    // 아직 승인 전인 내 임시저장분이 있으면 그것부터 취소.
+    const existingPending = await findPendingFulfillment(recordId, yearMonth);
+    if (existingPending) {
+        await db.from('pending_changes').delete().eq('id', existingPending.id);
+    }
     if (!canCommit()) {
         if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
-        await clearPendingFulfillment(recordId, yearMonth);
+        // 이미 확정 반영된 실제 기록이 있을 때만 삭제 요청을 스테이징 (없으면 방금 취소로 끝).
+        const { data: existing } = await db.from('welfare_monthly_fulfillment')
+            .select('id').eq('record_id', recordId).eq('year_month', yearMonth).maybeSingle();
+        if (!existing) return { staged: true };
         const { error } = await db.from('pending_changes').insert({
             entity_type: 'welfare_fulfillment', action: 'delete',
             payload: { record_id: recordId, year_month: yearMonth },
@@ -310,11 +327,20 @@ export async function deleteFulfillment(recordId, yearMonth) {
 // 이행 기록의 적용 월 변경 (잘못된 달에 체크한 것을 바로잡을 때). 대상 월에 이미 기록이 있으면 막는다
 // (덮어써서 기존 기록을 잃는 사고 방지 — 먼저 그 쪽을 정리하도록 안내).
 export async function moveFulfillment(recordId, fromYm, toYm) {
+    // 아직 승인 전인 내 임시저장분이 있으면 payload 는 그대로 두고 year_month 만 바꾼다 — 데이터 유실 방지.
+    const existingPending = await findPendingFulfillment(recordId, fromYm);
+    if (existingPending) {
+        const { error } = await db.from('pending_changes')
+            .update({ payload: { ...existingPending.payload, year_month: toYm } })
+            .eq('id', existingPending.id);
+        if (error) throw error;
+        return { staged: true };
+    }
     if (!canCommit()) {
         if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
-        await clearPendingFulfillment(recordId, fromYm);
-        // pending_changes.action 은 'create'/'update'/'delete' 만 허용(DB 체크 제약) → 'move' 는
-        // action='update' 로 스테이징하고 payload 에 to_year_month 를 넣어 applyWelfareFulfillment 가 구분한다.
+        // 확정 반영된 실제 기록을 옮기는 요청 — pending_changes.action 은 'create'/'update'/'delete' 만
+        // 허용(DB 체크 제약)이라 action='update' 로 스테이징하고 payload 의 to_year_month 유무로 구분한다.
+        // 승인 시 실제 행의 year_month 컬럼만 바뀌므로 체크/메모/사진은 그대로 보존된다.
         const { error } = await db.from('pending_changes').insert({
             entity_type: 'welfare_fulfillment', action: 'update',
             payload: { record_id: recordId, from_year_month: fromYm, to_year_month: toYm },
