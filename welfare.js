@@ -285,12 +285,13 @@ export async function upsertFulfillment(recordId, yearMonth, fulfilled, note, at
 // 있으면 그 payload 를 직접 고쳐써야 한다 — clearPendingFulfillment 로 지우고 좌표만 담은
 // 스텁을 새로 꽂으면 체크/메모/사진 같은 실제 입력값이 통째로 사라진다 (한 번 실측한 데이터 유실 버그).
 async function findPendingFulfillment(recordId, yearMonth) {
+    // 월 이동 스텁은 year_month 대신 to_year_month 를 쓰므로 둘 다 매치해야 한다.
     const { data } = await db.from('pending_changes')
         .select('id, payload')
         .eq('entity_type', 'welfare_fulfillment')
         .eq('status', 'pending')
         .filter('payload->>record_id', 'eq', String(recordId))
-        .filter('payload->>year_month', 'eq', yearMonth)
+        .or(`payload->>year_month.eq.${yearMonth},payload->>to_year_month.eq.${yearMonth}`)
         .maybeSingle();
     return data || null;
 }
@@ -327,11 +328,15 @@ export async function deleteFulfillment(recordId, yearMonth) {
 // 이행 기록의 적용 월 변경 (잘못된 달에 체크한 것을 바로잡을 때). 대상 월에 이미 기록이 있으면 막는다
 // (덮어써서 기존 기록을 잃는 사고 방지 — 먼저 그 쪽을 정리하도록 안내).
 export async function moveFulfillment(recordId, fromYm, toYm) {
-    // 아직 승인 전인 내 임시저장분이 있으면 payload 는 그대로 두고 year_month 만 바꾼다 — 데이터 유실 방지.
+    // 아직 승인 전인 내 임시저장분이 있으면 payload 는 그대로 두고 월만 바꾼다 — 데이터 유실 방지.
     const existingPending = await findPendingFulfillment(recordId, fromYm);
     if (existingPending) {
+        const p = existingPending.payload || {};
+        // 이미 "월 이동" 대기 중인 걸 또 옮기는 경우 — from_year_month(실제 원본 행 기준)는 유지하고
+        // 목적지(to_year_month)만 갱신. 그 외(체크/메모 임시저장)는 year_month 만 교체.
+        const newPayload = p.to_year_month ? { ...p, to_year_month: toYm } : { ...p, year_month: toYm };
         const { error } = await db.from('pending_changes')
-            .update({ payload: { ...existingPending.payload, year_month: toYm } })
+            .update({ payload: newPayload })
             .eq('id', existingPending.id);
         if (error) throw error;
         return { staged: true };
