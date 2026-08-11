@@ -6,7 +6,7 @@ import { state, db, isTestEmployee } from './state.js?v=20260807f';
 import {
     loadWelfarePosts, createWelfarePost, updateWelfarePost, deleteWelfarePost,
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
-} from './welfare.js?v=20260807f';
+} from './welfare.js?v=20260811a';
 
 // 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.

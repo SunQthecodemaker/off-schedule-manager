@@ -1,6 +1,6 @@
 // 진료비 복지 — 동의서 HTML + 서명 + 인쇄
 // Apps Script index.html 의 generateConsentFormHTML / printContent 에 대응.
-import { formatNum } from './welfare.js';
+import { formatNum } from './welfare.js?v=20260811a';
 
 // ============================================================
 // 1. 동의서 HTML — 인쇄 가능 형태 (offapp window.print() 패턴)

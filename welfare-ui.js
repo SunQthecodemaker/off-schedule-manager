@@ -8,7 +8,7 @@ import {
     createRecord, deleteRecord, upsertFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
     loadWelfarePosts, loadPostCountsByEmpMonth,
-} from './welfare.js?v=20260807f';
+} from './welfare.js?v=20260811a';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
 } from './welfare-consent.js';
