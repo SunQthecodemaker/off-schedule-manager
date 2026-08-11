@@ -8,10 +8,10 @@
 // =========================================================================================
 import { state, db, isVisibleIn } from './state.js?v=20260807f';
 import { _ } from './utils.js';
-import { buildLeaveMonthSectionsHTML } from './management.js?v=20260811f';
-import { renderEmployeeMobileScheduleList } from './employee-portal-final.js?v=20260811f';
+import { buildLeaveMonthSectionsHTML } from './management.js?v=20260811g';
+import { renderEmployeeMobileScheduleList } from './employee-portal-final.js?v=20260811g';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260807f';
-import { loadConfig, loadAllRecords, computeRemaining, elapsedMonthList, formatNum } from './welfare.js?v=20260811f';
+import { loadConfig, loadAllRecords, computeRemaining, elapsedMonthList, formatNum } from './welfare.js?v=20260811g';
 
 const TABS = [
     { id: 'schedule', label: '📅 스케줄' },

@@ -1,11 +1,11 @@
 import { state, db } from './state.js?v=20260807f';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
 import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260807f';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260811f';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260811f';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260811f';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260811f';
-import { renderMyBoardSection } from './welfare-board.js?v=20260811f';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260811g';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260811g';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260811g';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260811g';
+import { renderMyBoardSection } from './welfare-board.js?v=20260811g';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1772,14 +1772,19 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
-    // 미제출 서류 체크
+    // 미제출·미승인 서류 체크 — 신청기간 임박(사유서 등) 요청은 관리자 "승인"이 날 때까지 다음 연차 신청을 막는다.
+    // status: pending(미제출) / submitted(제출·승인대기) / approved(승인) / rejected(반려→pending 으로 환원).
+    // 'submitted' 를 빼면 제출만 하고 승인 전에 바로 다음 신청이 가능해져버린다(2026-08-11 실측 회귀).
     const { data: pendingRequests, error: checkError } = await db.from('document_requests')
         .select('*')
         .eq('employee_id', state.currentUser.id)
-        .eq('status', 'pending');
+        .in('status', ['pending', 'submitted']);
 
     if (pendingRequests && pendingRequests.length > 0) {
-        alert('⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.');
+        const notSubmitted = pendingRequests.filter(r => r.status === 'pending');
+        alert(notSubmitted.length > 0
+            ? '⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.'
+            : '⚠️ 제출한 서류가 아직 승인 대기 중입니다.\n\n관리자 승인 후에 다음 연차 신청이 가능합니다.');
         return;
     }
 
@@ -1946,13 +1951,11 @@ window.openDocSubmissionModal = async function (requestId) {
                         </tr>
                     </table>
                     
-                    ${isAttachmentRequired ? `
                     <div class="mb-4">
-                        <div class="font-bold mb-2 text-red-600">🔎 파일 첨부 (필수)</div>
-                        <input type="file" id="doc-attachment" class="w-full p-2 border-2 border-red-300 rounded" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" required>
+                        <div class="font-bold mb-2 ${isAttachmentRequired ? 'text-red-600' : 'text-gray-700'}">🔎 파일 첨부 ${isAttachmentRequired ? '(필수)' : '(선택)'}</div>
+                        <input type="file" id="doc-attachment" class="w-full p-2 border-2 ${isAttachmentRequired ? 'border-red-300' : 'border-gray-300'} rounded" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" ${isAttachmentRequired ? 'required' : ''}>
                         <div class="text-xs text-gray-600 mt-1">지원 형식: PDF, DOC, DOCX, JPG, PNG (최대 10MB)</div>
                     </div>
-                    ` : ''}
                     
                     <div class="mb-4">
                         <div class="font-bold mb-2">내용</div>
