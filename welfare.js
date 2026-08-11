@@ -313,8 +313,10 @@ export async function moveFulfillment(recordId, fromYm, toYm) {
     if (!canCommit()) {
         if (!state.currentUser?.id) throw new Error('로그인 정보가 없습니다 (state.currentUser.id 누락).');
         await clearPendingFulfillment(recordId, fromYm);
+        // pending_changes.action 은 'create'/'update'/'delete' 만 허용(DB 체크 제약) → 'move' 는
+        // action='update' 로 스테이징하고 payload 에 to_year_month 를 넣어 applyWelfareFulfillment 가 구분한다.
         const { error } = await db.from('pending_changes').insert({
-            entity_type: 'welfare_fulfillment', action: 'move',
+            entity_type: 'welfare_fulfillment', action: 'update',
             payload: { record_id: recordId, from_year_month: fromYm, to_year_month: toYm },
             created_by: state.currentUser.id, status: 'pending',
         });
