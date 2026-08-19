@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260807f';
+import { state, db } from './state.js?v=20260819a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260807f';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260811g';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260811g';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260811g';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260811g';
-import { renderMyBoardSection } from './welfare-board.js?v=20260811g';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260819a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260819a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260819a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260819a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260819a';
+import { renderMyBoardSection } from './welfare-board.js?v=20260819a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1172,7 +1172,7 @@ function renderDocumentRequests() {
 
         return `
             <tr class="border-b hover:bg-gray-50">
-                <td class="p-3">${docType}</td>
+                <td class="p-3">${docType}${req.requires_attachment ? ' <span class="ml-1 bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded">파일 첨부 필수</span>' : ''}</td>
                 <td class="p-3 text-sm text-gray-600">${req.message || '-'}</td>
                 <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')}</td>
                 <td class="p-3">${statusBadge}</td>
@@ -1788,17 +1788,24 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
-    // 연차 신청 마감일수 — 연차일 기준 N일 전까지 신청. 그보다 임박(과거 포함)하면 사유서 필요.
+    // 연차 신청 마감일수 — 연차일 기준 N일 전까지 신청. 그보다 임박(과거 포함)하면 증빙 서류 필요.
     // admin 설정값(app_settings.leave_notice_days), 기본 7일.
     let noticeDays = 7;
+    // 임박 신청 시 요구할 증빙 서류 서식명 (app_settings.leave_late_document_type, 기본 '내원 확인서').
+    // 옛 하드코딩 'ㅅ사유서'는 document_templates 의 어떤 서식과도 안 맞아 첨부가 '선택'으로 떨어졌다 — 서식명으로 맞춰 건다.
+    let lateDocType = '내원 확인서';
     try {
-        const { data: nd } = await db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle();
+        const [{ data: nd }, { data: ld }] = await Promise.all([
+            db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle(),
+            db.from('app_settings').select('value').eq('key', 'leave_late_document_type').maybeSingle()
+        ]);
         if (nd && nd.value != null && !isNaN(Number(nd.value))) noticeDays = Number(nd.value);
-    } catch (_) { /* 설정 조회 실패 시 기본 7일 유지 */ }
+        if (ld && typeof ld.value === 'string' && ld.value.trim()) lateDocType = ld.value.trim();
+    } catch (_) { /* 설정 조회 실패 시 기본값(7일 / 내원 확인서) 유지 */ }
 
     const cutoff = dayjs().add(noticeDays, 'day').format('YYYY-MM-DD');
-    const lateDates = dates.filter(d => d < cutoff);   // 임박(과거 포함) — 사유서 필요
-    const normalDates = dates.filter(d => d >= cutoff); // 여유 — 사유서 불요
+    const lateDates = dates.filter(d => d < cutoff);   // 임박(과거 포함) — 증빙 서류 필요
+    const normalDates = dates.filter(d => d >= cutoff); // 여유 — 증빙 서류 불요
     const hasLateDates = lateDates.length > 0;
 
     // 임박 + 여유 혼합 신청 차단 (한 신청서를 한 유형으로 통일)
@@ -1862,13 +1869,15 @@ export async function handleSubmitLeaveRequest() {
             await db.from('document_requests').insert({
                 employee_id: state.currentUser.id,
                 document_name: state.currentUser.name,
-                type: '사유서',
-                message: `${lateDateStr} 연차 신청기간(${noticeDays}일) 경과 — 사유서 제출 요청`,
-                note: `${lateDateStr} 사유서`,
+                type: lateDocType,
+                message: `${lateDateStr} 연차 신청기간(${noticeDays}일) 경과 — ${lateDocType} 제출 요청`,
+                note: `${lateDateStr} ${lateDocType}`,
                 status: 'pending',
+                // 사유 텍스트만으로는 제출이 안 되게 요청 단위로 첨부를 강제한다 (서식 설정과 무관).
+                requires_attachment: true,
                 created_at: new Date().toISOString()
             });
-            alert(`연차 신청이 완료되었습니다.\n\n⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어\n사유서 제출이 필요합니다.\n\n"서류 제출" 탭에서 사유서를 작성해주세요.\n서류 미제출 시 추가 연차 신청이 제한됩니다.`);
+            alert(`연차 신청이 완료되었습니다.\n\n⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어\n"${lateDocType}" 제출이 필요합니다.\n\n"서류 제출" 탭에서 ${lateDocType} 파일을 첨부해 제출해주세요.\n(사유 내용만으로는 제출되지 않으며, 원장 승인 전까지 추가 연차 신청이 제한됩니다.)`);
         } else {
             alert('연차 신청이 완료되었습니다.');
         }
@@ -1916,8 +1925,9 @@ window.openDocSubmissionModal = async function (requestId) {
 
     const today = dayjs().format('YYYY년 MM월 DD일');
 
-    // 해당 서류 유형이 파일 첨부 필수인지 확인
-    const isAttachmentRequired = await checkIfAttachmentRequired(request.type);
+    // 첨부 필수 판정 = 요청 단위 플래그(연차 임박 신청이 만든 증빙 요구 등) 우선, 없으면 서식 설정.
+    const isAttachmentRequired = request.requires_attachment === true || await checkIfAttachmentRequired(request.type);
+    state.docSubmission.attachmentRequired = isAttachmentRequired;
 
     const modalHTML = `
         <div id="temp-doc-submission-modal" class="modal-overlay">
@@ -1955,6 +1965,7 @@ window.openDocSubmissionModal = async function (requestId) {
                         <div class="font-bold mb-2 ${isAttachmentRequired ? 'text-red-600' : 'text-gray-700'}">🔎 파일 첨부 ${isAttachmentRequired ? '(필수)' : '(선택)'}</div>
                         <input type="file" id="doc-attachment" class="w-full p-2 border-2 ${isAttachmentRequired ? 'border-red-300' : 'border-gray-300'} rounded" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" ${isAttachmentRequired ? 'required' : ''}>
                         <div class="text-xs text-gray-600 mt-1">지원 형식: PDF, DOC, DOCX, JPG, PNG (최대 10MB)</div>
+                        ${isAttachmentRequired ? `<div class="text-xs text-red-600 font-semibold mt-1">※ 아래 사유 내용만으로는 제출되지 않습니다. 실제 서류(사진·PDF)를 첨부해주세요.</div>` : ''}
                     </div>
                     
                     <div class="mb-4">
@@ -2021,6 +2032,7 @@ function closeDocSubmissionModal() {
     const modal = _('#temp-doc-submission-modal');
     if (modal) modal.remove();
     state.docSubmission.currentRequestId = null;
+    state.docSubmission.attachmentRequired = false;
 }
 
 async function handleDocumentSubmit() {
@@ -2038,14 +2050,17 @@ async function handleDocumentSubmit() {
         return;
     }
 
-    if (attachmentInput && attachmentInput.hasAttribute('required') && !attachmentInput.files[0]) {
-        alert('파일 첨부가 필수입니다.');
-        return;
-    }
-
     const request = state.employee.documentRequests.find(req => req.id === requestId);
     if (!request) {
         alert('요청 정보를 찾을 수 없습니다.');
+        return;
+    }
+
+    // 첨부 강제 — DOM 의 required 속성이 아니라 모달을 열 때 확정한 판정값으로 검사한다.
+    // (요청 단위 requires_attachment 가 최신값이므로 상태가 비어 있으면 요청 레코드로 폴백)
+    const mustAttach = state.docSubmission.attachmentRequired === true || request.requires_attachment === true;
+    if (mustAttach && !(attachmentInput && attachmentInput.files[0])) {
+        alert('⚠️ 이 서류는 파일 첨부가 필수입니다.\n\n사유 내용만으로는 제출할 수 없습니다.\n서류 사진 또는 PDF 파일을 첨부해주세요.');
         return;
     }
 

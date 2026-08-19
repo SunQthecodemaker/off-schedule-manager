@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260807f';
+import { state, db } from './state.js?v=20260819a';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260811g';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange, reconcileHolidayLeaves } from './management.js?v=20260811g';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260811g';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260811g';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260811g';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260811g';
-import { renderWelfareTab } from './welfare-ui.js?v=20260811g';
+import { renderScheduleManagement } from './schedule.js?v=20260819a';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange, reconcileHolidayLeaves } from './management.js?v=20260819a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260819a';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260819a';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260819a';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260819a';
+import { renderWelfareTab } from './welfare-ui.js?v=20260819a';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -74,7 +74,7 @@ async function loadManagementData() {
         const monthStart = dayjs(state.schedule.currentDate).startOf('month').format('YYYY-MM-DD');
         const monthEnd = dayjs(state.schedule.currentDate).endOf('month').format('YYYY-MM-DD');
 
-        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes, settingsAdminRes, pendingLeaveRes, pendingCancelRes, pendingApprovalRes] = await Promise.all([
+        const [requestsRes, employeesRes, templatesRes, docsRes, issuesRes, departmentsRes, docRequestsRes, settingsRes, schedulesRes, holidaysRes, noticeDaysRes, blockedDatesRes, settingsAdminRes, pendingLeaveRes, pendingCancelRes, pendingApprovalRes, lateDocTypeRes] = await Promise.all([
             db.from('leave_requests').select('*').order('created_at', { ascending: false }),
             db.from('employees').select('*, departments(*)').order('id'),
             db.from('document_templates').select('*').order('created_at', { ascending: false }),
@@ -90,7 +90,8 @@ async function loadManagementData() {
             db.from('app_settings').select('value').eq('key', 'show_test_employees_admin').maybeSingle(),
             db.from('pending_changes').select('*').eq('status', 'pending').eq('entity_type', 'leave_management').order('created_at', { ascending: true }),
             db.from('pending_changes').select('*').eq('status', 'pending').eq('entity_type', 'leave_cancel').order('created_at', { ascending: true }),
-            db.from('pending_changes').select('id, entity_id, payload').eq('status', 'pending').eq('entity_type', 'leave_approval')
+            db.from('pending_changes').select('id, entity_id, payload').eq('status', 'pending').eq('entity_type', 'leave_approval'),
+            db.from('app_settings').select('value').eq('key', 'leave_late_document_type').maybeSingle()
         ]);
 
         if (requestsRes.error) throw requestsRes.error;
@@ -121,6 +122,10 @@ async function loadManagementData() {
         // 연차 신청 마감일수 (기본 7) — admin 설정
         const ndVal = noticeDaysRes && noticeDaysRes.data && noticeDaysRes.data.value;
         state.leaveNoticeDays = (ndVal != null && !isNaN(Number(ndVal))) ? Number(ndVal) : 7;
+
+        // 마감일수를 넘긴(임박) 신청에 요구할 증빙 서류 서식명 — admin 설정. 미설정 시 '내원 확인서'.
+        const ldVal = lateDocTypeRes && lateDocTypeRes.data && lateDocTypeRes.data.value;
+        state.leaveLateDocType = (typeof ldVal === 'string' && ldVal.trim()) ? ldVal.trim() : '내원 확인서';
 
         // 연차 신청 불가일 목록 (jsonb 배열) — 스케줄 그리드에서 매니저가 지정
         const bdVal = blockedDatesRes && blockedDatesRes.data && blockedDatesRes.data.value;

@@ -1,6 +1,6 @@
-import { state, db } from './state.js?v=20260807f';
+import { state, db } from './state.js?v=20260819a';
 import { _, show, hide } from './utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260811g';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260819a';
 
 // =========================================================================================
 // 서류 검토 탭 (관리자용)
@@ -70,8 +70,8 @@ function renderRequestedDocuments() {
     const rows = requestedDocs.map(req => {
         return `
             <tr class="border-b hover:bg-gray-50">
-                <td class="p-3">${req.employeeName || '알 수 없음'}</td>
-                <td class="p-3">${req.type || '일반 서류'}</td>
+                <td class="p-3">${req.document_name || req.employeeName || '알 수 없음'}</td>
+                <td class="p-3">${req.type || '일반 서류'}${req.requires_attachment ? ' <span class="ml-1 bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded">첨부 필수</span>' : ''}</td>
                 <td class="p-3 text-sm text-gray-600">${req.message || '-'}</td>
                 <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD HH:mm')}</td>
                 <td class="p-3">
@@ -286,12 +286,20 @@ async function handleCreateRequest(e) {
         return;
     }
 
+    // 선택한 서식의 첨부 필수 여부를 요청에 박아둔다 — 나중에 서식 설정이 바뀌어도 이 요청의 조건은 유지된다.
+    const selectedOption = _('#req-type').selectedOptions?.[0];
+    const requiresAttachment = selectedOption?.dataset?.requiresAttachment === 'true';
+
+    // ⚠️ 컬럼명은 document_requests 스키마 그대로 (employee_id / document_name).
+    // 옛 코드는 employeeId·employeeName 로 넣어 INSERT 가 항상 실패했다 (staging 경로도 이 payload 를 그대로 insert).
     const payload = {
-        employeeId: employeeId,
-        employeeName: employee.name,
+        employee_id: employeeId,
+        document_name: employee.name,
         type: type,
         message: message,
+        note: message,
         status: 'pending',
+        requires_attachment: requiresAttachment,
         created_at: new Date().toISOString()
     };
 

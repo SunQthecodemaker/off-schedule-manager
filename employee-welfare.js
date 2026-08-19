@@ -1,12 +1,12 @@
 // 진료비 복지 — 직원 본인 화면 ("내 복지 현황")
 // 자기 진료기록만 조회. 잔액 + 월별 이행 현황 + 동의서 보기.
-import { state, db } from './state.js?v=20260807f';
+import { state, db } from './state.js?v=20260819a';
 import {
     loadConfig, loadFulfillmentByRecord,
     calculateCosts, computeRemaining, elapsedMonthList,
     formatNum, signatureUrlOf,
-} from './welfare.js?v=20260811g';
-import { generateConsentHTML, printHTML } from './welfare-consent.js?v=20260811g';
+} from './welfare.js?v=20260819a';
+import { generateConsentHTML, printHTML } from './welfare-consent.js?v=20260819a';
 
 export async function renderMyWelfareSection(container) {
     if (!container) return;

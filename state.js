@@ -26,7 +26,10 @@ export const state = {
     viewAs: 'employee',
     showTestEmployees: false, // 매니저 화면 테스트 직원 노출 — app_settings.show_test_employees 부팅 시 갱신
     showTestEmployeesAdmin: true, // 최고관리자 본인 화면 테스트 직원 노출 — app_settings.show_test_employees_admin 부팅 시 갱신 (기본 ON = 현행 유지)
-    leaveNoticeDays: 7, // 연차 신청 마감일수 — app_settings.leave_notice_days 부팅 시 갱신. N일 전까지 신청, 이후엔 사유서 필요
+    leaveNoticeDays: 7, // 연차 신청 마감일수 — app_settings.leave_notice_days 부팅 시 갱신. N일 전까지 신청, 이후엔 증빙 서류 필요
+    // 마감일수를 넘겨(임박) 신청할 때 요구하는 증빙 서류 서식명 — app_settings.leave_late_document_type 부팅 시 갱신.
+    // document_templates.template_name 과 정확히 일치해야 서식 쪽 첨부 필수 설정까지 걸린다 (기본 '내원 확인서').
+    leaveLateDocType: '내원 확인서',
     employee: {
         activeFilters: new Set(['pending', 'approved']),
         issues: [],
@@ -66,6 +69,9 @@ export const state = {
     docSubmission: {
         currentTemplate: null,
         currentRequestId: null,
+        // 이번에 여는 제출 모달이 파일 첨부를 강제하는지 (요청 단위 플래그 또는 서식 설정으로 결정).
+        // DOM 의 required 속성 대신 이 값으로 검사한다 — 속성은 화면에서 지워질 수 있다.
+        attachmentRequired: false,
     },
     welfare: {
         activeSubTab: 'create',  // create | list | fulfill | settle

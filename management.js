@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260807f';
+import { state, db, isVisibleIn } from './state.js?v=20260819a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260807f';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260811g';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260819a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260819a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -528,6 +528,7 @@ window.handleIssueSubmit = async function (e) {
     try {
         // 서식 ID가 숫자인지 문자인지 확인하여 처리
         let docType = '기타';
+        let requiresAttachment = false;
         if (requiredDocId) {
             if (isNaN(requiredDocId)) {
                 // 문자열인 경우 (하드코딩된 옵션)
@@ -536,6 +537,8 @@ window.handleIssueSubmit = async function (e) {
                 // 숫자인 경우 (DB 서식 ID)
                 const template = state.management.templates.find(t => t.id === parseInt(requiredDocId));
                 docType = template ? template.template_name : '기타';
+                // 서식의 첨부 필수 설정을 요청에 스냅샷 (이후 서식이 바뀌어도 이 요청 조건은 유지)
+                requiresAttachment = !!(template && template.requires_attachment);
             }
         }
 
@@ -546,6 +549,7 @@ window.handleIssueSubmit = async function (e) {
             message: details,
             note: details,
             status: 'pending',
+            requires_attachment: requiresAttachment,
             created_at: new Date().toISOString()
         };
 
@@ -1539,6 +1543,59 @@ window.saveLeaveNoticeDays = async function () {
     }
 };
 
+// 마감일수 경과(임박) 신청 시 요구할 증빙 서류 서식 선택 UI.
+// 서식은 [서류 관리] 탭의 document_templates 를 그대로 재사용한다 (새 서식이 필요하면 거기서 추가).
+function getLeaveLateDocSettingHTML() {
+    const templates = state.management.templates || [];
+    const current = state.leaveLateDocType || '내원 확인서';
+    // 설정된 서식이 삭제·개명된 경우에도 현재 값을 잃지 않도록 목록에 남겨둔다.
+    const names = templates.map(t => t.template_name).filter(Boolean);
+    if (current && !names.includes(current)) names.push(current);
+
+    const options = names.map(n =>
+        `<option value="${n}" ${n === current ? 'selected' : ''}>${n}</option>`
+    ).join('');
+
+    return `
+        <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2">
+            <label class="font-semibold">임박 신청 시 요구 서류:</label>
+            <select id="leave-late-doc-type" class="border rounded px-2 py-1">
+                ${options || '<option value="">-- 등록된 서식 없음 --</option>'}
+            </select>
+            <button onclick="window.saveLeaveLateDocType()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">저장</button>
+            <span class="text-gray-600">직원에게 이 서류 제출 요청이 자동 생성됩니다. <strong>증빙 파일 첨부는 항상 필수</strong>이며, 원장 승인 전까지 다음 연차 신청이 잠깁니다.</span>
+        </div>
+    `;
+}
+
+// 임박 신청 요구 서류 저장 (admin) — 마감일수와 동일한 upsert + 재조회 검증 패턴
+window.saveLeaveLateDocType = async function () {
+    if (state.currentUser?.role !== 'admin') { alert('관리자만 변경할 수 있습니다.'); return; }
+    const select = document.getElementById('leave-late-doc-type');
+    if (!select) return;
+    const docType = (select.value || '').trim();
+    if (!docType) { alert('요구할 서류 서식을 선택해주세요.'); return; }
+
+    const prev = state.leaveLateDocType;
+    try {
+        const { error } = await db.from('app_settings')
+            .upsert({ key: 'leave_late_document_type', value: docType, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (error) throw error;
+
+        const { data: verify } = await db.from('app_settings')
+            .select('value').eq('key', 'leave_late_document_type').maybeSingle();
+        if (!verify || verify.value !== docType) throw new Error('저장 검증 실패');
+
+        state.leaveLateDocType = docType;
+        alert(`임박 신청 시 요구 서류가 "${docType}" 로 저장되었습니다.`);
+    } catch (err) {
+        console.error('leave_late_document_type 저장 실패:', err);
+        state.leaveLateDocType = prev;
+        if (select) select.value = prev || '내원 확인서';
+        alert('저장에 실패했습니다: ' + err.message);
+    }
+};
+
 // 연차 목록 정렬 기준 토글 (휴가 날짜순 / 신청 시간순)
 window.setLeaveListSort = function (mode) {
     state.management.leaveListSort = mode;
@@ -2286,11 +2343,14 @@ export function getLeaveManagementHTML() {
             <p class="text-sm text-gray-600 mt-1">직원별 ◀▶ 화살표로 주기를 전환하여 조정값을 입력하세요.</p>
             ${pendingCount ? `<p class="text-sm text-yellow-800 bg-yellow-50 border border-yellow-300 rounded px-3 py-2 mt-2">⏳ 매니저가 제출한 변경 <strong>${pendingCount}건</strong> — 해당 직원 행 아래에서 내용을 확인하고 승인·반려하세요.</p>` : ''}
         </div>
-        <div class="mb-4 flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 p-2 rounded text-sm">
-            <label class="font-semibold">연차 신청 마감일수:</label>
-            <input type="number" id="leave-notice-days-input" min="0" value="${state.leaveNoticeDays ?? 7}" class="border rounded px-2 py-1 w-20 text-center">
-            <span class="text-gray-600">일 전까지 신청 (이후 신청 시 사유서 제출 필요)</span>
-            <button onclick="window.saveLeaveNoticeDays()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">저장</button>
+        <div class="mb-4 bg-gray-50 border border-gray-200 p-2 rounded text-sm space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <label class="font-semibold">연차 신청 마감일수:</label>
+                <input type="number" id="leave-notice-days-input" min="0" value="${state.leaveNoticeDays ?? 7}" class="border rounded px-2 py-1 w-20 text-center">
+                <span class="text-gray-600">일 전까지 신청 (이후 신청 시 아래 증빙 서류 제출 필요)</span>
+                <button onclick="window.saveLeaveNoticeDays()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">저장</button>
+            </div>
+            ${getLeaveLateDocSettingHTML()}
         </div>
         <div class="overflow-x-auto">
             <table class="fixed-table whitespace-nowrap text-sm mb-6">
