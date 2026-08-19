@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260819b';
+import { state, db } from './state.js?v=20260819a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260819b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260819b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260819b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260819b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260819b';
-import { renderMyBoardSection } from './welfare-board.js?v=20260819b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260819a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260819a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260819a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260819a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260819a';
+import { renderMyBoardSection } from './welfare-board.js?v=20260819a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1682,8 +1682,7 @@ function openLeaveFormModal(dates) {
             openLeaveFormModal([...state.employee.selectedDates]);
         });
     });
-    // 사유란은 2026-08-19 제거 — 텍스트 사유가 증빙 서류를 대체하지 못하게 한다.
-    // (임박 신청 사유는 '서류 제출' 탭의 증빙 서류로만 밝힌다)
+    _('#form-reason').value = '';
 
     // 당겨쓰기 계산 로직
     const requestDays = dates.length;
@@ -1753,6 +1752,7 @@ export function closeLeaveFormModal() {
 
 export async function handleSubmitLeaveRequest() {
     const dates = state.employee.selectedDates;
+    const reason = _('#form-reason').value.trim();
     const signatureData = window.signaturePad?.toDataURL();
 
     if (!dates || dates.length === 0) {
@@ -1838,8 +1838,7 @@ export async function handleSubmitLeaveRequest() {
                 employee_id: state.currentUser.id,
                 employee_name: state.currentUser.name,
                 dates: fullDates,
-                // 직원 신청서엔 사유 입력이 없다 (2026-08-19) — 사유는 증빙 서류로만.
-                reason: null,
+                reason: reason || null,
                 signature: signatureData,
                 status: 'pending',
                 leave_type: 'full',
@@ -1852,7 +1851,7 @@ export async function handleSubmitLeaveRequest() {
                 employee_id: state.currentUser.id,
                 employee_name: state.currentUser.name,
                 dates: [d],
-                reason: null,
+                reason: reason || null,
                 signature: signatureData,
                 status: 'pending',
                 leave_type: leaveTypes[d],
