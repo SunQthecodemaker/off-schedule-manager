@@ -1,6 +1,6 @@
-import { state, db } from './state.js?v=20260819a';
+import { state, db } from './state.js?v=20260819b';
 import { _, show, hide } from './utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260819a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260819b';
 
 // =========================================================================================
 // 서류 검토 탭 (관리자용)

@@ -23,7 +23,7 @@
         };
     </script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
-    <link rel="stylesheet" href="style.css?v=20260819a" />
+    <link rel="stylesheet" href="style.css?v=20260819b" />
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
@@ -133,10 +133,11 @@
                         <label class="font-semibold">신청 날짜</label>
                         <div id="form-selected-dates" class="mt-1 p-2 bg-gray-100 rounded min-h-[40px]"></div>
                     </div>
-                    <div>
-                        <label for="form-reason" class="font-semibold">사유 (선택)</label>
-                        <textarea id="form-reason" rows="3" class="w-full mt-1 p-2 border rounded"></textarea>
-                    </div>
+                    <!--
+                      사유 입력란 제거 (2026-08-19).
+                      텍스트 사유가 증빙 서류(내원 확인서 등)를 대체하는 걸 막기 위함 —
+                      신청기간 임박 신청의 사유는 '서류 제출' 탭의 증빙 서류로만 밝힌다.
+                    -->
 
                     <!-- 당겨쓰기 동의 섹션 (숨김 처리) -->
                     <div id="borrowing-agreement-section"
@@ -299,9 +300,9 @@
         }
     </style>
 
-    <script type="module" src="main.v2.js?v=20260819a"></script>
+    <script type="module" src="main.v2.js?v=20260819b"></script>
     <script type="module">
-        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20260819a';
+        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20260819b';
 
         document.addEventListener('DOMContentLoaded', () => {
             // 연차 신청 모달 관련
