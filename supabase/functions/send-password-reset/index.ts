@@ -39,6 +39,52 @@ function generateTempPassword(): string {
     return Array.from(buf, (n) => chars[n % chars.length]).join("");
 }
 
+// ⚠️ denomailer 1.6.0 헤더 인코더 버그 우회 (2026-08-23 실제 사고)
+// denomailer 는 subject 에 비ASCII 가 있으면 quotedPrintableEncodeInline() 을 태우는데,
+// 그 내부 quotedPrintableEncode() 는 "본문용" 인코더라 74자마다 `=\r\n` (soft line break) 를 끼워 넣는다.
+// 헤더에서 CRLF 다음에 공백이 없으면 헤더 블록이 거기서 끝나버려 →
+// 나머지 헤더(From/To/MIME-Version/Content-Type)와 MIME 구조 전체가 본문으로 쏟아진다.
+// (게다가 encoded-word 안에 raw space 를 그대로 둬서 RFC 2047 위반이기도 함)
+// → 우리가 직접 base64 encoded-word 로 만들어 "순수 ASCII" 로 넘기면 denomailer 가 손대지 않는다.
+//   맨 앞 공백: 문자열이 "=?" 로 시작하지 않게 해 재인코딩을 막고(=denomailer passthrough 조건),
+//   동시에 encoded-word 앞 구분 공백 역할도 한다 (헤더 값 앞 공백은 파서가 무시).
+function encodeHeaderValue(text: string): string {
+    const enc = new TextEncoder();
+    if (!enc.encode(text).some((b) => b > 127)) return text; // ASCII 면 그대로
+
+    // encoded-word 1개 = 최대 75자. `=?UTF-8?B?` + `?=` 오버헤드 12자 → base64 63자 → 원본 45바이트
+    const MAX_BYTES = 45;
+    const toWord = (bytes: number[]) =>
+        `=?UTF-8?B?${btoa(String.fromCharCode(...bytes))}?=`;
+
+    const words: string[] = [];
+    let cur: number[] = [];
+    for (const ch of text) { // 코드포인트 단위 순회 — 멀티바이트 문자를 쪼개지 않음
+        const b = Array.from(enc.encode(ch));
+        if (cur.length + b.length > MAX_BYTES) {
+            words.push(toWord(cur));
+            cur = [];
+        }
+        cur.push(...b);
+    }
+    if (cur.length) words.push(toWord(cur));
+
+    // 여러 개면 `CRLF + 공백` 으로 정상 folding (RFC 5322 §2.2.3)
+    return " " + words.join("\r\n ");
+}
+
+// ⚠️ 같은 denomailer 버그가 본문에도 있다 (2026-08-24 재현).
+// quotedPrintableEncode() 는 74자마다 줄을 자르면서 `=XX` escape 경계를 제대로 못 지켜
+// 한글 3바이트 문자의 중간 바이트를 통째로 날려먹는다 ("알려주세요." → "알려주세▯4.").
+// → text/html 대신 mimeContent 를 직접 넘기면 denomailer 가 인코딩에 손대지 않고 그대로 싣는다.
+//    본문을 우리가 base64 로 인코딩해서 전달 (RFC 2045 — 76자마다 CRLF).
+function base64Body(text: string): string {
+    const bytes = new TextEncoder().encode(text.replace(/\r?\n/g, "\r\n"));
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return (btoa(bin).match(/.{1,76}/g) ?? []).join("\r\n");
+}
+
 function isInvalidEmail(email: string | null | undefined): boolean {
     if (!email) return true;
     if (email === "6030primes@gmail.com") return true;
@@ -127,13 +173,18 @@ Deno.serve(async (req) => {
             await smtp.send({
                 from: GMAIL_USER,
                 to: employee.email,
-                subject: "[프라임에스] 임시 비밀번호 안내",
-                content:
-                    `${employee.name}님 안녕하세요.\n\n` +
-                    `임시 비밀번호: ${tempPassword}\n\n` +
-                    `로그인 후 [비밀번호 변경] 버튼을 눌러 본인 비밀번호로 바로 변경해주세요.\n\n` +
-                    `이 메일을 요청하지 않으셨다면 관리자에게 알려주세요.\n\n` +
-                    `프라임에스`,
+                subject: encodeHeaderValue("[프라임에스] 임시 비밀번호 안내"),
+                mimeContent: [{
+                    mimeType: 'text/plain; charset="utf-8"',
+                    content: base64Body(
+                        `${employee.name}님 안녕하세요.\n\n` +
+                        `임시 비밀번호: ${tempPassword}\n\n` +
+                        `로그인 후 [비밀번호 변경] 버튼을 눌러 본인 비밀번호로 바로 변경해주세요.\n\n` +
+                        `이 메일을 요청하지 않으셨다면 관리자에게 알려주세요.\n\n` +
+                        `프라임에스`,
+                    ),
+                    transferEncoding: "base64",
+                }],
             });
         } finally {
             try { await smtp.close(); } catch (_) { /* ignore */ }
