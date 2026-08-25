@@ -1,16 +1,17 @@
-import { state, db } from './state.js?v=20260825c';
+import { state, db } from './state.js?v=20260825d';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825c';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825c';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825c';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825c';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260825c';
-import { renderMyBoardSection } from './welfare-board.js?v=20260825c';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825d';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825d';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825d';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825d';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260825d';
+import { renderMyBoardSection } from './welfare-board.js?v=20260825d';
+import { renderMyOvertimeSection } from './overtime.js?v=20260825d';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
-// 8개 메뉴: schedule, leave_request_list, leave_status, document_review,
-//           leave_management, employee_management, department, form
+// 10개 메뉴: schedule, leave_request_list, leave_status, document_review,
+//            leave_management, employee_management, department, form, welfare, overtime
 // 각 메뉴: { view: bool, edit: bool, commit: bool }
 //   view   = 메뉴 노출
 //   edit   = 입력·버튼 활성 (수정 가능)
@@ -28,7 +29,10 @@ const DEFAULT_MANAGER_PERMS = {
     leave_management:    { view: false, edit: false, commit: false },
     employee_management: { view: false, edit: false, commit: false },
     department:          { view: false, edit: false, commit: false },
-    form:                { view: true,  edit: true,  commit: true  }
+    form:                { view: true,  edit: true,  commit: true  },
+    welfare:             { view: false, edit: false, commit: false },
+    // 초과근무는 매니저 본업(사실관계 1차 확인)이라 평소 보임. 확정은 원장 몫이라 commit=false
+    overtime:            { view: true,  edit: true,  commit: false }
 };
 
 /** 현재 로그인 직원의 메뉴 권한 (관리자는 모두 true, 매니저는 DB 값, 일반 직원은 모두 false) */
@@ -170,6 +174,9 @@ export async function renderEmployeePortal() {
                 <button id="tab-welfare-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
                     💊 진료비 복지
                 </button>
+                <button id="tab-overtime-btn" class="employee-tab-btn px-3 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 flex-shrink-0">
+                    ⏱ 초과근무
+                </button>
             </div>
 
             <!-- 매니저 전용: 스케줄 승인 요청 반려 알림 배너 -->
@@ -237,6 +244,11 @@ export async function renderEmployeePortal() {
                 <div id="my-welfare-board-content" class="hidden"></div>
             </div>
 
+            <!-- 초과근무 탭 (본인 기록 제출 + 내 기록·월 합계) -->
+            <div id="employee-overtime-tab" class="tab-content hidden">
+                <!-- 탭 열 때 overtime.js 가 채운다 (지연 로드) -->
+            </div>
+
         </div>
     `;
 
@@ -252,6 +264,7 @@ export async function renderEmployeePortal() {
     _('#tab-docs-btn').addEventListener('click', () => switchEmployeeTab('docs'));
     _('#tab-work-schedule-btn').addEventListener('click', () => switchEmployeeTab('workSchedule'));
     _('#tab-welfare-btn')?.addEventListener('click', () => switchEmployeeTab('welfare'));
+    _('#tab-overtime-btn')?.addEventListener('click', () => switchEmployeeTab('overtime'));
     _('#subtab-welfare-my-btn')?.addEventListener('click', () => switchWelfareSubTab('my'));
     _('#subtab-welfare-board-btn')?.addEventListener('click', () => switchWelfareSubTab('board'));
 
@@ -416,6 +429,7 @@ function switchEmployeeTab(tab) {
         'docs': { btn: '#tab-docs-btn', content: '#employee-docs-tab' },
         'workSchedule': { btn: '#tab-work-schedule-btn', content: '#employee-work-schedule-tab' },
         'welfare': { btn: '#tab-welfare-btn', content: '#employee-welfare-tab' },
+        'overtime': { btn: '#tab-overtime-btn', content: '#employee-overtime-tab' },
         'leaveList': { btn: '#tab-leave-list-btn', content: '#employee-leave-list-tab' },
         'leaveStatus': { btn: '#tab-leave-status-btn', content: '#employee-leave-status-tab' },
         'schedule': { btn: '#tab-schedule-btn', content: '#employee-schedule-tab' },
@@ -456,6 +470,8 @@ function switchEmployeeTab(tab) {
         renderEmployeeScheduleView();
     } else if (tab === 'welfare') {
         switchWelfareSubTab(state.employee.welfareSubTab || 'my');
+    } else if (tab === 'overtime') {
+        renderMyOvertimeSection(_('#employee-overtime-tab'));
     } else if (tab === 'documentReview') {
         renderManagerDocumentReview();
     } else if (tab === 'leaveManagement') {

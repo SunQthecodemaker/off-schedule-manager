@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260825c';
+import { state, db, isVisibleIn } from './state.js?v=20260825d';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260825c';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260825c';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260825d';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260825d';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -25,7 +25,7 @@ export function assignManagementEventHandlers() {
 
 // =========================================================================================
 // 매니저 권한 설정 모달 (employees.manager_permissions jsonb)
-// 9개 메뉴 × view/edit/commit 토글. 관리자만 사용. 매니저로 지정된 직원에 한해 노출.
+// 10개 메뉴 × view/edit/commit 토글. 관리자만 사용. 매니저로 지정된 직원에 한해 노출.
 // =========================================================================================
 const MANAGER_MENU_LIST = [
     { key: 'schedule',            label: '스케줄 관리' },
@@ -36,7 +36,8 @@ const MANAGER_MENU_LIST = [
     { key: 'employee_management', label: '직원 관리' },
     { key: 'department',          label: '부서 관리' },
     { key: 'form',                label: '서식 관리' },
-    { key: 'welfare',             label: '진료비 복지' }
+    { key: 'welfare',             label: '진료비 복지' },
+    { key: 'overtime',            label: '초과근무 관리' }
 ];
 
 async function openManagerPermissionModal(employeeId) {

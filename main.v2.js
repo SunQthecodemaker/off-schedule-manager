@@ -1,12 +1,13 @@
-import { state, db } from './state.js?v=20260825c';
+import { state, db } from './state.js?v=20260825d';
 import { _, _all, show, hide } from './utils.js';
-import { renderScheduleManagement } from './schedule.js?v=20260825c';
-import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange, reconcileHolidayLeaves } from './management.js?v=20260825c';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825c';
-import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260825c';
-import { renderMobileAdminPortal } from './mobile-admin.js?v=20260825c';
-import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260825c';
-import { renderWelfareTab } from './welfare-ui.js?v=20260825c';
+import { renderScheduleManagement } from './schedule.js?v=20260825d';
+import { assignManagementEventHandlers, getManagementHTML, getDepartmentManagementHTML, getLeaveListHTML, getLeaveManagementHTML, handleBulkRegister, getLeaveStatusHTML, addLeaveStatusEventListeners, formatLeaveChange, reconcileHolidayLeaves } from './management.js?v=20260825d';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825d';
+import { renderEmployeePortal, getManagerPerm } from './employee-portal-final.js?v=20260825d';
+import { renderMobileAdminPortal } from './mobile-admin.js?v=20260825d';
+import { loadPendingChanges, approvePendingChange, rejectPendingChange, approveAllPending, rejectAllPending } from './staging.js?v=20260825d';
+import { renderWelfareTab } from './welfare-ui.js?v=20260825d';
+import { renderOvertimeTab } from './overtime.js?v=20260825d';
 
 // Safely initialize dayjs plugins
 if (window.dayjs_plugin_isSameOrAfter) {
@@ -35,18 +36,21 @@ const ENTITY_TO_TAB = {
     employee: 'management', department: 'department',
     form_template: 'templates',
     welfare_record: 'welfare', welfare_fulfillment: 'welfare',
+    overtime_approval: 'overtime',
 };
 const ENTITY_LABEL = {
     employee: '직원', department: '부서', leave_management: '연차관리',
     leave_request: '연차', leave_approval: '연차결재', leave_cancel: '연차취소',
     document: '서류', document_request: '서류요청', form_template: '서식',
     welfare_record: '복지', welfare_fulfillment: '복지이행',
+    overtime_approval: '초과근무',
 };
 const ACTION_LABEL = { create: '생성', update: '수정', delete: '삭제' };
 // 상단 요약 칩 / 탭 전체승인 라벨 (탭 id 기준)
 const TAB_SUMMARY_LABEL = {
     leaveList: '연차', leaveManagement: '연차관리', submittedDocs: '서류',
     management: '직원', department: '부서', templates: '서식', welfare: '복지',
+    overtime: '초과근무',
 };
 
 let _pendingCache = [];
@@ -214,6 +218,10 @@ function renderManagementContent() {
             renderWelfareTab(container);
             setTimeout(applyEditPermissionForManagerView, 100);
             break;
+        case 'overtime':
+            renderOvertimeTab(container);
+            setTimeout(applyEditPermissionForManagerView, 100);
+            break;
         default:
             container.innerHTML = `<p>${activeTab} 탭의 콘텐츠가 준비되지 않았습니다.</p>`;
     }
@@ -239,6 +247,11 @@ function renderTabPending() {
 function pendingTargetName(it, empMap) {
     if (it.payload && it.payload.employee_id && empMap[it.payload.employee_id]) return empMap[it.payload.employee_id];
     if ((it.entity_type === 'employee' || it.entity_type === 'leave_management') && empMap[it.entity_id]) return empMap[it.entity_id];
+    // 초과근무 결재는 entity_id 가 기록 id 라 직원을 못 짚는다 — 스냅샷에서 가져온다
+    if (it.entity_type === 'overtime_approval') {
+        const snap = it.original_snapshot || {};
+        return empMap[snap.employee_id] || snap.employee_name || '';
+    }
     return '';
 }
 
@@ -339,6 +352,7 @@ const TAB_TO_PERM_KEY = {
     department: 'department',
     templates: 'form',
     welfare: 'welfare',
+    overtime: 'overtime',
 };
 
 function renderManagementTabs() {
@@ -356,6 +370,7 @@ function renderManagementTabs() {
         { id: 'department', text: '부서 관리' },
         { id: 'templates', text: '서식 관리' },
         { id: 'welfare', text: '복지' },
+        { id: 'overtime', text: '초과근무' },
     ];
 
     // 매니저 화면이면 perm.view=true 인 탭만
@@ -767,6 +782,14 @@ function summarizeChange(item) {
     if (item.entity_type === 'leave_cancel') {
         const ds = (item.payload && Array.isArray(item.payload.dates)) ? item.payload.dates.join(', ') : '';
         return '연차 취소 요청' + (ds ? ` · ${ds}` : '');
+    }
+    if (item.entity_type === 'overtime_approval') {
+        const s = item.original_snapshot || {};
+        const when = s.work_date ? dayjs(s.work_date).format('M/D') : '';
+        const detail = [when, s.end_time, s.minutes != null ? `${s.minutes}분` : '', s.patient, s.doctor]
+            .filter(Boolean).join(' · ');
+        const verb = item.payload.decision === 'rejected' ? '초과근무 반려' : '초과근무 승인';
+        return `${verb}${detail ? ` · ${detail}` : ''}`;
     }
 
     const keys = Object.keys(item.payload).slice(0, 6);

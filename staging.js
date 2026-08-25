@@ -5,8 +5,8 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20260825c';
-import { dataUrlToBlob } from './welfare.js?v=20260825c';
+import { state, db } from './state.js?v=20260825d';
+import { dataUrlToBlob } from './welfare.js?v=20260825d';
 
 // ---------- 매니저 측: 임시저장 ----------
 
@@ -181,12 +181,41 @@ async function applyChange(change) {
                 return await applyWelfareRecord(action, entity_id, payload);
             case 'welfare_fulfillment':
                 return await applyWelfareFulfillment(action, payload);
+            case 'overtime_approval':
+                return await applyOvertimeApproval(entity_id, payload, change);
             default:
                 return { ok: false, error: `알 수 없는 entity_type: ${entity_type}` };
         }
     } catch (e) {
         return { ok: false, error: e.message };
     }
+}
+
+/**
+ * 초과근무 결재 — 매니저 1차 판정이 여기 담겨 오고, 원장 승인 시점에 최종 상태까지 함께 찍는다.
+ * 연차(applyLeaveApproval) 와 같은 "매니저 도장 + 최종 도장 동시" 패턴.
+ * 이미 처리된 기록(대기중이 아님)에는 덮어쓰지 않는다 — 원장이 목록에서 먼저 확정했을 수 있다.
+ */
+async function applyOvertimeApproval(id, payload, change) {
+    const decision = payload?.decision === 'rejected' ? 'rejected' : 'approved';
+    const now = new Date().toISOString();
+
+    const upd = {
+        status: decision,
+        middle_manager_status: decision,
+        middle_manager_id: change?.created_by || null,
+        middle_manager_at: change?.created_at || now,
+        reviewed_by: change?.reviewed_by || state.currentUser?.id || null,
+        reviewed_at: now,
+        reject_reason: decision === 'rejected' ? (payload?.reason || null) : null
+    };
+    if (Number.isFinite(payload?.minutes)) upd.minutes = payload.minutes;
+
+    const { data, error } = await db.from('overtime_records')
+        .update(upd).eq('id', id).eq('status', 'pending').select('id');
+    if (error) return { ok: false, error: error.message };
+    // 대상이 이미 확정·반려됐거나 삭제된 경우 — 결재 큐만 정리하고 넘어간다
+    return { ok: true, alreadyGone: !data?.length };
 }
 
 async function applyEmployee(action, id, payload) {

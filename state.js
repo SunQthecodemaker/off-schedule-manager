@@ -30,6 +30,9 @@ export const state = {
     // 마감일수를 넘겨(임박) 신청할 때 요구하는 증빙 서류 서식명 — app_settings.leave_late_document_type 부팅 시 갱신.
     // document_templates.template_name 과 정확히 일치해야 서식 쪽 첨부 필수 설정까지 걸린다 (기본 '내원 확인서').
     leaveLateDocType: '내원 확인서',
+    // 초과근무 마감시각 후보 — app_settings.overtime_cutoffs 를 처음 조회할 때 캐시.
+    // 입력한 진료완료 시각 이하의 가장 늦은 값이 그날의 기준이 되어 초과분을 자동 계산한다.
+    overtimeCutoffs: null,
     employee: {
         activeFilters: new Set(['pending', 'approved']),
         issues: [],
@@ -39,7 +42,9 @@ export const state = {
         selectedDates: [],
         // 급연차 "기간 연장" 모드 — 진행 중인 건에 날짜를 덧붙이는 신청(새 건이 아님).
         // { rootId, rootDates, lastDate, reason, docRequest } | null. 신청 완료·취소 시 null.
-        extendParent: null
+        extendParent: null,
+        overtimeMonth: null,      // 초과근무 탭에서 보고 있는 달 (YYYY-MM). 비면 이번 달
+        overtimeRecords: []       // 그 달의 본인 초과근무 기록 (삭제 가드가 여기를 참조)
     },
     manager: {
         activeMainTab: 'myInfo',
@@ -83,6 +88,12 @@ export const state = {
         records: [],
         signaturePad: null,
         fulfillMonth: null,
+    },
+    overtime: {
+        month: null,     // 관리자 화면에서 보고 있는 달 (YYYY-MM)
+        records: [],     // 그 달의 전 직원 기록
+        staged: {},      // record_id → pending_changes(overtime_approval) 행. 매니저 승인 overlay
+        filter: 'all',   // all | pending | approved | rejected
     }
 };
 
