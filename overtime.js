@@ -260,7 +260,10 @@ function bindEmployeeHandlers(container, cutoffs) {
         const auto = computeAutoMinutes(timeEl.value, cutoffs);
         if (!auto) {
             hintEl.textContent = timeEl.value ? '마감시각보다 이른 시각 — 분을 직접 입력하세요.' : '';
-            if (force) minEl.value = '';
+            // 자동값이 없으면 이전 시각의 계산값을 남겨두지 않는다 —
+            // 22:05(65분) 에서 14:30 으로 고쳤을 때 65분이 그대로 제출되는 사고를 막는다.
+            // 사용자가 손으로 적어둔 값은 건드리지 않는다.
+            if (force || !manualOverride) minEl.value = '';
             return;
         }
         hintEl.textContent = `${auto.cutoff} 기준 ${auto.minutes}분`;
