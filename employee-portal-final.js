@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260819a';
+import { state, db } from './state.js?v=20260825a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260819a';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260819a';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260819a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260819a';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260819a';
-import { renderMyBoardSection } from './welfare-board.js?v=20260819a';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260825a';
+import { renderMyBoardSection } from './welfare-board.js?v=20260825a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -188,6 +188,18 @@ export async function renderEmployeePortal() {
 
             <!-- 연차 신청 탭 -->
             <div id="employee-leave-tab" class="tab-content">
+                <!-- 급연차 기간 연장 모드 배너 — 진행 중인 건에 날짜를 덧붙이는 중임을 알린다 -->
+                <div id="leave-extend-banner" class="hidden mb-4 bg-amber-50 border-2 border-amber-400 rounded-lg p-4 flex items-start justify-between gap-3">
+                    <div class="flex items-start gap-3">
+                        <span class="text-2xl">⏳</span>
+                        <div>
+                            <p class="font-bold text-amber-800">기간 연장 신청 중</p>
+                            <p id="leave-extend-detail" class="text-sm text-amber-700 mt-1"></p>
+                            <p class="text-xs text-amber-600 mt-1">이어지는 날짜만 선택할 수 있습니다. 새 건이 아니라 <b>같은 건</b>으로 처리되며, 증빙 서류는 추가로 요구되지 않습니다.</p>
+                        </div>
+                    </div>
+                    <button id="leave-extend-cancel" class="text-amber-800 hover:bg-amber-100 px-3 py-1 rounded whitespace-nowrap">연장 취소</button>
+                </div>
                 <div id="employee-calendar-container" class="bg-white shadow rounded p-4 mb-6"></div>
                 
                 <div class="bg-white shadow rounded p-4">
@@ -967,6 +979,8 @@ async function loadEmployeeData() {
         if (requestsRes.error) throw requestsRes.error;
 
         const requests = requestsRes.data || [];
+        // 연장 신청(startLeaveExtension)이 원 신청·체인을 찾아야 하므로 state 에 보관한다.
+        state.employee.myRequests = requests;
 
         // 공휴일/전원 휴무일 날짜 배열 (조회 실패 시 빈 배열)
         const holidayDates = (holidaysRes && !holidaysRes.error ? holidaysRes.data || [] : []).map(h => h.date);
@@ -1310,6 +1324,85 @@ window.viewSubmittedDocument = async function (docId) {
     });
 };
 
+// ── 급연차 기간 연장 ─────────────────────────────────────────────────────────
+// 병가로 급히 연차를 쓴 뒤 호전이 안 돼 며칠 더 쉬는 경우, 그건 "다음 건"이 아니라
+// "이 건"이다. 새 신청으로 가면 ① 증빙 승인 전까지 잠금에 막히고 ② 같은 병가에
+// 증빙 요청이 2건 생긴다. 그래서 원 신청에 매다는 연장 경로를 따로 둔다.
+//
+// 잠금 규칙 자체는 그대로다 — 서류가 approved 되어야 "새 건" 신청이 가능하다.
+// 연장은 새 건이 아니므로 잠금 대상 밖(유일한 예외)이고, 연장해도 잠금은 안 풀린다.
+
+// 신청의 체인 뿌리 id (연장분은 항상 뿌리를 가리킨다 — 2단 이상 그래프 금지)
+function leaveRootId(req) {
+    return req.parent_request_id || req.id;
+}
+
+// 그 연차 건에 걸려 있는 미해결 증빙 요청 (pending=미제출 / submitted=제출·미승인)
+function openDocRequestFor(rootId) {
+    return (state.employee.documentRequests || []).find(
+        r => r.leave_request_id === rootId && (r.status === 'pending' || r.status === 'submitted')
+    ) || null;
+}
+
+// 체인 전체(원 신청 + 연장분)의 날짜를 모아 정렬해서 돌려준다.
+function leaveChainDates(rootId) {
+    const all = (state.employee.myRequests || [])
+        .filter(r => leaveRootId(r) === rootId && r.status !== 'cancelled' && r.status !== 'rejected')
+        .flatMap(r => r.dates || []);
+    return [...new Set(all)].sort();
+}
+
+window.startLeaveExtension = function (rootId) {
+    const root = (state.employee.myRequests || []).find(r => r.id === rootId);
+    if (!root) return;
+
+    const chainDates = leaveChainDates(rootId);
+    if (chainDates.length === 0) return;
+
+    state.employee.extendParent = {
+        rootId,
+        lastDate: chainDates[chainDates.length - 1],
+        chainDates,
+        reason: root.reason || '',
+        docRequest: openDocRequestFor(rootId)
+    };
+    state.employee.selectedDates = [];
+    selectedDatesForLeave.length = 0;
+
+    switchEmployeeTab('leave');
+    renderLeaveExtendBanner();
+    employeeCalendarInstance?.refetchEvents();
+    _('#employee-calendar-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+window.cancelLeaveExtension = function () {
+    state.employee.extendParent = null;
+    state.employee.selectedDates = [];
+    selectedDatesForLeave.length = 0;
+    renderLeaveExtendBanner();
+    employeeCalendarInstance?.refetchEvents();
+};
+
+function renderLeaveExtendBanner() {
+    const banner = _('#leave-extend-banner');
+    if (!banner) return;
+    const ext = state.employee.extendParent;
+    if (!ext) {
+        banner.classList.add('hidden');
+        return;
+    }
+    const first = ext.chainDates[0];
+    const range = first === ext.lastDate ? first : `${first} ~ ${ext.lastDate}`;
+    const docNote = ext.docRequest
+        ? ` 제출 요청된 "${ext.docRequest.type}"는 연장된 기간까지 함께 커버됩니다.`
+        : '';
+    _('#leave-extend-detail').innerHTML =
+        `기존 연차 <b>${range}</b> (${ext.chainDates.length}일)에 이어서 신청합니다.${docNote}`;
+    banner.classList.remove('hidden');
+    const cancelBtn = _('#leave-extend-cancel');
+    if (cancelBtn) cancelBtn.onclick = () => window.cancelLeaveExtension();
+}
+
 function renderMyLeaveRequests(requests, cancelMap = {}) {
     const container = _('#my-leave-requests');
 
@@ -1372,11 +1465,25 @@ function renderMyLeaveRequests(requests, cancelMap = {}) {
             cancelCell = '<span class="text-xs text-gray-300">-</span>';
         }
 
+        // 연장분은 원 건에 매달린 같은 사건이므로 목록에서도 그렇게 보여준다.
+        const isExtension = !!req.parent_request_id;
+        const extLabel = isExtension
+            ? '<span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded mr-1 align-middle">↳ 연장</span>'
+            : '';
+
+        // 연장 셀: 증빙 요청이 아직 미해결인 건(=진행 중인 급연차)에만 [기간 연장].
+        // 연장분 행에는 안 붙인다 — 항상 뿌리에서 이어붙인다.
+        let extendCell = '<span class="text-xs text-gray-300">-</span>';
+        if (!isExtension && req.status !== 'cancelled' && req.status !== 'rejected' && openDocRequestFor(req.id)) {
+            extendCell = `<button onclick="window.startLeaveExtension(${req.id})" class="text-xs bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded whitespace-nowrap">기간 연장</button>`;
+        }
+
         return `
-            <tr class="border-b">
-                <td class="p-3">${dateDisplay}</td>
+            <tr class="border-b ${isExtension ? 'bg-amber-50/40' : ''}">
+                <td class="p-3">${extLabel}${dateDisplay}</td>
                 <td class="p-3">${dayjs(req.created_at).format('YYYY-MM-DD')} <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span></td>
                 <td class="p-3">${statusBadges[req.status] || req.status}</td>
+                <td class="p-3 text-center">${extendCell}</td>
                 <td class="p-3 text-center">${cancelCell}</td>
             </tr>
         `;
@@ -1389,6 +1496,7 @@ function renderMyLeaveRequests(requests, cancelMap = {}) {
                     <th class="p-3 text-left">신청 날짜</th>
                     <th class="p-3 text-left">신청 일시</th>
                     <th class="p-3 text-left">상태</th>
+                    <th class="p-3 text-center">연장</th>
                     <th class="p-3 text-center">취소</th>
                 </tr>
             </thead>
@@ -1603,6 +1711,12 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othe
                 alert('연차 신청 불가일로 지정된 날짜입니다.\n해당 날짜는 연차를 신청할 수 없습니다.');
                 return;
             }
+            // 기간 연장 모드: 기존 건의 마지막 날 다음부터만 이어붙일 수 있다.
+            const ext = state.employee.extendParent;
+            if (ext && dateStr <= ext.lastDate) {
+                alert(`기간 연장은 기존 연차 마지막 날(${ext.lastDate}) 다음 날짜부터 선택할 수 있습니다.`);
+                return;
+            }
             if (approvedDates.includes(dateStr)) {
                 alert('이미 승인된 연차가 있는 날짜입니다.');
                 return;
@@ -1628,10 +1742,13 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othe
         const count = selectedDatesForLeave.length;
         const countEl = _('#selected-dates-count');
         if (countEl) countEl.textContent = `선택된 날짜: ${count}일`;
+        const submitEl = _('#submit-leave-request-btn');
+        if (submitEl) submitEl.textContent = state.employee.extendParent ? '기간 연장 신청하기' : '연차 신청하기';
     }
 
     employeeCalendarInstance.render();
     updateSelectionUI();
+    renderLeaveExtendBanner();   // 재렌더 후에도 연장 모드가 유지되도록
 
     const clearBtn = _('#clear-selection-btn');
     const submitBtn = _('#submit-leave-request-btn');
@@ -1682,7 +1799,11 @@ function openLeaveFormModal(dates) {
             openLeaveFormModal([...state.employee.selectedDates]);
         });
     });
-    _('#form-reason').value = '';
+    // 연장 모드면 원 신청의 사유를 이어받아 프리필한다(같은 사건이므로).
+    const extForForm = state.employee.extendParent;
+    _('#form-reason').value = extForForm
+        ? `[연장] ${extForForm.reason || ''}`.trim()
+        : '';
 
     // 당겨쓰기 계산 로직
     const requestDays = dates.length;
@@ -1772,7 +1893,10 @@ export async function handleSubmitLeaveRequest() {
         return;
     }
 
-    // 미제출·미승인 서류 체크 — 신청기간 임박(사유서 등) 요청은 관리자 "승인"이 날 때까지 다음 연차 신청을 막는다.
+    // 기간 연장 모드 — 이 신청은 "다음 건"이 아니라 진행 중인 그 건의 일부다.
+    const ext = state.employee.extendParent;
+
+    // 미제출·미승인 서류 체크 — 신청기간 임박(증빙) 요청은 관리자 "승인"이 날 때까지 다음 연차 신청을 막는다.
     // status: pending(미제출) / submitted(제출·승인대기) / approved(승인) / rejected(반려→pending 으로 환원).
     // 'submitted' 를 빼면 제출만 하고 승인 전에 바로 다음 신청이 가능해져버린다(2026-08-11 실측 회귀).
     const { data: pendingRequests, error: checkError } = await db.from('document_requests')
@@ -1780,12 +1904,45 @@ export async function handleSubmitLeaveRequest() {
         .eq('employee_id', state.currentUser.id)
         .in('status', ['pending', 'submitted']);
 
-    if (pendingRequests && pendingRequests.length > 0) {
-        const notSubmitted = pendingRequests.filter(r => r.status === 'pending');
-        alert(notSubmitted.length > 0
+    // 연장이면 "그 건"의 증빙 요청은 잠금 사유에서 제외한다(자기 자신을 막는 셈이므로).
+    // 다른 건의 미해결 서류가 하나라도 있으면 연장이라도 그대로 막힌다.
+    const blockingDocs = (pendingRequests || []).filter(
+        r => !(ext && r.leave_request_id === ext.rootId)
+    );
+
+    if (blockingDocs.length > 0) {
+        const notSubmitted = blockingDocs.filter(r => r.status === 'pending');
+        // 잠긴 건이 곧 "진행 중인 급연차"라면, 연장이라는 길이 있음을 알려준다.
+        const extendHint = !ext && blockingDocs.some(r => r.leave_request_id)
+            ? '\n\n지금 쉬고 있는 연차를 며칠 더 늘리는 경우라면 새로 신청하지 마시고,\n아래 "내 연차 신청 내역"에서 해당 건의 [기간 연장] 버튼을 눌러주세요.'
+            : '';
+        alert((notSubmitted.length > 0
             ? '⚠️ 미제출 서류가 있습니다.\n\n서류를 먼저 제출해야 연차 신청이 가능합니다.\n\n"서류 제출" 탭에서 요청된 서류를 확인해주세요.'
-            : '⚠️ 제출한 서류가 아직 승인 대기 중입니다.\n\n관리자 승인 후에 다음 연차 신청이 가능합니다.');
+            : '⚠️ 제출한 서류가 아직 승인 대기 중입니다.\n\n관리자 승인 후에 다음 연차 신청이 가능합니다.') + extendHint);
         return;
+    }
+
+    // 연장 연속성 검증 — 기존 건 마지막 날과 새 날짜들 사이에 "출근한 날"이 끼면 연장이 아니다.
+    // (한 번 출근했다 다시 쉬는 건 별개 사건이므로 새 신청으로 가야 한다.)
+    // 휴무·주말·공휴일이 끼는 건 정상이므로 status='근무' 만 본다. 이 조건이 상한 일수를 대신한다.
+    if (ext) {
+        const sorted = [...dates].sort();
+        if (sorted[0] <= ext.lastDate) {
+            alert(`기간 연장은 기존 연차 마지막 날(${ext.lastDate}) 다음 날짜부터 선택해주세요.`);
+            return;
+        }
+        const gapStart = dayjs(ext.lastDate).add(1, 'day').format('YYYY-MM-DD');
+        const { data: workedRows } = await db.from('schedules')
+            .select('date')
+            .eq('employee_id', state.currentUser.id)
+            .eq('status', '근무')
+            .gte('date', gapStart)
+            .lte('date', sorted[sorted.length - 1]);
+        const workedGap = (workedRows || []).map(r => r.date).filter(d => !dates.includes(d));
+        if (workedGap.length > 0) {
+            alert(`⚠️ 기존 연차 이후 출근한 날(${workedGap.join(', ')})이 있어 연장으로 신청할 수 없습니다.\n\n"연장 취소" 후 새 연차로 신청해주세요.`);
+            return;
+        }
     }
 
     // 연차 신청 마감일수 — 연차일 기준 N일 전까지 신청. 그보다 임박(과거 포함)하면 증빙 서류 필요.
@@ -1809,7 +1966,8 @@ export async function handleSubmitLeaveRequest() {
     const hasLateDates = lateDates.length > 0;
 
     // 임박 + 여유 혼합 신청 차단 (한 신청서를 한 유형으로 통일)
-    if (hasLateDates && normalDates.length > 0) {
+    // 연장은 애초에 한 건의 연속이라 이 구분이 적용되지 않는다 — 증빙도 원 건 것을 그대로 쓴다.
+    if (!ext && hasLateDates && normalDates.length > 0) {
         alert(`⚠️ 신청기간(${noticeDays}일)이 임박한 날짜와 여유 있는 날짜를 동시에 신청할 수 없습니다.\n\n각각 따로 신청해주세요.`);
         return;
     }
@@ -1832,6 +1990,9 @@ export async function handleSubmitLeaveRequest() {
         const fullDates = dates.filter(d => (leaveTypes[d] || 'full') === 'full');
         const halfDates = dates.filter(d => leaveTypes[d] === 'am_half' || leaveTypes[d] === 'pm_half');
 
+        // 연장분은 원 신청(체인의 뿌리)에 매단다 — 목록·결재에서 한 건으로 읽히게.
+        const parentId = ext ? ext.rootId : null;
+
         const inserts = [];
         if (fullDates.length > 0) {
             inserts.push({
@@ -1842,6 +2003,7 @@ export async function handleSubmitLeaveRequest() {
                 signature: signatureData,
                 status: 'pending',
                 leave_type: 'full',
+                parent_request_id: parentId,
                 created_at: new Date().toISOString()
             });
         }
@@ -1855,16 +2017,30 @@ export async function handleSubmitLeaveRequest() {
                 signature: signatureData,
                 status: 'pending',
                 leave_type: leaveTypes[d],
+                parent_request_id: parentId,
                 created_at: new Date().toISOString()
             });
         }
 
-        const { error } = await db.from('leave_requests').insert(inserts);
+        // 새 증빙 요청을 이 신청에 걸어두려면 id 가 필요하다(연장 판정의 근거).
+        const { data: insertedRows, error } = await db.from('leave_requests').insert(inserts).select('id');
         if (error) throw error;
         state.employee.leaveTypes = {}; // 초기화
 
-        // 신청기간(N일)이 지난 임박 날짜가 포함되어 있으면 서류 제출 요청 자동 생성
-        if (hasLateDates) {
+        if (ext) {
+            // 연장 = 증빙 요청을 새로 만들지 않는다. 원 건의 요청 범위만 넓힌다.
+            // 이미 제출된 상태여도 강제로 되돌리지 않는다 — 부족하면 원장이 반려해서 다시 받는다.
+            const docReq = ext.docRequest;
+            if (docReq) {
+                const coveredStr = [...new Set([...ext.chainDates, ...dates])].sort().join(', ');
+                await db.from('document_requests').update({
+                    message: `${coveredStr} 연차 신청기간(${noticeDays}일) 경과 — ${docReq.type} 제출 요청 (기간 연장 반영)`,
+                    note: `${coveredStr} ${docReq.type}`
+                }).eq('id', docReq.id);
+            }
+            alert(`기간 연장 신청이 완료되었습니다. (${[...dates].sort().join(', ')})\n\n기존 연차와 같은 건으로 처리되며, 서류는 추가로 요구되지 않습니다.\n제출한 "${docReq ? docReq.type : '증빙 서류'}"가 연장된 기간까지 커버합니다.\n(원장 승인 전까지 다른 연차 신청은 계속 제한됩니다.)`);
+        } else if (hasLateDates) {
+            // 신청기간(N일)이 지난 임박 날짜가 포함되어 있으면 서류 제출 요청 자동 생성
             const lateDateStr = lateDates.join(', ');
             await db.from('document_requests').insert({
                 employee_id: state.currentUser.id,
@@ -1875,13 +2051,16 @@ export async function handleSubmitLeaveRequest() {
                 status: 'pending',
                 // 사유 텍스트만으로는 제출이 안 되게 요청 단위로 첨부를 강제한다 (서식 설정과 무관).
                 requires_attachment: true,
+                // 어느 연차 건에서 나온 요청인지 — 나중에 기간 연장 판정의 근거가 된다.
+                leave_request_id: insertedRows?.[0]?.id || null,
                 created_at: new Date().toISOString()
             });
-            alert(`연차 신청이 완료되었습니다.\n\n⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어\n"${lateDocType}" 제출이 필요합니다.\n\n"서류 제출" 탭에서 ${lateDocType} 파일을 첨부해 제출해주세요.\n(사유 내용만으로는 제출되지 않으며, 원장 승인 전까지 추가 연차 신청이 제한됩니다.)`);
+            alert(`연차 신청이 완료되었습니다.\n\n⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어\n"${lateDocType}" 제출이 필요합니다.\n\n"서류 제출" 탭에서 ${lateDocType} 파일을 첨부해 제출해주세요.\n(사유 내용만으로는 제출되지 않으며, 원장 승인 전까지 추가 연차 신청이 제한됩니다.)\n\n※ 몸이 낫지 않아 며칠 더 쉬게 되면 새로 신청하지 마시고 "내 연차 신청 내역"의 [기간 연장]을 이용하세요.`);
         } else {
             alert('연차 신청이 완료되었습니다.');
         }
 
+        state.employee.extendParent = null;   // 연장 모드 종료
         closeLeaveFormModal();
         renderEmployeePortal();
         selectedDatesForLeave.length = 0;

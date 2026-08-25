@@ -1,7 +1,7 @@
-import { state, db, isVisibleIn } from './state.js?v=20260819a';
+import { state, db, isVisibleIn } from './state.js?v=20260825a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260819a';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260819a';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260825a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260825a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1107,9 +1107,14 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
         const checkboxCell = (isAdmin && !readOnly)
             ? `<td class="py-1 px-2 text-center w-8">${finalStatus === 'pending' ? `<input type="checkbox" class="leave-select-check" data-request-id="${req.id}">` : ''}</td>`
             : '';
-        return `<tr class="border-b hover:bg-gray-50 leave-row" data-status="${finalStatus}" data-middle="${middleStatus}" data-employee-id="${req.employee_id}" data-dates='${JSON.stringify(req.dates || [])}'>
+        // 급연차 기간 연장분 — 새 건이 아니라 원 건의 연속임을 목록에서도 드러낸다.
+        // (증빙 서류도 원 건 요청 하나를 공유한다 — leave.md 2026-08-25 참조)
+        const extBadge = req.parent_request_id
+            ? `<span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded ml-1 align-middle" title="원 신청 #${req.parent_request_id} 의 기간 연장 — 같은 건">↳연장</span>`
+            : '';
+        return `<tr class="border-b hover:bg-gray-50 leave-row${req.parent_request_id ? ' bg-amber-50/40' : ''}" data-status="${finalStatus}" data-middle="${middleStatus}" data-employee-id="${req.employee_id}" data-parent="${req.parent_request_id || ''}" data-dates='${JSON.stringify(req.dates || [])}'>
             ${checkboxCell}
-            <td class="py-1 px-2 text-sm">${employeeName}</td>
+            <td class="py-1 px-2 text-sm">${employeeName}${extBadge}</td>
             <td class="py-1 px-2 text-sm">${datesText}${req.created_at ? ` <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span>` : ''}</td>
             <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
             <td class="py-1 px-2 text-sm text-center">
@@ -2033,21 +2038,46 @@ window.handleFinalApproval = async function (requestId, status) {
     }
 
     // status === 'approved'
-    const confirmMsg = managerApproved
+    // 급연차 기간 연장으로 묶인 건들은 한 사건이므로 함께 확정한다(따로 승인하면 반쪽만 반영된다).
+    const chain = leaveChainSiblings(requestId).filter(r => (r.final_manager_status || 'pending') === 'pending');
+    const chainIds = chain.length > 1 ? chain.map(r => r.id) : [requestId];
+
+    let confirmMsg = managerApproved
         ? '최종 승인하시겠습니까?'
         : '⚠️ 이 신청은 아직 매니저 승인 전입니다.\n매니저 승인을 생략하고 바로 최종 확정하시겠습니까?';
+    if (chainIds.length > 1) {
+        const allDates = chain.flatMap(r => r.dates || []).sort();
+        confirmMsg = `이 건에는 기간 연장 신청이 묶여 있습니다.\n\n대상: ${allDates.join(', ')} (${chainIds.length}건)\n\n같은 건이므로 함께 승인합니다. 진행하시겠습니까?`;
+    }
     if (!confirm(confirmMsg)) return;
 
     try {
-        const r = await finalizeApproval(requestId);
-        if (!r.ok) throw new Error(r.error);
-        alert(managerApproved ? '최종 승인이 완료되었습니다.' : '매니저 승인을 생략하고 최종 확정했습니다.');
+        for (const id of chainIds) {
+            const r = await finalizeApproval(id);
+            if (!r.ok) throw new Error(r.error);
+        }
+        alert(chainIds.length > 1
+            ? `연장 포함 ${chainIds.length}건을 함께 최종 승인했습니다.`
+            : (managerApproved ? '최종 승인이 완료되었습니다.' : '매니저 승인을 생략하고 최종 확정했습니다.'));
         await refreshAfterLeaveDecision();
     } catch (error) {
         console.error('최종 승인 처리 오류:', error);
         alert('처리 중 오류가 발생했습니다: ' + error.message);
     }
 };
+
+// 급연차 기간 연장 체인 — 원 신청 + 그에 매달린 연장분 전체(취소·반려 제외).
+// 연장분의 parent_request_id 는 항상 체인의 뿌리를 가리킨다(2단 이상 그래프 없음).
+function leaveChainSiblings(requestId) {
+    const all = state.management.leaveRequests || [];
+    const target = all.find(r => r.id === requestId);
+    if (!target) return [];
+    const rootId = target.parent_request_id || target.id;
+    return all.filter(r =>
+        (r.parent_request_id || r.id) === rootId &&
+        r.status !== 'cancelled' && r.status !== 'rejected'
+    );
+}
 
 // 연차 승인 → schedules 테이블 동기화
 // 승인된 연차 날짜의 스케줄을 '근무' → '휴무'로 변경하거나 삭제

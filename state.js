@@ -36,7 +36,10 @@ export const state = {
         documentRequests: [],
         submittedDocuments: [],
         activeTab: 'leave',
-        selectedDates: []
+        selectedDates: [],
+        // 급연차 "기간 연장" 모드 — 진행 중인 건에 날짜를 덧붙이는 신청(새 건이 아님).
+        // { rootId, rootDates, lastDate, reason, docRequest } | null. 신청 완료·취소 시 null.
+        extendParent: null
     },
     manager: {
         activeMainTab: 'myInfo',
