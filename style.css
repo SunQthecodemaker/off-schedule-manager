@@ -292,6 +292,102 @@ body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화�
 }
 
 /* ========================================
+   한국 공휴일 자동 반영 배너 (달력 위)
+   ======================================== */
+.holiday-notice:empty {
+    display: none;
+}
+
+.holiday-notice-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    border-radius: var(--radius-btn);
+    font-size: 12px;
+    border: 1px solid transparent;
+}
+
+.holiday-notice-row.holiday-applied {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+    color: #166534;
+}
+
+.holiday-notice-row.holiday-pending {
+    background: #fffbeb;
+    border-color: #fde68a;
+    color: #92400e;
+}
+
+.holiday-notice-row.holiday-missing {
+    background: var(--color-bg-muted);
+    border-color: var(--color-border);
+    color: var(--color-text);
+}
+
+.holiday-notice-label {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.holiday-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+}
+
+.holiday-chip-btn {
+    border: 1px solid var(--color-border-strong);
+    background: #fff;
+    border-radius: var(--radius-pill);
+    padding: 0 8px;
+    font-size: 11px;
+    line-height: 18px;
+    cursor: pointer;
+}
+
+.holiday-chip-btn:hover {
+    background: var(--color-bg-muted);
+}
+
+.holiday-chip-btn.ghost {
+    color: #6b7280;
+}
+
+.holiday-chip-btn[disabled] {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.holiday-chip-x {
+    border: none;
+    background: none;
+    color: #9ca3af;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.holiday-chip-x:hover {
+    color: #dc2626;
+}
+
+@media print {
+    .holiday-notice {
+        display: none !important;
+    }
+}
+
+/* ========================================
    Calendar Grid - Clean White Cells
    ======================================== */
 .calendar-grid {

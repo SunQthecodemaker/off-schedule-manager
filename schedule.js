@@ -5,6 +5,7 @@ import { _, _all, show, hide } from './utils.js';
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
 import { registerManualLeave } from './management.js?v=20260825d';
+import { getKoreanHolidaysOfMonth, hasHolidayData, findKoreanHoliday } from './holidays-kr.js?v=20260825d';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
@@ -2911,6 +2912,8 @@ async function loadAndRenderScheduleData(date) {
         state.schedule.schedules = (scheduleRes.data || []).map(hydrateScheduleRow);
         state.schedule.companyHolidays = new Set((holidayRes.data || []).map(h => h.date));
 
+        // 🇰🇷 한국 공휴일 점검 — 기본 공휴일 자동 반영 / 대체공휴일은 배너에서 확인 (원장·매니저)
+        await syncKoreanHolidays(date);
 
         const titleEl = _('#calendar-title');
         if (titleEl) {
@@ -2919,6 +2922,7 @@ async function loadAndRenderScheduleData(date) {
 
         // ✨ 순서 변경: 달력을 먼저 렌더링
         renderCalendar();
+        renderHolidayNotice();
 
         // ✨ 이벤트 리스너 초기화 (휴일 토글 등) — 직원 포털(isReadOnly)에서는 등록 X
         if (!state.schedule.isReadOnly) {
@@ -3890,143 +3894,375 @@ async function toggleLeaveBlockedDate(dateStr) {
 
 // 휴무일(공휴일/전원 휴무) 토글 — 기존 날짜 더블클릭 로직
 function toggleCompanyHoliday(dateStr) {
-    const workingSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
     const isHoliday = state.schedule.companyHolidays.has(dateStr);
 
     if (!isHoliday) {
         if (confirm(`${dateStr}을 휴일로 지정하고 모든 근무자를 휴무로 변경하시겠습니까?`)) {
             pushUndoState(`Set holiday ${dateStr}`);
-
-            // 원칙 15단계: 지정 직전 상태를 스냅샷으로 보관
-            const snapshot = state.schedule.schedules
-                .filter(s => s.date === dateStr && s.employee_id > 0)
-                .map(s => ({ employee_id: s.employee_id, status: s.status, grid_position: s.grid_position, is_annual_leave: s.is_annual_leave ?? false }));
-            if (!state.schedule.holidaySnapshots) state.schedule.holidaySnapshots = new Map();
-            state.schedule.holidaySnapshots.set(dateStr, snapshot);
-
-            // 기존 레코드가 있는 근무자 → 휴무 전환
-            workingSchedules.forEach(s => {
-                s.status = '휴무';
-                unsavedChanges.set(s.id, { type: 'update', data: s });
-            });
-            // 레코드 없는 직원도 휴무 레코드 생성 (화면에 보이는 전원)
-            const existingEmpIds = new Set(state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0).map(s => s.employee_id));
-            const activeEmps = (state.management.employees || []).filter(e => isGridEmployee(e));
-            activeEmps.forEach(emp => {
-                if (!existingEmpIds.has(emp.id)) {
-                    const cardEl = document.querySelector(`.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${emp.id}"]`);
-                    const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
-                    const newSched = {
-                        id: `holiday-${Date.now()}-${emp.id}`, date: dateStr, employee_id: emp.id,
-                        status: '휴무', grid_position: pos, sort_order: pos
-                    };
-                    state.schedule.schedules.push(newSched);
-                    unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
-                }
-            });
-            state.schedule.companyHolidays.add(dateStr);
-            unsavedHolidayChanges.toAdd.add(dateStr);
-            unsavedHolidayChanges.toRemove.delete(dateStr);
+            markCompanyHolidayOn(dateStr);
+            // 사람이 직접 지정 = 자동 반영 제외를 취소하는 의사표시
+            if (findKoreanHoliday(dateStr)) removeHolidayOptOut(dateStr);
             renderCalendar();
             updateSaveButtonState();
         }
     } else {
         if (confirm(`${dateStr}의 휴일 설정을 해제하고 모든 직원을 근무로 변경하시겠습니까?`)) {
             pushUndoState(`Unset holiday ${dateStr}`);
-
-            state.schedule.companyHolidays.delete(dateStr);
-            unsavedHolidayChanges.toRemove.add(dateStr);
-            unsavedHolidayChanges.toAdd.delete(dateStr);
-
-            // 원칙 15단계: 스냅샷 있으면 복원, 없으면 전원 근무로 초기화
-            const snapshot = state.schedule.holidaySnapshots?.get(dateStr);
-            if (snapshot) {
-                // 스냅샷 복원
-                const snapById = new Map(snapshot.map(s => [s.employee_id, s]));
-                state.schedule.schedules.forEach(s => {
-                    if (s.date === dateStr && s.employee_id > 0 && snapById.has(s.employee_id)) {
-                        const snap = snapById.get(s.employee_id);
-                        s.status = snap.status;
-                        if (snap.grid_position != null) {
-                            setSchedulePosFlat(s, snap.grid_position);
-                            s.sort_order = snap.grid_position;
-                        }
-                        s.is_annual_leave = snap.is_annual_leave ?? false;
-                        unsavedChanges.set(s.id, { type: 'update', data: s });
-                    }
-                });
-                state.schedule.holidaySnapshots.delete(dateStr);
-                renderCalendar();
-                updateSaveButtonState();
-                return;
-            }
-
-            // 스냅샷 없음 → 전원 근무 초기화 분기 (기존 로직)
-
-            // 1. 이미 근무 중인 사람들의 포지션 점유 확인
-            const occupiedPositions = new Set();
-            state.schedule.schedules.forEach(s => {
-                if (s.date === dateStr && s.status === '근무') {
-                    occupiedPositions.add(s.grid_position);
-                }
-            });
-
-            // 2. 복귀 대상 직원 처리
-            const allActiveEmployees = state.management.employees.filter(e => isActiveOnDate(e, dateStr));
-
-            allActiveEmployees.forEach(emp => {
-                let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
-
-                if (schedule) {
-                    if (schedule.status !== '근무') {
-                        // 휴무 -> 근무 복귀
-                        let targetPos = schedule.grid_position;
-
-                        // 포지션 충돌 또는 유효하지 않은 경우(null, undefined) 재설정
-                        if (targetPos === null || targetPos === undefined || occupiedPositions.has(targetPos) || targetPos >= GRID_SIZE) {
-                            // 빈 자리 찾기
-                            let newPos = 0;
-                            while (occupiedPositions.has(newPos) && newPos < GRID_SIZE) newPos++;
-                            targetPos = newPos;
-                        }
-
-                        if (targetPos < GRID_SIZE) {
-                            schedule.status = '근무';
-                            setSchedulePosFlat(schedule, targetPos);
-                            schedule.sort_order = targetPos; // 정렬 순서도 동기화
-                            unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
-                            occupiedPositions.add(targetPos);
-                        }
-                    }
-                } else {
-                    // 스케줄 없음 -> 배치 패널 위치 기준으로 복귀
-                    const basePositions = getEmployeeBasePositions();
-                    let newPos = basePositions.get(emp.id) ?? 0;
-                    if (occupiedPositions.has(newPos)) {
-                        newPos = 0;
-                        while (occupiedPositions.has(newPos) && newPos < GRID_SIZE) newPos++;
-                    }
-
-                    if (newPos < GRID_SIZE) {
-                        const tempId = `temp-${Date.now()}-${emp.id}-${newPos}`;
-                        const newSchedule = {
-                            id: tempId,
-                            date: dateStr,
-                            employee_id: emp.id,
-                            status: '근무',
-                            sort_order: newPos,
-                            grid_position: newPos
-                        };
-                        state.schedule.schedules.push(newSchedule);
-                        unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
-                        occupiedPositions.add(newPos);
-                    }
-                }
-            });
+            markCompanyHolidayOff(dateStr);
+            // 한국 공휴일을 사람이 직접 해제 = "이 날은 정상 근무" → 다시 자동 반영하지 않는다 (A-4)
+            if (findKoreanHoliday(dateStr)) addHolidayOptOut(dateStr);
             renderCalendar();
             updateSaveButtonState();
         }
     }
+}
+
+// 공휴일 지정 (확인창·렌더 없음 — 더블클릭 토글과 자동 반영이 공유하는 단일 정본)
+// touchRecords=false → 휴무 레코드를 만들지 않고 공휴일 플래그만 세운다.
+//   표시 우선순위 1번(회사 휴일 = 레코드 무관 전원 휴무)이 있으므로 화면 결과는 동일하고,
+//   미저장 변경 버퍼를 건드리지 않아 달 이동 시 "저장되지 않은 변경사항" 경고가 뜨지 않는다.
+function markCompanyHolidayOn(dateStr, { touchRecords = true } = {}) {
+    if (!touchRecords) {
+        state.schedule.companyHolidays.add(dateStr);
+        if (!state.schedule.flagOnlyHolidays) state.schedule.flagOnlyHolidays = new Set();
+        state.schedule.flagOnlyHolidays.add(dateStr);
+        return;
+    }
+    const workingSchedules = state.schedule.schedules.filter(s => s.date === dateStr && s.status === '근무');
+
+    // 원칙 15단계: 지정 직전 상태를 스냅샷으로 보관
+    const snapshot = state.schedule.schedules
+        .filter(s => s.date === dateStr && s.employee_id > 0)
+        .map(s => ({ employee_id: s.employee_id, status: s.status, grid_position: s.grid_position, is_annual_leave: s.is_annual_leave ?? false }));
+    if (!state.schedule.holidaySnapshots) state.schedule.holidaySnapshots = new Map();
+    state.schedule.holidaySnapshots.set(dateStr, snapshot);
+
+    // 기존 레코드가 있는 근무자 → 휴무 전환
+    workingSchedules.forEach(s => {
+        s.status = '휴무';
+        unsavedChanges.set(s.id, { type: 'update', data: s });
+    });
+    // 레코드 없는 직원도 휴무 레코드 생성 (화면에 보이는 전원)
+    const existingEmpIds = new Set(state.schedule.schedules.filter(s => s.date === dateStr && s.employee_id > 0).map(s => s.employee_id));
+    const activeEmps = (state.management.employees || []).filter(e => isGridEmployee(e));
+    activeEmps.forEach(emp => {
+        if (!existingEmpIds.has(emp.id)) {
+            const cardEl = document.querySelector(`.calendar-day[data-date="${dateStr}"] .event-card[data-employee-id="${emp.id}"]`);
+            const pos = cardEl ? parseInt(cardEl.dataset.position, 10) : 0;
+            const newSched = {
+                id: `holiday-${Date.now()}-${emp.id}`, date: dateStr, employee_id: emp.id,
+                status: '휴무', grid_position: pos, sort_order: pos
+            };
+            state.schedule.schedules.push(newSched);
+            unsavedChanges.set(newSched.id, { type: 'create', data: newSched });
+        }
+    });
+    state.schedule.companyHolidays.add(dateStr);
+    unsavedHolidayChanges.toAdd.add(dateStr);
+    unsavedHolidayChanges.toRemove.delete(dateStr);
+}
+
+// 공휴일 해제 (확인창·렌더 없음). 스냅샷 있으면 복원, 없으면 전원 근무 초기화 — 원칙 15단계 §🚪
+function markCompanyHolidayOff(dateStr) {
+    // 플래그만 세웠던 날(자동 반영분)은 레코드를 건드린 적이 없으므로 플래그만 되돌린다.
+    // 단 DB 에는 이미 등록돼 있으므로 삭제 목록에는 넣는다 (더블클릭 해제 → 저장 시 DB 반영).
+    if (state.schedule.flagOnlyHolidays?.has(dateStr)) {
+        state.schedule.flagOnlyHolidays.delete(dateStr);
+        state.schedule.companyHolidays.delete(dateStr);
+        unsavedHolidayChanges.toRemove.add(dateStr);
+        unsavedHolidayChanges.toAdd.delete(dateStr);
+        return;
+    }
+
+    state.schedule.companyHolidays.delete(dateStr);
+    unsavedHolidayChanges.toRemove.add(dateStr);
+    unsavedHolidayChanges.toAdd.delete(dateStr);
+
+    // 스냅샷 있으면 복원
+    const snapshot = state.schedule.holidaySnapshots?.get(dateStr);
+    if (snapshot) {
+        const snapById = new Map(snapshot.map(s => [s.employee_id, s]));
+        state.schedule.schedules.forEach(s => {
+            if (s.date === dateStr && s.employee_id > 0 && snapById.has(s.employee_id)) {
+                const snap = snapById.get(s.employee_id);
+                s.status = snap.status;
+                if (snap.grid_position != null) {
+                    setSchedulePosFlat(s, snap.grid_position);
+                    s.sort_order = snap.grid_position;
+                }
+                s.is_annual_leave = snap.is_annual_leave ?? false;
+                unsavedChanges.set(s.id, { type: 'update', data: s });
+            }
+        });
+        state.schedule.holidaySnapshots.delete(dateStr);
+        return;
+    }
+
+    // 스냅샷 없음 → 전원 근무 초기화 분기 (기존 로직)
+
+    // 1. 이미 근무 중인 사람들의 포지션 점유 확인
+    const occupiedPositions = new Set();
+    state.schedule.schedules.forEach(s => {
+        if (s.date === dateStr && s.status === '근무') {
+            occupiedPositions.add(s.grid_position);
+        }
+    });
+
+    // 2. 복귀 대상 직원 처리
+    const allActiveEmployees = state.management.employees.filter(e => isActiveOnDate(e, dateStr));
+
+    allActiveEmployees.forEach(emp => {
+        let schedule = state.schedule.schedules.find(s => s.date === dateStr && s.employee_id === emp.id);
+
+        if (schedule) {
+            if (schedule.status !== '근무') {
+                // 휴무 -> 근무 복귀
+                let targetPos = schedule.grid_position;
+
+                // 포지션 충돌 또는 유효하지 않은 경우(null, undefined) 재설정
+                if (targetPos === null || targetPos === undefined || occupiedPositions.has(targetPos) || targetPos >= GRID_SIZE) {
+                    // 빈 자리 찾기
+                    let newPos = 0;
+                    while (occupiedPositions.has(newPos) && newPos < GRID_SIZE) newPos++;
+                    targetPos = newPos;
+                }
+
+                if (targetPos < GRID_SIZE) {
+                    schedule.status = '근무';
+                    setSchedulePosFlat(schedule, targetPos);
+                    schedule.sort_order = targetPos; // 정렬 순서도 동기화
+                    unsavedChanges.set(schedule.id, { type: 'update', data: schedule });
+                    occupiedPositions.add(targetPos);
+                }
+            }
+        } else {
+            // 스케줄 없음 -> 배치 패널 위치 기준으로 복귀
+            const basePositions = getEmployeeBasePositions();
+            let newPos = basePositions.get(emp.id) ?? 0;
+            if (occupiedPositions.has(newPos)) {
+                newPos = 0;
+                while (occupiedPositions.has(newPos) && newPos < GRID_SIZE) newPos++;
+            }
+
+            if (newPos < GRID_SIZE) {
+                const tempId = `temp-${Date.now()}-${emp.id}-${newPos}`;
+                const newSchedule = {
+                    id: tempId,
+                    date: dateStr,
+                    employee_id: emp.id,
+                    status: '근무',
+                    sort_order: newPos,
+                    grid_position: newPos
+                };
+                state.schedule.schedules.push(newSchedule);
+                unsavedChanges.set(tempId, { type: 'new', data: newSchedule });
+                occupiedPositions.add(newPos);
+            }
+        }
+    });
+}
+
+// =============================================================================
+// 🇰🇷 한국 공휴일 자동 반영 (원장·매니저 공용)
+// =============================================================================
+// 기본 공휴일 = 이번 달·이후 달이면 자동 반영 (company_holidays 즉시 저장)
+// 대체공휴일  = 자동 반영하지 않고 배너에서 확인 후 반영 (병원마다 쉬는지 다름)
+// 지난 달     = 과거 데이터를 자동으로 건드리지 않음. 배너 [모두 반영] 버튼으로만
+// 사람이 직접 해제한 날 = app_settings.holiday_optouts 기록 → 다시 자동 반영 X (A-4)
+// 날짜 정본은 holidays-kr.js. 데이터 없는 연도는 배너로 수동 등록 안내.
+// =============================================================================
+
+let holidayNotice = { month: '', applied: [], pending: [], missing: [], noData: 0 };
+
+function canManageHolidays() {
+    if (state.schedule?.isReadOnly) return false;
+    return state.currentUser?.role === 'admin' || !!state.currentUser?.isManager;
+}
+
+async function loadHolidayOptOuts() {
+    if (state.schedule.holidayOptOuts) return state.schedule.holidayOptOuts;
+    try {
+        const { data, error } = await db.from('app_settings').select('value').eq('key', 'holiday_optouts').maybeSingle();
+        if (error) throw error;
+        state.schedule.holidayOptOuts = new Set(Array.isArray(data?.value) ? data.value : []);
+    } catch (err) {
+        console.warn('[holiday] 자동 반영 제외 목록 로드 실패(비치명적):', err);
+        state.schedule.holidayOptOuts = new Set();
+    }
+    return state.schedule.holidayOptOuts;
+}
+
+async function saveHolidayOptOuts() {
+    const arr = Array.from(state.schedule.holidayOptOuts || []).sort();
+    try {
+        const { error } = await db.from('app_settings')
+            .upsert({ key: 'holiday_optouts', value: arr, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (error) throw error;
+    } catch (err) {
+        console.error('[holiday] 제외 목록 저장 실패:', err);
+        alert('공휴일 설정 저장에 실패했습니다: ' + (err.message || err));
+    }
+}
+
+async function addHolidayOptOut(dateStr) {
+    await loadHolidayOptOuts();
+    state.schedule.holidayOptOuts.add(dateStr);
+    await saveHolidayOptOuts();
+}
+
+async function removeHolidayOptOut(dateStr) {
+    await loadHolidayOptOuts();
+    if (!state.schedule.holidayOptOuts.delete(dateStr)) return;
+    await saveHolidayOptOuts();
+}
+
+// company_holidays 즉시 저장 (자동 반영·배너 버튼 공용)
+async function persistHolidayDates(dates, mode) {
+    if (!dates.length) return false;
+    try {
+        if (mode === 'add') {
+            const { error } = await db.from('company_holidays')
+                .upsert(dates.map(date => ({ date })), { onConflict: 'date' });
+            if (error) throw error;
+        } else {
+            const { error } = await db.from('company_holidays').delete().in('date', dates);
+            if (error) throw error;
+        }
+        return true;
+    } catch (err) {
+        console.error('[holiday] company_holidays 저장 실패:', err);
+        alert('공휴일 저장에 실패했습니다: ' + (err.message || err));
+        return false;
+    }
+}
+
+/**
+ * 보고 있는 달의 한국 공휴일을 점검·반영. loadAndRenderScheduleData 에서 호출.
+ * 결과는 holidayNotice 에 담고 renderHolidayNotice() 가 배너로 그린다.
+ */
+async function syncKoreanHolidays(date) {
+    const viewing = dayjs(date);
+    holidayNotice = { month: viewing.format('YYYY-MM'), applied: [], pending: [], missing: [], noData: 0 };
+    if (!canManageHolidays()) return;
+
+    const year = viewing.year();
+    if (!hasHolidayData(year)) {
+        holidayNotice.noData = year;
+        return;
+    }
+
+    const optOuts = await loadHolidayOptOuts();
+    const { holidays } = getKoreanHolidaysOfMonth(year, viewing.month() + 1);
+    const registered = state.schedule.companyHolidays;
+
+    const candidates = holidays.filter(h => !registered.has(h.date) && !optOuts.has(h.date));
+    if (candidates.length === 0) return;
+
+    // 대체공휴일은 언제나 "확인" 대상 — 자동 반영하지 않는다
+    holidayNotice.pending = candidates.filter(h => h.kind === 'substitute');
+    const basics = candidates.filter(h => h.kind === 'basic');
+    if (basics.length === 0) return;
+
+    // 지난 달은 자동으로 건드리지 않는다 (과거 검수·연차 계산 보호)
+    if (viewing.endOf('month').isBefore(dayjs(), 'day')) {
+        holidayNotice.missing = basics;
+        return;
+    }
+
+    const ok = await persistHolidayDates(basics.map(h => h.date), 'add');
+    if (ok) {
+        // DB 에 이미 반영했으므로 플래그만 (미저장 변경 버퍼 오염 X)
+        basics.forEach(h => markCompanyHolidayOn(h.date, { touchRecords: false }));
+        holidayNotice.applied = basics;
+    } else {
+        holidayNotice.missing = basics;
+    }
+}
+
+const HOLIDAY_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const holidayChipText = h => `${dayjs(h.date).format('M/D')}(${HOLIDAY_DOW[dayjs(h.date).day()]}) ${h.name}`;
+
+function renderHolidayNotice() {
+    const box = _('#holiday-notice');
+    if (!box) return;
+    const { applied, pending, missing, noData } = holidayNotice;
+
+    if (!applied.length && !pending.length && !missing.length && !noData) {
+        box.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+
+    if (applied.length) {
+        html += `<div class="holiday-notice-row holiday-applied">
+            <span class="holiday-notice-label">✅ 기본 공휴일 ${applied.length}일 반영됨</span>
+            ${applied.map(h => `<span class="holiday-chip">${holidayChipText(h)}<button type="button" class="holiday-chip-x" data-holiday-action="revert" data-date="${h.date}" title="이 날은 정상 근무 — 앞으로 자동 반영하지 않음">✕</button></span>`).join('')}
+        </div>`;
+    }
+
+    if (pending.length) {
+        html += `<div class="holiday-notice-row holiday-pending">
+            <span class="holiday-notice-label">🔔 대체공휴일 확인</span>
+            ${pending.map(h => `<span class="holiday-chip">${holidayChipText(h)}<button type="button" class="holiday-chip-btn" data-holiday-action="apply" data-date="${h.date}">휴일</button><button type="button" class="holiday-chip-btn ghost" data-holiday-action="ignore" data-date="${h.date}">근무</button></span>`).join('')}
+        </div>`;
+    }
+
+    if (missing.length) {
+        html += `<div class="holiday-notice-row holiday-missing">
+            <span class="holiday-notice-label">ℹ️ 미등록 공휴일 ${missing.length}일 (지난 달은 자동 반영 안 함)</span>
+            ${missing.map(h => `<span class="holiday-chip">${holidayChipText(h)}</span>`).join('')}
+            <button type="button" class="holiday-chip-btn" data-holiday-action="apply-all">모두 반영</button>
+        </div>`;
+    }
+
+    if (noData) {
+        html += `<div class="holiday-notice-row holiday-missing">
+            <span class="holiday-notice-label">⚠️ ${noData}년 공휴일 데이터가 없습니다 — 날짜를 더블클릭해 수동 지정하세요 (holidays-kr.js 갱신 필요)</span>
+        </div>`;
+    }
+
+    box.innerHTML = html;
+}
+
+async function handleHolidayNoticeClick(e) {
+    const btn = e.target.closest('[data-holiday-action]');
+    if (!btn) return;
+    const action = btn.dataset.holidayAction;
+    const dateStr = btn.dataset.date;
+    btn.disabled = true;
+
+    if (action === 'apply') {
+        if (await persistHolidayDates([dateStr], 'add')) {
+            markCompanyHolidayOn(dateStr, { touchRecords: false });
+            await removeHolidayOptOut(dateStr);
+            holidayNotice.pending = holidayNotice.pending.filter(h => h.date !== dateStr);
+            const info = findKoreanHoliday(dateStr);
+            if (info) holidayNotice.applied = [...holidayNotice.applied, info];
+        }
+    } else if (action === 'ignore') {
+        await addHolidayOptOut(dateStr);
+        holidayNotice.pending = holidayNotice.pending.filter(h => h.date !== dateStr);
+    } else if (action === 'revert') {
+        if (await persistHolidayDates([dateStr], 'remove')) {
+            markCompanyHolidayOff(dateStr);
+            unsavedHolidayChanges.toRemove.delete(dateStr); // DB 삭제 완료 — 저장 대기 목록에서 제외
+            await addHolidayOptOut(dateStr);
+            holidayNotice.applied = holidayNotice.applied.filter(h => h.date !== dateStr);
+        }
+    } else if (action === 'apply-all') {
+        const targets = [...holidayNotice.missing];
+        if (await persistHolidayDates(targets.map(h => h.date), 'add')) {
+            targets.forEach(h => markCompanyHolidayOn(h.date, { touchRecords: false }));
+            holidayNotice.applied = [...holidayNotice.applied, ...targets];
+            holidayNotice.missing = [];
+        }
+    }
+
+    btn.disabled = false;
+    renderCalendar();
+    renderHolidayNotice();
+    updateSaveButtonState();
 }
 
 // ✨ 컨텍스트 서브메뉴 위치 계산 및 표시 유틸리티
@@ -5021,6 +5257,7 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
                     <button id="calendar-next" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">다음 ▶</button>
                     <button id="calendar-today" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">오늘</button>
                 </div>
+                <div id="holiday-notice" class="holiday-notice"></div>
                 <div id="pure-calendar"></div>
             </div>
             ${sidebarHtml}
@@ -5048,6 +5285,8 @@ export async function renderScheduleManagement(container, isReadOnly = false, is
 
         // 매니저 승인 요청은 #confirm-schedule-btn 토글에서 처리 (역할별 분기는 checkScheduleConfirmationStatus 참고)
     }
+
+    _('#holiday-notice')?.addEventListener('click', handleHolidayNoticeClick);
 
     _('#calendar-prev')?.addEventListener('click', () => navigateMonth('prev'));
     _('#calendar-next')?.addEventListener('click', () => navigateMonth('next'));
