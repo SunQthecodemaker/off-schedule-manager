@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260825a';
+import { state, db } from './state.js?v=20260825b';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825a';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825a';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825a';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825a';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260825a';
-import { renderMyBoardSection } from './welfare-board.js?v=20260825a';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825b';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825b';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825b';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825b';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260825b';
+import { renderMyBoardSection } from './welfare-board.js?v=20260825b';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1371,6 +1371,7 @@ window.startLeaveExtension = function (rootId) {
 
     switchEmployeeTab('leave');
     renderLeaveExtendBanner();
+    refreshSelectionUI();   // 선택 개수·제출 버튼 문구를 연장 모드에 맞게 갱신
     employeeCalendarInstance?.refetchEvents();
     _('#employee-calendar-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
@@ -1380,8 +1381,13 @@ window.cancelLeaveExtension = function () {
     state.employee.selectedDates = [];
     selectedDatesForLeave.length = 0;
     renderLeaveExtendBanner();
+    refreshSelectionUI();
     employeeCalendarInstance?.refetchEvents();
 };
+
+// 달력의 선택 개수·제출 버튼 문구 갱신. 실체는 initializeEmployeeCalendar 안의 클로저라
+// 달력이 그려진 뒤에 채워진다(그 전 호출은 무해한 no-op).
+let refreshSelectionUI = () => {};
 
 function renderLeaveExtendBanner() {
     const banner = _('#leave-extend-banner');
@@ -1746,6 +1752,7 @@ function initializeEmployeeCalendar(approvedRequests, pendingRequests = [], othe
         if (submitEl) submitEl.textContent = state.employee.extendParent ? '기간 연장 신청하기' : '연차 신청하기';
     }
 
+    refreshSelectionUI = updateSelectionUI;   // 달력 밖(연장 진입/취소)에서도 부를 수 있게
     employeeCalendarInstance.render();
     updateSelectionUI();
     renderLeaveExtendBanner();   // 재렌더 후에도 연장 모드가 유지되도록
