@@ -4074,9 +4074,14 @@ function markCompanyHolidayOff(dateStr) {
 
 let holidayNotice = { month: '', applied: [], pending: [], missing: [], noData: 0 };
 
+// 원장·매니저 둘 다 공휴일을 반영·확인할 수 있다 (직원 포털 readonly 만 제외).
+// role 을 세 갈래로 보는 이유: 원장은 Supabase Auth 세션(userRole='admin'),
+// 매니저는 employee_login RPC 세션(currentUser.isManager)으로 각각 식별된다.
 function canManageHolidays() {
     if (state.schedule?.isReadOnly) return false;
-    return state.currentUser?.role === 'admin' || !!state.currentUser?.isManager;
+    return state.userRole === 'admin'
+        || state.currentUser?.role === 'admin'
+        || !!state.currentUser?.isManager;
 }
 
 async function loadHolidayOptOuts() {
