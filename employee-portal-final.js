@@ -1,11 +1,11 @@
-import { state, db } from './state.js?v=20260825b';
+import { state, db } from './state.js?v=20260825c';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260825b';
-import { renderMyBoardSection } from './welfare-board.js?v=20260825b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825c';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825c';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825c';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825c';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260825c';
+import { renderMyBoardSection } from './welfare-board.js?v=20260825c';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)

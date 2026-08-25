@@ -41,6 +41,9 @@
     --color-border: #e8e4de;
     --color-border-strong: #d4cfc7;
 
+    /* 달력 7번째 열(주간 검수) 폭 — .calendar-grid 와 .layout-col-grid 가 공유 */
+    --audit-col-width: 240px;
+
     /* Radius */
     --radius-card: 16px;
     --radius-btn: 8px;
@@ -293,7 +296,7 @@ body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화�
    ======================================== */
 .calendar-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr) 200px;
+    grid-template-columns: repeat(6, 1fr) var(--audit-col-width);
     gap: 1px;
     background-color: var(--color-border);
     border: 1px solid var(--color-border);
@@ -650,7 +653,7 @@ body.mode-admin { background-color: #f1f5f9; }      /* 관리자/매니저 화�
 
 /* 열 2: 4×8 그리드 — 달력 날짜 1칸과 동일 폭 */
 .layout-col-grid {
-    flex: 0 0 calc((100% - 200px) / 6);
+    flex: 0 0 calc((100% - var(--audit-col-width)) / 6);
     min-width: 0;
 }
 

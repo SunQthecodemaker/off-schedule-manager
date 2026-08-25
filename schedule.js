@@ -1,10 +1,10 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260825b';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260825c';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 // 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260825b';
+import { registerManualLeave } from './management.js?v=20260825c';
 import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js';
 
 let unsavedChanges = new Map();
@@ -5204,18 +5204,23 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
     const listHtml = rows.map(row => {
         const diffText = row.diff > 0 ? `+${row.diff}` : `${row.diff}`;
         const nameShort = row.emp.name.length > 3 ? row.emp.name.substring(1) : row.emp.name;
-        // ���정상 휴무 요��만 표시 + 대체가능 표시
+        // 비정상 휴무 요일만 표시 + 대체가능 표시
+        // ⚠️ 레이아웃 룰: 검수 행은 반드시 한 줄. 요일 글자가 늘어나도(예: 연휴로 "목금토")
+        //    줄바꿈되면 행 높이가 2배가 되고 그 주 달력 전체가 늘어나 레이아웃이 깨진다.
+        //    → 모든 칸 nowrap + 넘치면 말줄임(전체 내용은 title 툴팁).
         let offLabel = '';
+        let rowTitle = `${row.emp.name} ${row.workCount}/${row.expected} (${diffText})`;
         if (row.unexpectedOffNames.length > 0) {
+            rowTitle += ` · 비정상 휴무 ${row.unexpectedOffNames.join('·')}`;
             offLabel = `<span style="font-size:9px; color:#9ca3af;">${row.unexpectedOffNames.join('')}</span>`;
         } else if (row.subAvailable && row.diff < 0) {
             offLabel = `<span style="font-size:8px; color:#d97706;">대체◎</span>`;
         }
-        return `<div style="display:flex; align-items:center; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0;">
-            <span style="font-size:10px; width:35%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
-            <span style="font-size:10px; font-weight:700; width:25%; text-align:center; white-space:nowrap;">${row.workCount}/${row.expected}</span>
-            <span style="font-size:10px; font-weight:700; width:15%; text-align:center; color:${row.diffColor};">${diffText}</span>
-            <span style="width:25%; text-align:right;">${offLabel}</span>
+        return `<div title="${rowTitle}" style="display:flex; align-items:center; gap:1px; padding:1px 2px; background:${row.bgColor}; border-radius:2px; min-width:0; white-space:nowrap; line-height:16px;">
+            <span style="font-size:10px; flex:0 0 34px; overflow:hidden; text-overflow:ellipsis;">${nameShort}</span>
+            <span style="font-size:10px; font-weight:700; flex:0 0 24px; text-align:center;">${row.workCount}/${row.expected}</span>
+            <span style="font-size:10px; font-weight:700; flex:0 0 15px; text-align:center; color:${row.diffColor};">${diffText}</span>
+            <span style="flex:1 1 auto; min-width:0; text-align:right; overflow:hidden; text-overflow:ellipsis;">${offLabel}</span>
         </div>`;
     }).join('');
 
