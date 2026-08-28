@@ -8,8 +8,8 @@
 // 이 파일 하나가 직원 화면(renderMyOvertimeSection) 과 관리자 탭(renderOvertimeTab) 을 모두 담당.
 // DB 접근은 전부 여기서만 한다 — 호스트 화면은 컨테이너만 넘긴다.
 // =========================================================================================
-import { state, db, isVisibleIn, sortByDeptOrder } from './state.js?v=20260825e';
-import { stageChange, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260825e';
+import { state, db, isVisibleIn, sortByDeptOrder } from './state.js?v=20260828b';
+import { stageChange, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260828b';
 
 const DEFAULT_CUTOFFS = ['15:00', '19:00', '21:00'];
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];

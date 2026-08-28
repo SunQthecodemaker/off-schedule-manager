@@ -1,5 +1,5 @@
 // 진료비 복지 — 관리자/매니저 화면 (계산기 / 전체목록 / 이행체크 / 퇴사정산)
-import { state, db, isTestEmployee } from './state.js?v=20260825e';
+import { state, db, isTestEmployee } from './state.js?v=20260828b';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
     loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
@@ -8,11 +8,11 @@ import {
     createRecord, deleteRecord, upsertFulfillment, deleteFulfillment, moveFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
     loadWelfarePosts, loadPostCountsByEmpMonth,
-} from './welfare.js?v=20260825e';
+} from './welfare.js?v=20260828b';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
-} from './welfare-consent.js?v=20260825e';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260825e';
+} from './welfare-consent.js?v=20260828b';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260828b';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
