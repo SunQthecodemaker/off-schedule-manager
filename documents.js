@@ -442,7 +442,7 @@ window.viewDocument = async function(docId) {
     const content = doc.submission_data?.text || doc.text || '내용 없음';
     const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
     const attachmentHtml = !doc.attachment_url ? '' : (attachmentUrl
-        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>`
+        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">${doc.submission_data?.attachment_name || '파일 보기'}</a></div>`
         : `<div class="mb-4 text-red-600 text-sm">첨부파일을 불러올 수 없습니다.</div>`);
 
     const modalHTML = `

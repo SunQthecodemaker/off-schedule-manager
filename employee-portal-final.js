@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260825e';
+import { state, db } from './state.js?v=20260828a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260825e';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260825e';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260825e';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260825e';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260825e';
-import { renderMyBoardSection } from './welfare-board.js?v=20260825e';
-import { renderMyOvertimeSection } from './overtime.js?v=20260825e';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260828a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260828a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260828a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260828a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260828a';
+import { renderMyBoardSection } from './welfare-board.js?v=20260828a';
+import { renderMyOvertimeSection } from './overtime.js?v=20260828a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1298,7 +1298,7 @@ window.viewSubmittedDocument = async function (docId) {
     const content = doc.submission_data?.text || doc.text || '내용 없음';
     const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
     const attachmentHtml = !doc.attachment_url ? '' : (attachmentUrl
-        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">파일 보기</a></div>`
+        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">${doc.submission_data?.attachment_name || '파일 보기'}</a></div>`
         : `<div class="mb-4 text-red-600 text-sm">첨부파일을 불러올 수 없습니다.</div>`);
 
     const modalHTML = `
@@ -2237,6 +2237,19 @@ function closeDocSubmissionModal() {
     state.docSubmission.attachmentRequired = false;
 }
 
+// Supabase Storage 키로 안전한 ASCII 이름으로 변환 (한글·공백·특수문자 → _).
+// 확장자는 살려서 브라우저가 signed URL 을 열 때 타입을 알아보게 한다.
+function toStorageSafeName(fileName) {
+    const m = String(fileName || '').match(/\.([A-Za-z0-9]{1,8})$/);
+    const ext = m ? '.' + m[1].toLowerCase() : '';
+    const base = String(fileName || '').slice(0, (fileName || '').length - ext.length)
+        .replace(/[^A-Za-z0-9._-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^[._-]+|[._-]+$/g, '')
+        .slice(0, 40);
+    return (base || 'file') + ext;
+}
+
 async function handleDocumentSubmit() {
     const content = _('#doc-content')?.value.trim();
     const requestId = state.docSubmission.currentRequestId;
@@ -2276,6 +2289,7 @@ async function handleDocumentSubmit() {
 
     try {
         let attachmentUrl = null;
+        let attachmentName = null;
 
         if (attachmentInput && attachmentInput.files[0]) {
             const file = attachmentInput.files[0];
@@ -2289,14 +2303,20 @@ async function handleDocumentSubmit() {
             // 'document-attachments' 버킷은 실제로 존재한 적이 없어 업로드가 항상 실패했다(2026-08-11 실측) —
             // welfare 사진·서명이 이미 안정적으로 쓰고 있는 'docs' 버킷(비공개)으로 통일.
             // 비공개 버킷이라 getPublicUrl 대신 경로만 저장 → 표시 시 signed URL 발급(documents.js viewDocument 등).
-            const path = `documents/${state.currentUser.id}/${Date.now()}_${file.name}`;
+            //
+            // ⚠️ Storage 키에 file.name 을 그대로 붙이면 안 된다 — Supabase Storage 는 키를
+            //    /^(\w|\/|!|-|\.|\*|'|\(|\)| |&|\$|@|=|;|:|\+|,|\?)*$/ 로 검사하고 \w 는 ASCII 만이라
+            //    한글 파일명("진료확인서.jpg")은 400 InvalidKey 로 100% 실패한다(2026-08-28 실측).
+            //    → 키는 ASCII 로 정규화하고, 원본 파일명은 submission_data 에 따로 남긴다.
+            attachmentName = file.name;
+            const path = `documents/${state.currentUser.id}/${Date.now()}_${toStorageSafeName(file.name)}`;
             const { error: uploadError } = await db.storage
                 .from('docs')
-                .upload(path, file);
+                .upload(path, file, { contentType: file.type || undefined });
 
             if (uploadError) {
                 console.error('파일 업로드 실패:', uploadError);
-                alert('파일 업로드에 실패했습니다. 다시 시도해주세요.');
+                alert('파일 업로드에 실패했습니다. 다시 시도해주세요.\n\n오류 내용: ' + (uploadError.message || uploadError));
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '제출하기'; }
                 return;
             }
@@ -2310,7 +2330,7 @@ async function handleDocumentSubmit() {
                 employee_id: state.currentUser.id,
                 employee_name: state.currentUser.name,
                 template_name: request.type || '일반 서류',
-                submission_data: { text: content },
+                submission_data: { text: content, attachment_name: attachmentName },
                 signature: signatureData,
                 attachment_url: attachmentUrl,
                 status: 'submitted',
