@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20260828b';
+import { state, db } from './state.js?v=20260904a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260828b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260828b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260828b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260828b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20260828b';
-import { renderMyBoardSection } from './welfare-board.js?v=20260828b';
-import { renderMyOvertimeSection } from './overtime.js?v=20260828b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20260904a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20260904a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20260904a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20260904a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20260904a';
+import { renderMyBoardSection } from './welfare-board.js?v=20260904a';
+import { renderMyOvertimeSection } from './overtime.js?v=20260904a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -21,7 +21,7 @@ import { renderMyOvertimeSection } from './overtime.js?v=20260828b';
 //   조회만(edit=false):  연차 현황
 //   매니저 즉시 확정(commit=true): 서식 관리 (그 외엔 결재 필요)
 // =========================================================================================
-const DEFAULT_MANAGER_PERMS = {
+export const DEFAULT_MANAGER_PERMS = {
     schedule:            { view: true,  edit: true,  commit: false },
     leave_request_list:  { view: true,  edit: true,  commit: false },
     leave_status:        { view: true,  edit: false, commit: false },
@@ -1285,8 +1285,28 @@ async function resolveAttachmentUrl(pathOrUrl) {
     if (!pathOrUrl) return null;
     if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
     const { data, error } = await db.storage.from('docs').createSignedUrl(pathOrUrl, 60 * 60);
-    return (!error && data?.signedUrl) ? data.signedUrl : null;
+    if (error || !data?.signedUrl) {
+        console.error('[employee-portal] createSignedUrl 실패:', pathOrUrl, error);
+        return null;
+    }
+    return data.signedUrl;
 }
+
+function buildSubmittedAttachmentHtml(doc, attachmentUrl) {
+    if (!doc.attachment_url) return '';
+    if (attachmentUrl) {
+        return `<div class="mb-4" id="submitted-doc-attachment-area"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">${doc.submission_data?.attachment_name || '파일 보기'}</a></div>`;
+    }
+    return `<div class="mb-4 text-red-600 text-sm" id="submitted-doc-attachment-area">첨부파일을 불러올 수 없습니다. <button onclick="window.retrySubmittedDocumentAttachment(${doc.id})" class="ml-2 text-blue-600 underline">다시 시도</button></div>`;
+}
+
+window.retrySubmittedDocumentAttachment = async function (docId) {
+    const doc = state.employee.submittedDocuments.find(d => d.id === docId);
+    const area = document.getElementById('submitted-doc-attachment-area');
+    if (!doc || !area) return;
+    const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
+    area.outerHTML = buildSubmittedAttachmentHtml(doc, attachmentUrl);
+};
 
 window.viewSubmittedDocument = async function (docId) {
     const doc = state.employee.submittedDocuments.find(d => d.id === docId);
@@ -1297,9 +1317,7 @@ window.viewSubmittedDocument = async function (docId) {
 
     const content = doc.submission_data?.text || doc.text || '내용 없음';
     const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
-    const attachmentHtml = !doc.attachment_url ? '' : (attachmentUrl
-        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">${doc.submission_data?.attachment_name || '파일 보기'}</a></div>`
-        : `<div class="mb-4 text-red-600 text-sm">첨부파일을 불러올 수 없습니다.</div>`);
+    const attachmentHtml = buildSubmittedAttachmentHtml(doc, attachmentUrl);
 
     const modalHTML = `
         <div class="modal-overlay" id="view-submitted-doc-modal">

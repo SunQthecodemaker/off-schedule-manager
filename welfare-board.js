@@ -4,12 +4,12 @@
 // 사진은 docs 버킷(비공개) → 표시는 signed URL. 이행체크 첨부와 동일 패턴.
 // 삭제는 소프트 삭제(deleted_at) — 직원이 올린 원본 데이터라 실수 삭제도 복원 가능해야 한다.
 // 관리자가 휴지통에서 확인 후 "영구 삭제"해야만 완전히 사라진다 (purgeWelfarePost).
-import { state, db, isTestEmployee } from './state.js?v=20260828b';
+import { state, db, isTestEmployee } from './state.js?v=20260904a';
 import {
     loadWelfarePosts, loadDeletedWelfarePosts, createWelfarePost, updateWelfarePost,
     deleteWelfarePost, restoreWelfarePost, purgeWelfarePost,
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
-} from './welfare.js?v=20260828b';
+} from './welfare.js?v=20260904a';
 
 // 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.
@@ -375,22 +375,22 @@ export async function renderBoardAdminSection(pane) {
             <span class="block text-xs text-blue-600 mt-1">※ 삭제해도 바로 없어지지 않고 휴지통으로 이동합니다. 실수로 지웠으면 휴지통에서 복원하세요.</span>
         </div>
         <div class="flex gap-2 mb-3">
-            <button id="wba-tab-active" class="px-3 py-1.5 rounded text-sm font-semibold ${f.view !== 'trash' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}">📋 전체 글</button>
-            <button id="wba-tab-trash" class="px-3 py-1.5 rounded text-sm font-semibold ${f.view === 'trash' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}">🗑 휴지통</button>
+            <button id="wba-tab-active" data-keep-enabled class="px-3 py-1.5 rounded text-sm font-semibold ${f.view !== 'trash' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}">📋 전체 글</button>
+            <button id="wba-tab-trash" data-keep-enabled class="px-3 py-1.5 rounded text-sm font-semibold ${f.view === 'trash' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}">🗑 휴지통</button>
         </div>
         <div class="flex flex-wrap gap-2 items-end mb-3">
             <div>
                 <label class="block text-xs font-semibold mb-1">해당 월</label>
-                <select id="wba-ym" class="border p-2 rounded text-sm">
+                <select id="wba-ym" data-keep-enabled class="border p-2 rounded text-sm">
                     <option value="">전체 월</option>
                     ${months.map(m => `<option value="${m}" ${f.ym === m ? 'selected' : ''}>${monthLabel(m)}</option>`).join('')}
                 </select>
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1">직원</label>
-                <select id="wba-emp" class="border p-2 rounded text-sm"><option value="">전체</option></select>
+                <select id="wba-emp" data-keep-enabled class="border p-2 rounded text-sm"><option value="">전체</option></select>
             </div>
-            <button id="wba-reload" class="px-3 py-2 bg-gray-200 rounded text-sm">새로고침</button>
+            <button id="wba-reload" data-keep-enabled class="px-3 py-2 bg-gray-200 rounded text-sm">새로고침</button>
             <div id="wba-summary" class="text-sm text-gray-600 ml-auto"></div>
         </div>
         <div id="wba-list"><div class="text-center text-gray-500 py-8">불러오는 중...</div></div>`;

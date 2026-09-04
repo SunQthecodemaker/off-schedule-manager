@@ -1,5 +1,5 @@
 // 진료비 복지 — 관리자/매니저 화면 (계산기 / 전체목록 / 이행체크 / 퇴사정산)
-import { state, db, isTestEmployee } from './state.js?v=20260828b';
+import { state, db, isTestEmployee } from './state.js?v=20260904a';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
     loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
@@ -8,11 +8,11 @@ import {
     createRecord, deleteRecord, upsertFulfillment, deleteFulfillment, moveFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
     loadWelfarePosts, loadPostCountsByEmpMonth,
-} from './welfare.js?v=20260828b';
+} from './welfare.js?v=20260904a';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
-} from './welfare-consent.js?v=20260828b';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260828b';
+} from './welfare-consent.js?v=20260904a';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260904a';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -569,6 +569,10 @@ async function renderFulfillTab(pane) {
 // 셀(직원·월) 클릭 → 그 직원의 그 달 이행 토글 + 메모 + 사진(여러 장) 편집 팝오버.
 // 저장하면 그 달까지 시작된 그 직원의 모든 활성 진료 건에 동일하게 반영된다 (직원 단위 미션 판정).
 // 참고용으로 그 직원이 올린 같은 달 미션 게시판 글도 함께 보여준다.
+//
+// 2026-09-04 UX 개선: [저장] 후에도 팝오버를 닫지 않고 DB 를 다시 읽어와 그 자리에서 다시 그린다
+// (paint() 재호출) — 그래야 방금 입력한 체크·메모·사진이 "진짜 저장된 값"으로 바로 확인된다.
+// 동시에 뒤 그리드(renderFulfillTab)도 백그라운드로 갱신해 셀 색상(✓/◐/승인대기)이 새로고침 없이 바뀐다.
 async function openCellPopover(pane, empId, ym) {
     const g = (state.welfare.fulfillGroups || []).find(x => String(x.empId) === String(empId));
     if (!g) return;
@@ -577,30 +581,8 @@ async function openCellPopover(pane, empId, ym) {
     const notYet  = g.recs.filter(r => startYmOf(r) >  ym);   // 아직 시작 전 = 이 달 차감 대상 아님
     if (!elig.length) return;
 
-    let committed = {}, pending = {}, posts = [];
-    try {
-        [committed, pending, posts] = await Promise.all([
-            loadFulfillmentForRecords(elig.map(r => r.id)),
-            loadAllPendingFulfillment(),
-            loadWelfarePosts({ employeeId: empId, yearMonth: ym }).catch(() => []),
-        ]);
-    } catch (e) { alert('불러오기 실패: ' + e.message); return; }
-
-    // 여러 건의 상태를 합침 — 사진/메모는 합집합, 이행 체크는 전건 완료일 때만 ON.
-    let atts = [], note = '', doneCnt = 0, pendCnt = 0, existingCnt = 0;
-    elig.forEach(r => {
-        const p = pending[`${r.id}_${ym}`], c = committed[`${r.id}_${ym}`];
-        const src = p ? p.payload : c;
-        if (p) pendCnt++;
-        if (!src) return;
-        existingCnt++; // 체크가 false 여도 메모/사진이 남아있는 실제 저장분 → 이동/삭제 대상
-        if (src.fulfilled === true || src.fulfilled === 'true') doneCnt++;
-        (Array.isArray(src.attachments) ? src.attachments : []).forEach(a => { if (!atts.includes(a)) atts.push(a); });
-        if (!note && src.note) note = src.note;
-    });
-    const fulfilled = doneCnt === elig.length;
-    const isPending = pendCnt > 0;
     const cfg = state.welfare.config;
+    const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
     // 적용 월 이동 후보 — 대상 진료 건이 실제로 시작된 달부터 다음 달까지 (이행체크 정책과 동일 상한).
     const earliestStart = elig.reduce((min, r) => {
@@ -608,207 +590,255 @@ async function openCellPopover(pane, empId, ym) {
         return (!min || s < min) ? s : min;
     }, null);
     const moveMonthCap = dayjs().add(1, 'month').format('YYYY-MM');
-    const moveMonthOptions = [];
-    if (earliestStart) {
-        let cur = dayjs(earliestStart <= moveMonthCap ? earliestStart : moveMonthCap);
-        const end = dayjs(moveMonthCap);
-        while (cur.isSameOrBefore(end, 'month')) {
-            const v = cur.format('YYYY-MM');
-            if (v !== ym) moveMonthOptions.push(v);
-            cur = cur.add(1, 'month');
-        }
-    }
-
-    // 이 달 차감 인정액 = 대상 진료 건들의 월 차감액 합 (완납된 건 제외)
-    let monthSum = 0;
-    const eligRows = elig.map(r => {
-        const { monthly, remaining } = computeRemaining(r, committedByRecOf(committed, r.id), cfg);
-        if (remaining > 0) monthSum += monthly;
-        return { r, monthly, remaining };
-    });
-
-    // 그 달 미션 게시판 글 (읽기 전용 — 이행 판단 근거)
-    const postUrlMap = {};
-    (await docsSignedUrls(posts.flatMap(p => p.photos || []))).forEach(u => { postUrlMap[u.path] = u.url; });
-    const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const postsHTML = posts.length ? posts.map(p => `
-        <div class="border rounded p-2 mb-1 bg-gray-50">
-            <div class="text-xs font-semibold">${esc(p.title)}</div>
-            ${p.body ? `<div class="text-xs text-gray-600 mt-1" style="white-space:pre-wrap;max-height:6em;overflow:auto">${esc(p.body)}</div>` : ''}
-            ${p.link_url ? `<a href="${esc(p.link_url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 underline break-all">${esc(p.link_url)}</a>` : ''}
-            ${(p.photos || []).length ? `<div class="flex gap-1 flex-wrap mt-1">${(p.photos || []).map(ph => postUrlMap[ph]
-                ? `<img src="${postUrlMap[ph]}" class="wf-post-img w-12 h-12 object-cover rounded border cursor-pointer" data-url="${postUrlMap[ph]}">` : '').join('')}</div>` : ''}
-        </div>`).join('') : `<div class="text-xs text-gray-400">이 달 등록된 미션 글이 없습니다.</div>`;
 
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
-    modal.innerHTML = `
-        <div class="bg-white rounded-lg shadow-xl p-4" style="width:27rem;max-width:92vw;max-height:92vh;overflow:auto">
-            <div class="flex justify-between items-center mb-3">
-                <div class="font-bold">${g.name} · ${ym} 이행 ${isPending ? '<span class="text-yellow-600 text-xs">(승인 대기)</span>' : ''}</div>
-                <button id="wf-pop-x" class="text-gray-400 text-2xl leading-none">&times;</button>
-            </div>
-
-            <div class="mb-3 border rounded p-2 bg-gray-50">
-                <div class="text-xs font-semibold mb-1">이 달 차감 대상 진료 ${elig.length}건</div>
-                ${eligRows.map(({ r, monthly, remaining }) => `
-                    <div class="text-xs text-gray-600 flex justify-between gap-2">
-                        <span class="truncate">${r.start_date} · ${r.treatment_type} ${esc(r.treatment_details || '-')}</span>
-                        <span class="whitespace-nowrap">${remaining > 0 ? `월 ${formatNum(monthly)}원` : '<span class="text-green-600">완납</span>'}</span>
-                    </div>`).join('')}
-                <div class="text-xs font-semibold text-blue-700 border-t mt-1 pt-1 flex justify-between">
-                    <span>이 달 이행 시 차감액</span><span>${formatNum(monthSum)}원</span>
-                </div>
-                ${notYet.length ? `<div class="text-xs text-gray-400 mt-1">
-                    · 시작 전이라 이 달 대상 아님: ${notYet.map(r => `${r.start_date} ${esc(r.treatment_type)}`).join(', ')}
-                </div>` : ''}
-            </div>
-
-            <label class="flex items-center gap-2 mb-3 text-sm">
-                <input type="checkbox" id="wf-pop-chk" class="w-5 h-5" ${fulfilled ? 'checked' : ''}>
-                이행 완료 <span class="text-xs text-gray-500">(위 ${elig.length}건 모두에 적용)</span>
-            </label>
-            ${doneCnt > 0 && !fulfilled ? `<div class="mb-3 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">
-                현재 ${elig.length}건 중 ${doneCnt}건만 이행 처리돼 있습니다. 저장하면 전체가 동일하게 맞춰집니다.
-            </div>` : ''}
-            <div class="mb-3">
-                <label class="block text-xs font-semibold mb-1">메모</label>
-                <input id="wf-pop-note" type="text" class="w-full border p-2 rounded text-sm" value="${note.replace(/"/g, '&quot;')}">
-            </div>
-            <div class="mb-3">
-                <label class="block text-xs font-semibold mb-1">사진 (여러 장 가능)</label>
-                <div class="flex items-center gap-2 flex-wrap">
-                    <label class="cursor-pointer text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">📷 추가
-                        <input type="file" accept="image/*" multiple id="wf-pop-file" class="hidden">
-                    </label>
-                    <span id="wf-pop-upl" class="text-xs text-blue-500"></span>
-                </div>
-                <div id="wf-pop-thumbs" class="flex gap-2 flex-wrap mt-2"></div>
-            </div>
-            <div class="mb-4">
-                <div class="text-xs font-semibold mb-1">📸 직원이 올린 ${ym} 미션 글 ${posts.length ? `(${posts.length}건)` : ''}</div>
-                ${postsHTML}
-            </div>
-            ${existingCnt > 0 ? `
-            <div class="mb-4 border-t pt-3">
-                <div class="text-xs font-semibold mb-2 text-gray-600">⚙️ 이 달 이행 기록 관리 (${existingCnt}건 저장됨)</div>
-                ${moveMonthOptions.length ? `
-                <div class="flex items-center gap-2 mb-2">
-                    <select id="wf-pop-move-ym" class="flex-1 border p-1.5 rounded text-xs">
-                        ${moveMonthOptions.map(m => `<option value="${m}">${m} 로 이동</option>`).join('')}
-                    </select>
-                    <button id="wf-pop-move" class="px-2 py-1.5 bg-gray-200 rounded text-xs whitespace-nowrap">월 이동</button>
-                </div>` : ''}
-                <button id="wf-pop-delete" class="w-full px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded text-xs hover:bg-red-100">🗑 이 달 이행 기록 삭제</button>
-            </div>` : ''}
-            <div class="flex justify-end gap-2">
-                <button id="wf-pop-cancel" class="px-3 py-1.5 bg-gray-200 rounded text-sm">닫기</button>
-                <button id="wf-pop-save" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">저장</button>
-            </div>
-        </div>`;
     document.body.appendChild(modal);
     const close = () => modal.remove();
-    modal.querySelector('#wf-pop-x').onclick = close;
-    modal.querySelector('#wf-pop-cancel').onclick = close;
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
-    modal.querySelectorAll('.wf-post-img').forEach(im => { im.onclick = () => window.open(im.dataset.url, '_blank'); });
 
-    const thumbHost = modal.querySelector('#wf-pop-thumbs');
-    const paintThumbs = () => renderThumbsInto(thumbHost, atts, async (path) => {
-        await removeDocsFile(path);
-        const i = atts.indexOf(path); if (i >= 0) atts.splice(i, 1);
-        await paintThumbs();
-    });
-    await paintThumbs();
+    let atts = [];
+    let justSavedAt = null;   // 방금 저장 직후 안내 배너용 (Date | null)
+    let justSavedPending = false;
 
-    modal.querySelector('#wf-pop-file').addEventListener('change', async (e) => {
-        const files = [...e.target.files]; e.target.value = '';
-        const upl = modal.querySelector('#wf-pop-upl');
-        let seq = atts.length, added = 0;
-        for (const f of files) {
-            if (!f.type.startsWith('image/')) continue;
-            upl.textContent = `업로드 중… (${added + 1}/${files.length})`;
-            try {
-                const blob = await compressImage(f);
-                // 직원 단위 이행이라 사진도 직원·월 단위 경로에 저장 (emp{id}_{YYYY-MM})
-                const path = await uploadFulfillmentPhoto(`emp${empId}`, ym, blob, seq++);
-                atts.push(path); added++;
-            } catch (err) { console.error('[welfare] 사진 업로드 실패:', err); alert('사진 업로드 실패: ' + err.message); }
-        }
-        upl.textContent = '';
-        await paintThumbs();
-    });
-
-    modal.querySelector('#wf-pop-save').addEventListener('click', async () => {
-        const btn = modal.querySelector('#wf-pop-save');
-        btn.disabled = true; btn.textContent = '저장 중…';
+    // 최신 DB 상태를 읽어와 팝오버 내용 전체를 다시 그린다. 초기 오픈 + 저장 직후 공통 사용.
+    async function paint() {
+        let committed = {}, pending = {}, posts = [];
         try {
-            const chk = modal.querySelector('#wf-pop-chk').checked;
-            const noteVal = modal.querySelector('#wf-pop-note').value;
-            let staged = false;
-            for (const r of elig) {
-                const res = await upsertFulfillment(r.id, ym, chk, noteVal, atts);
-                staged = staged || res.staged;
+            [committed, pending, posts] = await Promise.all([
+                loadFulfillmentForRecords(elig.map(r => r.id)),
+                loadAllPendingFulfillment(),
+                loadWelfarePosts({ employeeId: empId, yearMonth: ym }).catch(() => []),
+            ]);
+        } catch (e) { alert('불러오기 실패: ' + e.message); close(); return; }
+
+        // 여러 건의 상태를 합침 — 사진/메모는 합집합, 이행 체크는 전건 완료일 때만 ON.
+        let note = '', doneCnt = 0, pendCnt = 0, existingCnt = 0;
+        atts = [];
+        elig.forEach(r => {
+            const p = pending[`${r.id}_${ym}`], c = committed[`${r.id}_${ym}`];
+            const src = p ? p.payload : c;
+            if (p) pendCnt++;
+            if (!src) return;
+            existingCnt++; // 체크가 false 여도 메모/사진이 남아있는 실제 저장분 → 이동/삭제 대상
+            if (src.fulfilled === true || src.fulfilled === 'true') doneCnt++;
+            (Array.isArray(src.attachments) ? src.attachments : []).forEach(a => { if (!atts.includes(a)) atts.push(a); });
+            if (!note && src.note) note = src.note;
+        });
+        const fulfilled = doneCnt === elig.length;
+        const isPending = pendCnt > 0;
+
+        const moveMonthOptions = [];
+        if (earliestStart) {
+            let cur = dayjs(earliestStart <= moveMonthCap ? earliestStart : moveMonthCap);
+            const end = dayjs(moveMonthCap);
+            while (cur.isSameOrBefore(end, 'month')) {
+                const v = cur.format('YYYY-MM');
+                if (v !== ym) moveMonthOptions.push(v);
+                cur = cur.add(1, 'month');
             }
+        }
+
+        // 이 달 차감 인정액 = 대상 진료 건들의 월 차감액 합 (완납된 건 제외)
+        let monthSum = 0;
+        const eligRows = elig.map(r => {
+            const { monthly, remaining } = computeRemaining(r, committedByRecOf(committed, r.id), cfg);
+            if (remaining > 0) monthSum += monthly;
+            return { r, monthly, remaining };
+        });
+
+        // 그 달 미션 게시판 글 (읽기 전용 — 이행 판단 근거)
+        const postUrlMap = {};
+        (await docsSignedUrls(posts.flatMap(p => p.photos || []))).forEach(u => { postUrlMap[u.path] = u.url; });
+        const postsHTML = posts.length ? posts.map(p => `
+            <div class="border rounded p-2 mb-1 bg-gray-50">
+                <div class="text-xs font-semibold">${esc(p.title)}</div>
+                ${p.body ? `<div class="text-xs text-gray-600 mt-1" style="white-space:pre-wrap;max-height:6em;overflow:auto">${esc(p.body)}</div>` : ''}
+                ${p.link_url ? `<a href="${esc(p.link_url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 underline break-all">${esc(p.link_url)}</a>` : ''}
+                ${(p.photos || []).length ? `<div class="flex gap-1 flex-wrap mt-1">${(p.photos || []).map(ph => postUrlMap[ph]
+                    ? `<img src="${postUrlMap[ph]}" class="wf-post-img w-12 h-12 object-cover rounded border cursor-pointer" data-url="${postUrlMap[ph]}">` : '').join('')}</div>` : ''}
+            </div>`).join('') : `<div class="text-xs text-gray-400">이 달 등록된 미션 글이 없습니다.</div>`;
+
+        // 저장 직후 배너 — DB 재조회로 얻은 isPending 을 기준으로 문구 결정(체크 여부와 무관하게 항상 최신 진실).
+        const savedBanner = justSavedAt ? `
+            <div class="mb-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded p-2">
+                ✓ ${justSavedPending ? '임시저장됨 — 관리자 승인 후 반영' : '저장됨'} · 방금 (${justSavedAt.toLocaleTimeString('ko-KR', { hour12: false })}) · 아래 내용이 최신 저장 상태입니다.
+            </div>` : '';
+
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-xl p-4" style="width:27rem;max-width:92vw;max-height:92vh;overflow:auto">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="font-bold">${g.name} · ${ym} 이행 ${isPending ? '<span class="text-yellow-600 text-xs">(승인 대기)</span>' : ''}</div>
+                    <button id="wf-pop-x" class="text-gray-400 text-2xl leading-none">&times;</button>
+                </div>
+
+                ${savedBanner}
+
+                <div class="mb-3 border rounded p-2 bg-gray-50">
+                    <div class="text-xs font-semibold mb-1">이 달 차감 대상 진료 ${elig.length}건</div>
+                    ${eligRows.map(({ r, monthly, remaining }) => `
+                        <div class="text-xs text-gray-600 flex justify-between gap-2">
+                            <span class="truncate">${r.start_date} · ${r.treatment_type} ${esc(r.treatment_details || '-')}</span>
+                            <span class="whitespace-nowrap">${remaining > 0 ? `월 ${formatNum(monthly)}원` : '<span class="text-green-600">완납</span>'}</span>
+                        </div>`).join('')}
+                    <div class="text-xs font-semibold text-blue-700 border-t mt-1 pt-1 flex justify-between">
+                        <span>이 달 이행 시 차감액</span><span>${formatNum(monthSum)}원</span>
+                    </div>
+                    ${notYet.length ? `<div class="text-xs text-gray-400 mt-1">
+                        · 시작 전이라 이 달 대상 아님: ${notYet.map(r => `${r.start_date} ${esc(r.treatment_type)}`).join(', ')}
+                    </div>` : ''}
+                </div>
+
+                <label class="flex items-center gap-2 mb-3 text-sm">
+                    <input type="checkbox" id="wf-pop-chk" class="w-5 h-5" ${fulfilled ? 'checked' : ''}>
+                    이행 완료 <span class="text-xs text-gray-500">(위 ${elig.length}건 모두에 적용)</span>
+                </label>
+                ${doneCnt > 0 && !fulfilled ? `<div class="mb-3 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">
+                    현재 ${elig.length}건 중 ${doneCnt}건만 이행 처리돼 있습니다. 저장하면 전체가 동일하게 맞춰집니다.
+                </div>` : ''}
+                <div class="mb-3">
+                    <label class="block text-xs font-semibold mb-1">메모</label>
+                    <input id="wf-pop-note" type="text" class="w-full border p-2 rounded text-sm" value="${note.replace(/"/g, '&quot;')}">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-xs font-semibold mb-1">사진 (여러 장 가능)</label>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <label class="cursor-pointer text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">📷 추가
+                            <input type="file" accept="image/*" multiple id="wf-pop-file" class="hidden">
+                        </label>
+                        <span id="wf-pop-upl" class="text-xs text-blue-500"></span>
+                    </div>
+                    <div id="wf-pop-thumbs" class="flex gap-2 flex-wrap mt-2"></div>
+                </div>
+                <div class="mb-4">
+                    <div class="text-xs font-semibold mb-1">📸 직원이 올린 ${ym} 미션 글 ${posts.length ? `(${posts.length}건)` : ''}</div>
+                    ${postsHTML}
+                </div>
+                ${existingCnt > 0 ? `
+                <div class="mb-4 border-t pt-3">
+                    <div class="text-xs font-semibold mb-2 text-gray-600">⚙️ 이 달 이행 기록 관리 (${existingCnt}건 저장됨)</div>
+                    ${moveMonthOptions.length ? `
+                    <div class="flex items-center gap-2 mb-2">
+                        <select id="wf-pop-move-ym" class="flex-1 border p-1.5 rounded text-xs">
+                            ${moveMonthOptions.map(m => `<option value="${m}">${m} 로 이동</option>`).join('')}
+                        </select>
+                        <button id="wf-pop-move" class="px-2 py-1.5 bg-gray-200 rounded text-xs whitespace-nowrap">월 이동</button>
+                    </div>` : ''}
+                    <button id="wf-pop-delete" class="w-full px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded text-xs hover:bg-red-100">🗑 이 달 이행 기록 삭제</button>
+                </div>` : ''}
+                <div class="flex justify-end gap-2">
+                    <button id="wf-pop-cancel" class="px-3 py-1.5 bg-gray-200 rounded text-sm">닫기</button>
+                    <button id="wf-pop-save" class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">저장</button>
+                </div>
+            </div>`;
+
+        modal.querySelector('#wf-pop-x').onclick = close;
+        modal.querySelector('#wf-pop-cancel').onclick = close;
+        modal.querySelectorAll('.wf-post-img').forEach(im => { im.onclick = () => window.open(im.dataset.url, '_blank'); });
+
+        const thumbHost = modal.querySelector('#wf-pop-thumbs');
+        const paintThumbs = () => renderThumbsInto(thumbHost, atts, async (path) => {
+            await removeDocsFile(path);
+            const i = atts.indexOf(path); if (i >= 0) atts.splice(i, 1);
+            await paintThumbs();
+        });
+        await paintThumbs();
+
+        modal.querySelector('#wf-pop-file').addEventListener('change', async (e) => {
+            const files = [...e.target.files]; e.target.value = '';
+            const upl = modal.querySelector('#wf-pop-upl');
+            let seq = atts.length, added = 0;
+            for (const f of files) {
+                if (!f.type.startsWith('image/')) continue;
+                upl.textContent = `업로드 중… (${added + 1}/${files.length})`;
+                try {
+                    const blob = await compressImage(f);
+                    // 직원 단위 이행이라 사진도 직원·월 단위 경로에 저장 (emp{id}_{YYYY-MM})
+                    const path = await uploadFulfillmentPhoto(`emp${empId}`, ym, blob, seq++);
+                    atts.push(path); added++;
+                } catch (err) { console.error('[welfare] 사진 업로드 실패:', err); alert('사진 업로드 실패: ' + err.message); }
+            }
+            upl.textContent = '';
+            await paintThumbs();
+        });
+
+        modal.querySelector('#wf-pop-save').addEventListener('click', async () => {
+            const btn = modal.querySelector('#wf-pop-save');
+            btn.disabled = true; btn.textContent = '저장 중…';
+            try {
+                const chk = modal.querySelector('#wf-pop-chk').checked;
+                const noteVal = modal.querySelector('#wf-pop-note').value;
+                let staged = false;
+                for (const r of elig) {
+                    const res = await upsertFulfillment(r.id, ym, chk, noteVal, atts);
+                    staged = staged || res.staged;
+                }
+                justSavedAt = new Date();
+                justSavedPending = staged;
+                if (typeof window.showToast === 'function') {
+                    window.showToast(staged ? '임시저장됨 — 승인 후 반영' : `저장됨 (진료 ${elig.length}건 반영)`);
+                }
+                // 뒤 그리드는 백그라운드로 갱신(셀 색상 즉시 반영) — 팝오버는 닫지 않고 그대로 유지.
+                renderFulfillTab(pane);
+                // 팝오버 자체도 방금 저장한 DB 값으로 다시 그려서 그 자리에서 바로 확인 가능하게 한다.
+                await paint();
+            } catch (err) {
+                btn.disabled = false; btn.textContent = '저장';
+                alert('저장 실패: ' + err.message);
+            }
+        });
+
+        // 실제 저장된(committed/pending) 건에 한해 이동·삭제 — 아직 저장 안 된(existingCnt 미포함) 건은 건드리지 않는다.
+        const existingRecs = () => elig.filter(r => committed[`${r.id}_${ym}`] || pending[`${r.id}_${ym}`]);
+
+        modal.querySelector('#wf-pop-move')?.addEventListener('click', async () => {
+            const toYm = modal.querySelector('#wf-pop-move-ym').value;
+            if (!toYm || !confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 ${toYm} 로 이동할까요?`)) return;
+            const btn = modal.querySelector('#wf-pop-move');
+            btn.disabled = true; btn.textContent = '이동 중…';
+            const skipped = [];
+            let staged = false, moved = 0;
+            for (const r of existingRecs()) {
+                if (startYmOf(r) > toYm) { skipped.push(`${r.treatment_type}(${r.start_date}) — ${toYm} 이전 시작이라 대상 아님`); continue; }
+                try {
+                    const res = await moveFulfillment(r.id, ym, toYm);
+                    staged = staged || res.staged;
+                    moved++;
+                } catch (e) { skipped.push(`${r.treatment_type}: ${e.message}`); }
+            }
+            btn.disabled = false; btn.textContent = '월 이동';
+            if (!moved) { alert('이동하지 못했습니다:\n' + skipped.join('\n')); return; }
             close();
             if (typeof window.showToast === 'function') {
-                window.showToast(staged ? '임시저장됨 — 승인 후 반영' : `저장됨 (진료 ${elig.length}건 반영)`);
+                window.showToast(`${moved}건 ${toYm} 로 이동${staged ? ' (임시저장 — 승인 후 반영)' : ''}${skipped.length ? ` · ${skipped.length}건 제외` : ''}`);
             }
             renderFulfillTab(pane);
-        } catch (err) {
-            btn.disabled = false; btn.textContent = '저장';
-            alert('저장 실패: ' + err.message);
-        }
-    });
+        });
 
-    // 실제 저장된(committed/pending) 건에 한해 이동·삭제 — 아직 저장 안 된(existingCnt 미포함) 건은 건드리지 않는다.
-    const existingRecs = () => elig.filter(r => committed[`${r.id}_${ym}`] || pending[`${r.id}_${ym}`]);
+        modal.querySelector('#wf-pop-delete')?.addEventListener('click', async () => {
+            if (!confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 삭제할까요?\n(변경 이력은 감사 로그에 남아 필요하면 복구 요청할 수 있습니다)`)) return;
+            const btn = modal.querySelector('#wf-pop-delete');
+            btn.disabled = true; btn.textContent = '삭제 중…';
+            const skipped = [];
+            let staged = false, deleted = 0;
+            for (const r of existingRecs()) {
+                try {
+                    const res = await deleteFulfillment(r.id, ym);
+                    staged = staged || res.staged;
+                    deleted++;
+                } catch (e) { skipped.push(`${r.treatment_type}: ${e.message}`); }
+            }
+            btn.disabled = false; btn.textContent = '🗑 이 달 이행 기록 삭제';
+            if (!deleted) { alert('삭제하지 못했습니다:\n' + skipped.join('\n')); return; }
+            close();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`${deleted}건 삭제${staged ? ' (임시저장 — 승인 후 반영)' : ''}${skipped.length ? ` · ${skipped.length}건 실패` : ''}`);
+            }
+            renderFulfillTab(pane);
+        });
+    }
 
-    modal.querySelector('#wf-pop-move')?.addEventListener('click', async () => {
-        const toYm = modal.querySelector('#wf-pop-move-ym').value;
-        if (!toYm || !confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 ${toYm} 로 이동할까요?`)) return;
-        const btn = modal.querySelector('#wf-pop-move');
-        btn.disabled = true; btn.textContent = '이동 중…';
-        const skipped = [];
-        let staged = false, moved = 0;
-        for (const r of existingRecs()) {
-            if (startYmOf(r) > toYm) { skipped.push(`${r.treatment_type}(${r.start_date}) — ${toYm} 이전 시작이라 대상 아님`); continue; }
-            try {
-                const res = await moveFulfillment(r.id, ym, toYm);
-                staged = staged || res.staged;
-                moved++;
-            } catch (e) { skipped.push(`${r.treatment_type}: ${e.message}`); }
-        }
-        btn.disabled = false; btn.textContent = '월 이동';
-        if (!moved) { alert('이동하지 못했습니다:\n' + skipped.join('\n')); return; }
-        close();
-        if (typeof window.showToast === 'function') {
-            window.showToast(`${moved}건 ${toYm} 로 이동${staged ? ' (임시저장 — 승인 후 반영)' : ''}${skipped.length ? ` · ${skipped.length}건 제외` : ''}`);
-        }
-        renderFulfillTab(pane);
-    });
-
-    modal.querySelector('#wf-pop-delete')?.addEventListener('click', async () => {
-        if (!confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 삭제할까요?\n(변경 이력은 감사 로그에 남아 필요하면 복구 요청할 수 있습니다)`)) return;
-        const btn = modal.querySelector('#wf-pop-delete');
-        btn.disabled = true; btn.textContent = '삭제 중…';
-        const skipped = [];
-        let staged = false, deleted = 0;
-        for (const r of existingRecs()) {
-            try {
-                const res = await deleteFulfillment(r.id, ym);
-                staged = staged || res.staged;
-                deleted++;
-            } catch (e) { skipped.push(`${r.treatment_type}: ${e.message}`); }
-        }
-        btn.disabled = false; btn.textContent = '🗑 이 달 이행 기록 삭제';
-        if (!deleted) { alert('삭제하지 못했습니다:\n' + skipped.join('\n')); return; }
-        close();
-        if (typeof window.showToast === 'function') {
-            window.showToast(`${deleted}건 삭제${staged ? ' (임시저장 — 승인 후 반영)' : ''}${skipped.length ? ` · ${skipped.length}건 실패` : ''}`);
-        }
-        renderFulfillTab(pane);
-    });
+    await paint();
 }
 
 // committed 맵({record_id}_{ym} → row)에서 특정 진료 건의 이행 행만 추려낸다.

@@ -1,6 +1,6 @@
-import { state, db } from './state.js?v=20260828b';
+import { state, db } from './state.js?v=20260904a';
 import { _, show, hide } from './utils.js';
-import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260828b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged } from './staging.js?v=20260904a';
 
 // =========================================================================================
 // 서류 검토 탭 (관리자용)
@@ -429,8 +429,28 @@ async function resolveAttachmentUrl(pathOrUrl) {
     if (!pathOrUrl) return null;
     if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
     const { data, error } = await db.storage.from('docs').createSignedUrl(pathOrUrl, 60 * 60);
-    return (!error && data?.signedUrl) ? data.signedUrl : null;
+    if (error || !data?.signedUrl) {
+        console.error('[documents] createSignedUrl 실패:', pathOrUrl, error);
+        return null;
+    }
+    return data.signedUrl;
 }
+
+function buildAttachmentHtml(doc, attachmentUrl) {
+    if (!doc.attachment_url) return '';
+    if (attachmentUrl) {
+        return `<div class="mb-4" id="doc-attachment-area"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">${doc.submission_data?.attachment_name || '파일 보기'}</a></div>`;
+    }
+    return `<div class="mb-4 text-red-600 text-sm" id="doc-attachment-area">첨부파일을 불러올 수 없습니다. <button onclick="window.retryDocumentAttachment(${doc.id})" class="ml-2 text-blue-600 underline">다시 시도</button></div>`;
+}
+
+window.retryDocumentAttachment = async function(docId) {
+    const doc = state.management.submittedDocs.find(d => d.id === docId);
+    const area = document.getElementById('doc-attachment-area');
+    if (!doc || !area) return;
+    const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
+    area.outerHTML = buildAttachmentHtml(doc, attachmentUrl);
+};
 
 window.viewDocument = async function(docId) {
     const doc = state.management.submittedDocs.find(d => d.id === docId);
@@ -441,9 +461,7 @@ window.viewDocument = async function(docId) {
 
     const content = doc.submission_data?.text || doc.text || '내용 없음';
     const attachmentUrl = await resolveAttachmentUrl(doc.attachment_url);
-    const attachmentHtml = !doc.attachment_url ? '' : (attachmentUrl
-        ? `<div class="mb-4"><strong>첨부파일:</strong> <a href="${attachmentUrl}" target="_blank" class="text-blue-600 hover:underline">${doc.submission_data?.attachment_name || '파일 보기'}</a></div>`
-        : `<div class="mb-4 text-red-600 text-sm">첨부파일을 불러올 수 없습니다.</div>`);
+    const attachmentHtml = buildAttachmentHtml(doc, attachmentUrl);
 
     const modalHTML = `
         <div class="modal-overlay" id="view-doc-modal">

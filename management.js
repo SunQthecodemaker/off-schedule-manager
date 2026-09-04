@@ -1,7 +1,8 @@
-import { state, db, isVisibleIn } from './state.js?v=20260828b';
+import { state, db, isVisibleIn } from './state.js?v=20260904a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260828b';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260828b';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260904a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260904a';
+import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20260904a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -76,7 +77,10 @@ async function openManagerPermissionModal(employeeId) {
                 </thead>
                 <tbody>
                     ${MANAGER_MENU_LIST.map(m => {
-                        const p = perms[m.key] || { view: false, edit: false, commit: false };
+                        // 저장된 값이 없는 메뉴(신규 추가된 메뉴 등)는 실제 적용 기본값(DEFAULT_MANAGER_PERMS)을
+                        // 그대로 보여준다 — 여기서 false 로 잘못 표시하면 관리자가 무심코 저장할 때
+                        // 실제로는 true 였던 기본값이 false 로 굳어버리는 사고가 난다 (초과근무 view 기본 true 사례).
+                        const p = perms[m.key] || DEFAULT_MANAGER_PERMS[m.key] || { view: false, edit: false, commit: false };
                         return `
                             <tr class="border-b hover:bg-gray-50">
                                 <td class="p-2">${m.label}</td>
