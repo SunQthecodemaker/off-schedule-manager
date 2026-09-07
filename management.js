@@ -1119,8 +1119,8 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
             : '';
         return `<tr class="border-b hover:bg-gray-50 leave-row${req.parent_request_id ? ' bg-amber-50/40' : ''}" data-status="${finalStatus}" data-middle="${middleStatus}" data-employee-id="${req.employee_id}" data-parent="${req.parent_request_id || ''}" data-dates='${JSON.stringify(req.dates || [])}'>
             ${checkboxCell}
-            <td class="py-1 px-2 text-sm">${employeeName}${extBadge}</td>
-            <td class="py-1 px-2 text-sm">${datesText}${req.created_at ? ` <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span>` : ''}</td>
+            <td class="py-1 px-2 text-sm whitespace-nowrap overflow-hidden text-ellipsis">${employeeName}${extBadge}</td>
+            <td class="py-1 px-2 text-sm break-words">${datesText}${req.created_at ? ` <span class="text-[10px] text-gray-400">${dayjs(req.created_at).format('HH:mm')}</span>` : ''}</td>
             <td class="py-1 px-2 text-sm text-center">${dateCount}일</td>
             <td class="py-1 px-2 text-sm text-center">
                 <div class="text-xs">
@@ -1143,15 +1143,15 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
                     <span class="month-toggle-icon text-gray-400">${isOpen ? '▲' : '▼'}</span>
                 </button>
                 <div class="month-content" style="display:${isOpen ? 'block' : 'none'}">
-                    <table class="min-w-full text-sm">
+                    <table class="min-w-full text-sm table-fixed">
                         <thead class="bg-gray-100">
                             <tr>
                                 ${(isAdmin && !readOnly) ? '<th class="py-1 px-2 text-center text-xs font-semibold w-8">☑</th>' : ''}
-                                <th class="py-1 px-2 text-left text-xs font-semibold">직원</th>
+                                <th class="py-1 px-2 text-left text-xs font-semibold w-20">직원</th>
                                 <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold">일수</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold">결재현황</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold">처리</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold w-12">일수</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold w-40">결재현황</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold w-28">처리</th>
                             </tr>
                         </thead>
                         <tbody>${entries.map(buildRow).join('')}</tbody>
