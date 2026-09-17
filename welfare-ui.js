@@ -1,5 +1,5 @@
 // 진료비 복지 — 관리자/매니저 화면 (계산기 / 전체목록 / 이행체크 / 퇴사정산)
-import { state, db, isTestEmployee } from './state.js?v=20260904a';
+import { state, db, isTestEmployee } from './state.js?v=20260917a';
 import {
     loadConfig, loadActiveEmployees, loadAllRecords,
     loadFulfillmentByRecord, loadFulfillmentForRecords, loadAllPendingFulfillment,
@@ -8,11 +8,11 @@ import {
     createRecord, deleteRecord, upsertFulfillment, deleteFulfillment, moveFulfillment, processSettlement,
     uploadFulfillmentPhoto, removeDocsFile, docsSignedUrls, compressImage,
     loadWelfarePosts, loadPostCountsByEmpMonth,
-} from './welfare.js?v=20260904a';
+} from './welfare.js?v=20260917a';
 import {
     generateConsentHTML, generateSettlementHTML, attachSignaturePad, printHTML,
-} from './welfare-consent.js?v=20260904a';
-import { renderBoardAdminSection } from './welfare-board.js?v=20260904a';
+} from './welfare-consent.js?v=20260917a';
+import { renderBoardAdminSection } from './welfare-board.js?v=20260917a';
 
 // 테스트 직원 노출 여부 — 관리자면 admin 토글, 매니저면 manager 토글 (연차·스케줄 탭과 동일 규칙).
 function welfareShowsTest() {
@@ -628,16 +628,17 @@ async function openCellPopover(pane, empId, ym) {
         const fulfilled = doneCnt === elig.length;
         const isPending = pendCnt > 0;
 
-        const moveMonthOptions = [];
-        if (earliestStart) {
-            let cur = dayjs(earliestStart <= moveMonthCap ? earliestStart : moveMonthCap);
-            const end = dayjs(moveMonthCap);
-            while (cur.isSameOrBefore(end, 'month')) {
-                const v = cur.format('YYYY-MM');
-                if (v !== ym) moveMonthOptions.push(v);
-                cur = cur.add(1, 'month');
-            }
-        }
+        // 2026-09-17 실측 버그: 시작월이 이른 직원은 이동 후보가 20개↑ 되는 flat <select> 라
+        // "2026-07" 을 고르려다 "2025-07" 을 잘못 눌러 엉뚱한 연도로 이동되는 사고 발생.
+        // → 목록 대신 브라우저 네이티브 <input type="month"> (min/max 로 범위만 제한, 연도 오선택 불가).
+        const moveMin = earliestStart || ym;
+        const moveMax = moveMonthCap;
+        const canMove = !!earliestStart && (moveMin !== moveMax || moveMin !== ym);
+        const suggestedMoveYm = (() => {
+            const curYm = dayjs().format('YYYY-MM');
+            if (curYm !== ym && curYm >= moveMin && curYm <= moveMax) return curYm;
+            return moveMax !== ym ? moveMax : moveMin;
+        })();
 
         // 이 달 차감 인정액 = 대상 진료 건들의 월 차감액 합 (완납된 건 제외)
         let monthSum = 0;
@@ -717,11 +718,10 @@ async function openCellPopover(pane, empId, ym) {
                 ${existingCnt > 0 ? `
                 <div class="mb-4 border-t pt-3">
                     <div class="text-xs font-semibold mb-2 text-gray-600">⚙️ 이 달 이행 기록 관리 (${existingCnt}건 저장됨)</div>
-                    ${moveMonthOptions.length ? `
+                    ${canMove ? `
                     <div class="flex items-center gap-2 mb-2">
-                        <select id="wf-pop-move-ym" class="flex-1 border p-1.5 rounded text-xs">
-                            ${moveMonthOptions.map(m => `<option value="${m}">${m} 로 이동</option>`).join('')}
-                        </select>
+                        <input type="month" id="wf-pop-move-ym" class="flex-1 border p-1.5 rounded text-xs"
+                               value="${suggestedMoveYm}" min="${moveMin}" max="${moveMax}">
                         <button id="wf-pop-move" class="px-2 py-1.5 bg-gray-200 rounded text-xs whitespace-nowrap">월 이동</button>
                     </div>` : ''}
                     <button id="wf-pop-delete" class="w-full px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded text-xs hover:bg-red-100">🗑 이 달 이행 기록 삭제</button>
@@ -793,7 +793,9 @@ async function openCellPopover(pane, empId, ym) {
 
         modal.querySelector('#wf-pop-move')?.addEventListener('click', async () => {
             const toYm = modal.querySelector('#wf-pop-move-ym').value;
-            if (!toYm || !confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 ${toYm} 로 이동할까요?`)) return;
+            if (!toYm || toYm === ym) { alert('현재와 다른 달을 선택하세요.'); return; }
+            if (toYm < moveMin || toYm > moveMax) { alert(`이동 가능 범위(${moveMin} ~ ${moveMax}) 밖입니다.`); return; }
+            if (!confirm(`${g.name} · ${ym} 이행 기록(${existingCnt}건)을 ${toYm} 로 이동할까요?`)) return;
             const btn = modal.querySelector('#wf-pop-move');
             btn.disabled = true; btn.textContent = '이동 중…';
             const skipped = [];

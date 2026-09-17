@@ -4,12 +4,13 @@
 // 사진은 docs 버킷(비공개) → 표시는 signed URL. 이행체크 첨부와 동일 패턴.
 // 삭제는 소프트 삭제(deleted_at) — 직원이 올린 원본 데이터라 실수 삭제도 복원 가능해야 한다.
 // 관리자가 휴지통에서 확인 후 "영구 삭제"해야만 완전히 사라진다 (purgeWelfarePost).
-import { state, db, isTestEmployee } from './state.js?v=20260904a';
+import { state, db, isTestEmployee } from './state.js?v=20260917a';
 import {
     loadWelfarePosts, loadDeletedWelfarePosts, createWelfarePost, updateWelfarePost,
     deleteWelfarePost, restoreWelfarePost, purgeWelfarePost,
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
-} from './welfare.js?v=20260904a';
+    loadFulfillmentForRecords, loadAllPendingFulfillment, upsertFulfillment,
+} from './welfare.js?v=20260917a';
 
 // 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.
@@ -362,6 +363,30 @@ function adminShowsTest() {
     return state.userRole === 'admin' ? state.showTestEmployeesAdmin : state.showTestEmployees;
 }
 
+// 이행월 배정 — 그 직원의 활성 진료 건 중 대상 월까지 이미 시작된 것만 (이행체크 탭과 동일 규칙).
+function eligibleActiveRecords(employeeId, ym) {
+    return (state.welfare?.records || [])
+        .filter(r => r.status === 'Active' && r.employee_id === employeeId)
+        .filter(r => dayjs(r.start_date).startOf('month').format('YYYY-MM') <= ym);
+}
+
+// 이행월 배정 배지 — committed/pending 맵(모든 달 포함)에서 특정 월만 골라 상태 판정.
+function fulfillStatusFor(employeeId, ym, committed, pending) {
+    const elig = eligibleActiveRecords(employeeId, ym);
+    if (!elig.length) return { cls: 'bg-gray-100 text-gray-400', label: '대상 진료 없음 (시작 전)' };
+    let doneCnt = 0, pendCnt = 0;
+    elig.forEach(r => {
+        const p = pending[`${r.id}_${ym}`], c = committed[`${r.id}_${ym}`];
+        if (p) pendCnt++;
+        const src = p ? p.payload : c;
+        if (src && (src.fulfilled === true || src.fulfilled === 'true')) doneCnt++;
+    });
+    if (pendCnt > 0) return { cls: 'bg-yellow-200 text-yellow-800', label: '승인 대기' };
+    if (doneCnt === elig.length) return { cls: 'bg-green-500 text-white', label: '이행 인정됨' };
+    if (doneCnt > 0) return { cls: 'bg-green-100 text-green-700', label: `일부 인정 (${doneCnt}/${elig.length})` };
+    return { cls: 'bg-white text-gray-400 border', label: '미인정' };
+}
+
 export async function renderBoardAdminSection(pane) {
     if (!pane) return;
     state.welfareBoard ??= { ym: '', empId: '', view: 'active' };
@@ -437,7 +462,22 @@ export async function renderBoardAdminSection(pane) {
         const urlMap = await signedUrlMap(filtered.flatMap(p => p.photos || []));
         const canDelete = state.userRole === 'admin';
 
-        listHost.innerHTML = `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${filtered.map(p => `
+        // 이행월 배정 — 대상 진료 건들의 전체 달 committed/pending 을 한 번에 불러와 카드별로 조회.
+        // (year_month 필터 없이 전부 불러오므로, 관리자가 배정 월을 바꿔도 재조회 없이 즉시 배지 갱신 가능)
+        let fulfillCommitted = {}, fulfillPending = {};
+        if (!isTrash) {
+            const recordIds = (state.welfare?.records || []).filter(r => r.status === 'Active').map(r => r.id);
+            if (recordIds.length) {
+                [fulfillCommitted, fulfillPending] = await Promise.all([
+                    loadFulfillmentForRecords(recordIds),
+                    loadAllPendingFulfillment(),
+                ]);
+            }
+        }
+
+        listHost.innerHTML = `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${filtered.map(p => {
+            const st = isTrash ? null : fulfillStatusFor(p.employee_id, p.year_month, fulfillCommitted, fulfillPending);
+            return `
             <div class="border rounded p-3 bg-white ${isTrash ? 'opacity-75' : ''}">
                 <div class="flex items-start justify-between gap-2 mb-1">
                     <div class="flex items-center gap-1 flex-wrap">
@@ -458,7 +498,15 @@ export async function renderBoardAdminSection(pane) {
                 ${p.body ? `<div class="text-sm text-gray-700" style="white-space:pre-wrap">${esc(p.body)}</div>` : ''}
                 ${p.link_url ? `<a href="${esc(p.link_url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 underline break-all">${esc(p.link_url)}</a>` : ''}
                 ${photoGridHTML(p.photos, urlMap)}
-            </div>`).join('')}</div>`;
+                ${!isTrash ? `
+                <div class="mt-2 pt-2 border-t flex items-center gap-2 flex-wrap wba-assign" data-post="${p.id}" data-emp="${p.employee_id}">
+                    <span class="text-xs text-gray-500">이행월 배정</span>
+                    <input type="month" class="wba-assign-ym border p-1 rounded text-xs" value="${p.year_month}">
+                    <button class="wba-assign-btn px-2 py-1 bg-blue-600 text-white rounded text-xs">이 달 이행 인정</button>
+                    <span class="wba-assign-status px-2 py-0.5 rounded text-xs ${st.cls}">${st.label}</span>
+                </div>` : ''}
+            </div>`;
+        }).join('')}</div>`;
 
         bindPhotoOpen(listHost);
         listHost.querySelectorAll('.wba-del').forEach(b => {
@@ -481,6 +529,47 @@ export async function renderBoardAdminSection(pane) {
                 catch (e) { alert('영구 삭제 실패: ' + e.message); }
             };
         });
+
+        // 이행월 배정 — 기본값은 글의 작성월(year_month). 관리자/매니저가 다른 달로 바꿔 배정 가능.
+        if (!isTrash) {
+            listHost.querySelectorAll('.wba-assign-ym').forEach(inp => {
+                inp.addEventListener('change', () => {
+                    const wrap = inp.closest('.wba-assign');
+                    const empId = Number(wrap.dataset.emp);
+                    const badge = wrap.querySelector('.wba-assign-status');
+                    const st = fulfillStatusFor(empId, inp.value, fulfillCommitted, fulfillPending);
+                    badge.className = `wba-assign-status px-2 py-0.5 rounded text-xs ${st.cls}`;
+                    badge.textContent = st.label;
+                });
+            });
+            listHost.querySelectorAll('.wba-assign-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    const wrap = btn.closest('.wba-assign');
+                    const empId = Number(wrap.dataset.emp);
+                    const postId = Number(wrap.dataset.post);
+                    const ym = wrap.querySelector('.wba-assign-ym').value;
+                    if (!ym) { alert('배정할 월을 선택하세요.'); return; }
+                    const elig = eligibleActiveRecords(empId, ym);
+                    if (!elig.length) { alert(`${monthLabel(ym)} 에는 아직 시작되지 않은 진료라 대상 진료 기록이 없습니다.`); return; }
+                    const post = filtered.find(x => x.id === postId);
+                    btn.disabled = true; btn.textContent = '저장 중…';
+                    try {
+                        let staged = false;
+                        for (const r of elig) {
+                            const res = await upsertFulfillment(r.id, ym, true, `미션 게시판: ${post?.title || ''}`, []);
+                            staged = staged || res.staged;
+                        }
+                        if (typeof window.showToast === 'function') {
+                            window.showToast(staged ? '임시저장됨 — 관리자 승인 후 반영' : `${monthLabel(ym)} 이행 인정 저장됨`);
+                        }
+                        await load();
+                    } catch (e) {
+                        alert('이행 인정 저장 실패: ' + e.message);
+                        btn.disabled = false; btn.textContent = '이 달 이행 인정';
+                    }
+                };
+            });
+        }
     }
 
     $('#wba-tab-active').addEventListener('click', () => { f.view = 'active'; f.empId = ''; renderBoardAdminSection(pane); });
