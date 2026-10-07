@@ -4,13 +4,13 @@
 // 사진은 docs 버킷(비공개) → 표시는 signed URL. 이행체크 첨부와 동일 패턴.
 // 삭제는 소프트 삭제(deleted_at) — 직원이 올린 원본 데이터라 실수 삭제도 복원 가능해야 한다.
 // 관리자가 휴지통에서 확인 후 "영구 삭제"해야만 완전히 사라진다 (purgeWelfarePost).
-import { state, db, isTestEmployee } from './state.js?v=20260917a';
+import { state, db, isTestEmployee } from './state.js?v=20261007a';
 import {
     loadWelfarePosts, loadDeletedWelfarePosts, createWelfarePost, updateWelfarePost,
     deleteWelfarePost, restoreWelfarePost, purgeWelfarePost,
     uploadPostPhoto, removeDocsFile, compressImage, currentYearMonth,
     loadFulfillmentForRecords, loadAllPendingFulfillment, upsertFulfillment,
-} from './welfare.js?v=20260917a';
+} from './welfare.js?v=20261007a';
 
 // 작성 가능한 월 목록 — 지난 11개월 ~ 다음 달 (8월에 7월분·9월분 모두 입력 가능).
 // 기본 선택은 항상 이번 달.

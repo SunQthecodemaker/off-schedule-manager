@@ -1,8 +1,8 @@
-import { state, db, isVisibleIn } from './state.js?v=20260917a';
+import { state, db, isVisibleIn } from './state.js?v=20261007a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20260917a';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20260917a';
-import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20260917a';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20261007a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20261007a';
+import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20261007a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -4153,8 +4153,9 @@ function openRegularHolidayModal(employeeId, employeeName) {
         `;
     }).join('');
 
-    const workDays = employee.weekly_work_days || 5;
-    const workDaysOptions = [3,4,5,6].map(n =>
+    const workDays = Number(employee.weekly_work_days) || 5;
+    // 0.5일 단위 (예: 토요일 반일 근무 = 주 4.5일)
+    const workDaysOptions = [3,3.5,4,4.5,5,5.5,6].map(n =>
         `<option value="${n}" ${n === workDays ? 'selected' : ''}>${n}일</option>`
     ).join('');
 
@@ -4233,7 +4234,7 @@ window.handleSaveRegularHoliday = async function (employeeId) {
     selectedRules.sort((a, b) => a.day - b.day);
 
     const workDaysInput = document.getElementById('modal-work-days');
-    const weeklyWorkDays = workDaysInput ? parseInt(workDaysInput.value) : 5;
+    const weeklyWorkDays = workDaysInput ? parseFloat(workDaysInput.value) : 5;
 
     // ── 효력일 타임라인 갱신 ──────────────────────────────────────────────
     // 적용 시작일(effectiveFrom)부터 새 규칙 적용, 그 이전 날짜는 옛 규칙 보존.

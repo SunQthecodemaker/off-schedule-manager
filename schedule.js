@@ -1,12 +1,12 @@
-import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20260917a';
+import { state, db, isVisibleIn, getEmployeeStatus, isAlbaEmployee, isTestEmployee, sortByDeptOrder } from './state.js?v=20261007a';
 import { _, _all, show, hide } from './utils.js';
 // AppSheet 연동 기능 복구
 // 버전 고정: @latest 는 향후 빌드 변경(swap 자동 마운트 제거 등) 위험 → 1.15.7 고정.
 // 1.15.7 complete 빌드는 모듈 로드 시 Swap·MultiDrag 플러그인을 자동 마운트함 (swap:true 동작).
 import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/modular/sortable.complete.esm.js';
-import { registerManualLeave } from './management.js?v=20260917a';
-import { getKoreanHolidaysOfMonth, hasHolidayData, findKoreanHoliday } from './holidays-kr.js?v=20260917a';
-import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js?v=20260917a';
+import { registerManualLeave } from './management.js?v=20261007a';
+import { getKoreanHolidaysOfMonth, hasHolidayData, findKoreanHoliday } from './holidays-kr.js?v=20261007a';
+import { syncToAppSheet, importFromAppSheet, getScriptUrl, setScriptUrl } from './appsheet-client.js?v=20261007a';
 
 let unsavedChanges = new Map();
 let unsavedHolidayChanges = { toAdd: new Set(), toRemove: new Set() };
@@ -5409,10 +5409,11 @@ function getWeeklyAuditCellHTML(weekStart, weekEnd, currentMonth) {
             expected = allDates.filter(d => !isFixedOffDay(rules, dayjs(d).day(), d)).length;
         } else if (isPartTime) {
             // 파트타임: 근무일 공휴일은 연차(유급) 처리 → 분모(주 근무일수) 유지.
-            expected = weeklyWorkDays;
+            // 0.5일(반일 근무)도 그리드엔 출근 1일로 찍히므로 올림 (주 4.5일 → 5일 출근).
+            expected = Math.ceil(weeklyWorkDays);
         } else {
             // 일반 주5일: 공휴일 1일은 원래 주중 휴일처럼 흡수(유지), 2일째부터 근무일수 감소.
-            expected = weeklyWorkDays - Math.max(0, weekHolidayCount - 1);
+            expected = Math.ceil(weeklyWorkDays) - Math.max(0, weekHolidayCount - 1);
         }
         // 분자 보전 — 부족분을 근무일에 걸린 공휴일(연차/대체)로 채움
         const shortfall = Math.max(0, expected - credit);

@@ -1,4 +1,4 @@
-import { db, state } from './state.js?v=20260917a';
+import { db, state } from './state.js?v=20261007a';
 import { _ } from './utils.js';
 
 // LocalStorage Key
