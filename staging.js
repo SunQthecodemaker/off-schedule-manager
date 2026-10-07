@@ -5,8 +5,8 @@
 // 수정·생성·삭제하면 즉시 DB 반영 대신 pending_changes 테이블에 임시저장된다.
 // 관리자가 [전체 승인] 또는 [개별 승인] 누르면 applyChange 가 실제 테이블에 반영.
 // =========================================================================================
-import { state, db } from './state.js?v=20261007a';
-import { dataUrlToBlob } from './welfare.js?v=20261007a';
+import { state, db } from './state.js?v=20261007b';
+import { dataUrlToBlob } from './welfare.js?v=20261007b';
 
 // ---------- 매니저 측: 임시저장 ----------
 
@@ -352,7 +352,12 @@ async function applyLeaveRequest(action, id, payload) {
         return error ? { ok: false, error: error.message } : { ok: true };
     }
     if (action === 'delete') {
-        const { error } = await db.from('leave_requests').delete().eq('id', id);
+        // 공휴일 자동 연차는 지우면 원장 화면 로드 때 다시 생긴다 → '취소됨'으로 남겨 재생성 차단.
+        const { data: row } = await db.from('leave_requests').select('reason').eq('id', id).maybeSingle();
+        const isAuto = (row?.reason || '').includes('[자동] 공휴일 유급 연차');
+        const { error } = isAuto
+            ? await db.from('leave_requests').update({ status: 'cancelled' }).eq('id', id)
+            : await db.from('leave_requests').delete().eq('id', id);
         return error ? { ok: false, error: error.message } : { ok: true };
     }
     return { ok: false, error: 'unknown action' };

@@ -1,8 +1,8 @@
-import { state, db, isVisibleIn } from './state.js?v=20261007a';
+import { state, db, isVisibleIn } from './state.js?v=20261007b';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20261007a';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20261007a';
-import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20261007a';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20261007b';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20261007b';
+import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20261007b';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -3655,7 +3655,12 @@ async function handleLeaveBoxClick(e) {
         }
         if (confirm(`정말 삭제하시겠습니까?\n\n${empName} - ${dateStr}`)) {
             try {
-                const { error } = await db.from('leave_requests').delete().eq('id', requestId);
+                // 공휴일 자동 연차는 지우면 다음 로드 때 reconcileHolidayLeaves 가 다시 만든다
+                // → '취소됨'으로 남겨 재생성을 막는다 (cancelled 는 사용량·목록에서 제외됨).
+                const isAuto = (request.reason || '').includes(AUTO_HOLIDAY_LEAVE_TAG);
+                const { error } = isAuto
+                    ? await db.from('leave_requests').update({ status: 'cancelled' }).eq('id', requestId)
+                    : await db.from('leave_requests').delete().eq('id', requestId);
                 if (error) throw error;
                 alert('삭제되었습니다.');
                 await window.loadAndRenderManagement();
