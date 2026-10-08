@@ -1,8 +1,8 @@
-import { state, db, isVisibleIn } from './state.js?v=20261007b';
+import { state, db, isVisibleIn } from './state.js?v=20261008a';
 import { _, _all, show, hide } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20261007b';
-import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20261007b';
-import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20261007b';
+import { getLeaveDetails, isLeaveInPeriod, getPartTimeHolidayLeaveDates } from './leave-utils.js?v=20261008a';
+import { stageChange, isStagingMode, shouldStage, notifyStaged, approvePendingChange, rejectPendingChange } from './staging.js?v=20261008a';
+import { DEFAULT_MANAGER_PERMS } from './employee-portal-final.js?v=20261008a';
 
 // =========================================================================================
 // 전역 이벤트 핸들러 할당
@@ -1128,7 +1128,7 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
                     <span class="ml-2">최종:</span> <span class="${finalColor} font-semibold">${finalText}</span>
                 </div>
             </td>
-            <td class="py-1 px-2 text-center">${actions}</td>
+            <td class="py-1 px-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
     };
 
@@ -1151,7 +1151,7 @@ export function buildLeaveMonthSectionsHTML(currentMonth, readOnly = false) {
                                 <th class="py-1 px-2 text-left text-xs font-semibold">신청날짜</th>
                                 <th class="py-1 px-2 text-center text-xs font-semibold w-12">일수</th>
                                 <th class="py-1 px-2 text-center text-xs font-semibold w-40">결재현황</th>
-                                <th class="py-1 px-2 text-center text-xs font-semibold w-28">처리</th>
+                                <th class="py-1 px-2 text-center text-xs font-semibold w-36">처리</th>
                             </tr>
                         </thead>
                         <tbody>${entries.map(buildRow).join('')}</tbody>
@@ -1568,7 +1568,7 @@ function getLeaveLateDocSettingHTML() {
 
     return `
         <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2">
-            <label class="font-semibold">임박 신청 시 요구 서류:</label>
+            <label class="font-semibold">외부 서류 기본 이름:</label>
             <select id="leave-late-doc-type" class="border rounded px-2 py-1">
                 ${options || '<option value="">-- 등록된 서식 없음 --</option>'}
             </select>
@@ -1597,7 +1597,7 @@ window.saveLeaveLateDocType = async function () {
         if (!verify || verify.value !== docType) throw new Error('저장 검증 실패');
 
         state.leaveLateDocType = docType;
-        alert(`임박 신청 시 요구 서류가 "${docType}" 로 저장되었습니다.`);
+        alert(`외부 서류 기본 이름이 "${docType}" 로 저장되었습니다.`);
     } catch (err) {
         console.error('leave_late_document_type 저장 실패:', err);
         state.leaveLateDocType = prev;

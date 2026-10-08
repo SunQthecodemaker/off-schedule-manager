@@ -23,7 +23,7 @@
         };
     </script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
-    <link rel="stylesheet" href="style.css?v=20261007b" />
+    <link rel="stylesheet" href="style.css?v=20261008a" />
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
@@ -136,6 +136,24 @@
                     <div>
                         <label for="form-reason" class="font-semibold">사유 (선택)</label>
                         <textarea id="form-reason" rows="3" class="w-full mt-1 p-2 border rounded"></textarea>
+                    </div>
+
+                    <!-- 신청기간 경과(임박) 신청 — 제출할 서류 종류 선택 (상황마다 다름) -->
+                    <div id="late-doc-section" class="hidden bg-amber-50 border border-amber-200 rounded p-3 text-sm space-y-2">
+                        <div class="font-bold text-amber-800">📄 신청기간(<span id="late-doc-days"></span>일 전)이 지나 서류 제출이 필요합니다</div>
+                        <div class="text-xs text-amber-700">어떤 서류를 낼지 선택해주세요.</div>
+                        <label class="flex items-start gap-2 cursor-pointer">
+                            <input type="radio" name="late-doc-kind" value="reason" class="mt-1">
+                            <span><b>사유서</b> — 늦게 신청한 사유를 직접 작성해서 제출</span>
+                        </label>
+                        <label class="flex items-start gap-2 cursor-pointer">
+                            <input type="radio" name="late-doc-kind" value="external" class="mt-1">
+                            <span><b>외부 서류 첨부</b> — 내원 확인서·진단서 등 받은 서류를 사진/PDF로 첨부</span>
+                        </label>
+                        <div id="late-doc-external-wrap" class="hidden pl-6">
+                            <label for="late-doc-name" class="text-xs text-gray-600">서류 이름</label>
+                            <input type="text" id="late-doc-name" class="w-full mt-1 p-1.5 border rounded text-sm" placeholder="예: 내원 확인서">
+                        </div>
                     </div>
 
                     <!-- 당겨쓰기 동의 섹션 (숨김 처리) -->
@@ -299,9 +317,9 @@
         }
     </style>
 
-    <script type="module" src="main.v2.js?v=20261007b"></script>
+    <script type="module" src="main.v2.js?v=20261008a"></script>
     <script type="module">
-        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20261007b';
+        import { closeLeaveFormModal, handleSubmitLeaveRequest } from './employee-portal-final.js?v=20261008a';
 
         document.addEventListener('DOMContentLoaded', () => {
             // 연차 신청 모달 관련

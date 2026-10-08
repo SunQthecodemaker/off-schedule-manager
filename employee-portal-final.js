@@ -1,12 +1,12 @@
-import { state, db } from './state.js?v=20261007b';
+import { state, db } from './state.js?v=20261008a';
 import { _, show, hide, resizeGivenCanvas } from './utils.js';
-import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20261007b';
-import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20261007b';
-import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20261007b';
-import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20261007b';
-import { renderMyWelfareSection } from './employee-welfare.js?v=20261007b';
-import { renderMyBoardSection } from './welfare-board.js?v=20261007b';
-import { renderMyOvertimeSection } from './overtime.js?v=20261007b';
+import { getLeaveDetails, isLeaveInPeriod } from './leave-utils.js?v=20261008a';
+import { renderScheduleManagement, computeDayGridSlots, hydrateScheduleRow } from './schedule.js?v=20261008a';
+import { getLeaveListHTML, getLeaveStatusHTML, getManagementHTML, getDepartmentManagementHTML, getLeaveManagementHTML, addLeaveStatusEventListeners } from './management.js?v=20261008a';
+import { renderDocumentReviewTab, renderTemplatesManagement } from './documents.js?v=20261008a';
+import { renderMyWelfareSection } from './employee-welfare.js?v=20261008a';
+import { renderMyBoardSection } from './welfare-board.js?v=20261008a';
+import { renderMyOvertimeSection } from './overtime.js?v=20261008a';
 
 // =========================================================================================
 // 매니저 권한 시스템 (employees.manager_permissions jsonb)
@@ -1885,6 +1885,7 @@ function openLeaveFormModal(dates) {
 
     state.employee.selectedDates = dates;
     show('#leave-form-modal');
+    refreshLateDocSection(dates, !!extForForm);
 
     // 모달이 보인 후 canvas 초기화 (크기 정확히 잡기 위해 requestAnimationFrame 사용)
     requestAnimationFrame(() => {
@@ -1906,6 +1907,46 @@ function openLeaveFormModal(dates) {
 }
 
 window.openLeaveFormModal = openLeaveFormModal;
+
+// 신청 마감일수 + 기본 외부 서류명 (admin 설정). 신청서 화면과 제출 로직이 같은 값을 쓴다.
+async function loadLateDocSettings() {
+    let noticeDays = 7;
+    let lateDocType = '내원 확인서';
+    try {
+        const [{ data: nd }, { data: ld }] = await Promise.all([
+            db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle(),
+            db.from('app_settings').select('value').eq('key', 'leave_late_document_type').maybeSingle()
+        ]);
+        if (nd && nd.value != null && !isNaN(Number(nd.value))) noticeDays = Number(nd.value);
+        if (ld && typeof ld.value === 'string' && ld.value.trim()) lateDocType = ld.value.trim();
+    } catch (_) { /* 설정 조회 실패 시 기본값(7일 / 내원 확인서) 유지 */ }
+    return { noticeDays, lateDocType };
+}
+
+// 임박 신청이면 신청서 안에 "어떤 서류를 낼지" 선택란을 띄운다.
+// 사유서(직접 작성) / 외부 서류 첨부(내원 확인서 등) — 상황마다 달라서 직원이 고른다.
+// 연장은 원 건의 서류를 그대로 쓰므로 선택란을 띄우지 않는다.
+async function refreshLateDocSection(dates, isExtension) {
+    const section = _('#late-doc-section');
+    if (!section) return;
+    section.classList.add('hidden');
+    section.querySelectorAll('input[name="late-doc-kind"]').forEach(r => { r.checked = false; });
+    const extWrap = _('#late-doc-external-wrap');
+    if (extWrap) extWrap.classList.add('hidden');
+    if (isExtension) return;
+
+    const { noticeDays, lateDocType } = await loadLateDocSettings();
+    const cutoff = dayjs().add(noticeDays, 'day').format('YYYY-MM-DD');
+    if (!dates.some(d => d < cutoff)) return;
+
+    _('#late-doc-days').textContent = noticeDays;
+    const nameInput = _('#late-doc-name');
+    if (nameInput) nameInput.value = lateDocType;
+    section.querySelectorAll('input[name="late-doc-kind"]').forEach(r => {
+        r.onchange = () => { if (extWrap) extWrap.classList.toggle('hidden', r.value !== 'external'); };
+    });
+    section.classList.remove('hidden');
+}
 
 export function closeLeaveFormModal() {
     hide('#leave-form-modal');
@@ -1988,18 +2029,7 @@ export async function handleSubmitLeaveRequest() {
 
     // 연차 신청 마감일수 — 연차일 기준 N일 전까지 신청. 그보다 임박(과거 포함)하면 증빙 서류 필요.
     // admin 설정값(app_settings.leave_notice_days), 기본 7일.
-    let noticeDays = 7;
-    // 임박 신청 시 요구할 증빙 서류 서식명 (app_settings.leave_late_document_type, 기본 '내원 확인서').
-    // 옛 하드코딩 'ㅅ사유서'는 document_templates 의 어떤 서식과도 안 맞아 첨부가 '선택'으로 떨어졌다 — 서식명으로 맞춰 건다.
-    let lateDocType = '내원 확인서';
-    try {
-        const [{ data: nd }, { data: ld }] = await Promise.all([
-            db.from('app_settings').select('value').eq('key', 'leave_notice_days').maybeSingle(),
-            db.from('app_settings').select('value').eq('key', 'leave_late_document_type').maybeSingle()
-        ]);
-        if (nd && nd.value != null && !isNaN(Number(nd.value))) noticeDays = Number(nd.value);
-        if (ld && typeof ld.value === 'string' && ld.value.trim()) lateDocType = ld.value.trim();
-    } catch (_) { /* 설정 조회 실패 시 기본값(7일 / 내원 확인서) 유지 */ }
+    const { noticeDays, lateDocType } = await loadLateDocSettings();
 
     const cutoff = dayjs().add(noticeDays, 'day').format('YYYY-MM-DD');
     const lateDates = dates.filter(d => d < cutoff);   // 임박(과거 포함) — 증빙 서류 필요
@@ -2011,6 +2041,27 @@ export async function handleSubmitLeaveRequest() {
     if (!ext && hasLateDates && normalDates.length > 0) {
         alert(`⚠️ 신청기간(${noticeDays}일)이 임박한 날짜와 여유 있는 날짜를 동시에 신청할 수 없습니다.\n\n각각 따로 신청해주세요.`);
         return;
+    }
+
+    // 임박 신청 서류 종류 — 직원이 신청서에서 고른다.
+    //   사유서: 직접 작성(첨부 불요) / 외부 서류: 내원 확인서·진단서 등 파일 첨부 필수
+    let lateDocName = lateDocType;
+    let lateDocNeedsFile = true;
+    if (!ext && hasLateDates) {
+        const kind = document.querySelector('input[name="late-doc-kind"]:checked')?.value;
+        if (!kind) {
+            alert(`📄 신청기간(${noticeDays}일 전)이 지난 날짜가 있어 서류 제출이 필요합니다.
+
+신청서에서 제출할 서류(사유서 / 외부 서류 첨부)를 선택해주세요.`);
+            refreshLateDocSection(dates, false);
+            return;
+        }
+        if (kind === 'reason') {
+            lateDocName = '사유서';
+            lateDocNeedsFile = false;
+        } else {
+            lateDocName = (_('#late-doc-name')?.value || '').trim() || lateDocType;
+        }
     }
 
     // 당겨쓰기 동의 체크 확인
@@ -2086,17 +2137,29 @@ export async function handleSubmitLeaveRequest() {
             await db.from('document_requests').insert({
                 employee_id: state.currentUser.id,
                 document_name: state.currentUser.name,
-                type: lateDocType,
-                message: `${lateDateStr} 연차 신청기간(${noticeDays}일) 경과 — ${lateDocType} 제출 요청`,
-                note: `${lateDateStr} ${lateDocType}`,
+                type: lateDocName,
+                message: `${lateDateStr} 연차 신청기간(${noticeDays}일) 경과 — ${lateDocName} 제출 요청`,
+                note: `${lateDateStr} ${lateDocName}`,
                 status: 'pending',
-                // 사유 텍스트만으로는 제출이 안 되게 요청 단위로 첨부를 강제한다 (서식 설정과 무관).
-                requires_attachment: true,
+                // 외부 서류를 고르면 요청 단위로 첨부를 강제한다 (서식 설정과 무관). 사유서는 작성만.
+                requires_attachment: lateDocNeedsFile,
                 // 어느 연차 건에서 나온 요청인지 — 나중에 기간 연장 판정의 근거가 된다.
                 leave_request_id: insertedRows?.[0]?.id || null,
                 created_at: new Date().toISOString()
             });
-            alert(`연차 신청이 완료되었습니다.\n\n⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어\n"${lateDocType}" 제출이 필요합니다.\n\n"서류 제출" 탭에서 ${lateDocType} 파일을 첨부해 제출해주세요.\n(사유 내용만으로는 제출되지 않으며, 원장 승인 전까지 추가 연차 신청이 제한됩니다.)\n\n※ 몸이 낫지 않아 며칠 더 쉬게 되면 새로 신청하지 마시고 "내 연차 신청 내역"의 [기간 연장]을 이용하세요.`);
+            const howTo = lateDocNeedsFile
+                ? `"서류 제출" 탭에서 ${lateDocName} 파일(사진/PDF)을 첨부해 제출해주세요.
+(사유 내용만으로는 제출되지 않으며, 원장 승인 전까지 추가 연차 신청이 제한됩니다.)`
+                : `"서류 제출" 탭에서 사유서를 작성해 제출해주세요.
+(원장 승인 전까지 추가 연차 신청이 제한됩니다.)`;
+            alert(`연차 신청이 완료되었습니다.
+
+⚠️ 신청기간(${noticeDays}일 전)이 지난 날짜(${lateDateStr})가 포함되어 있어
+"${lateDocName}" 제출이 필요합니다.
+
+${howTo}
+
+※ 몸이 낫지 않아 며칠 더 쉬게 되면 새로 신청하지 마시고 "내 연차 신청 내역"의 [기간 연장]을 이용하세요.`);
         } else {
             alert('연차 신청이 완료되었습니다.');
         }
